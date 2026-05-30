@@ -184,4 +184,16 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-This is a greenfield project. No code exists yet. The architecture and project structure should be established first, before any feature implementation begins.
+**As of 2026-05-30:** Project scaffold is complete and committed (git initialized; first commit `387d999`). Feature implementation has not started — all view/controller/loader modules are skeletons (class + docstring + commented "to be implemented" contract).
+
+### Decisions made
+- **Qt binding:** PyQt6 (LGPL-friendly path; PyQtGraph supports it).
+- **`ActiveSignal` location:** `src/mdf_viewer/view_model/` (not `model/`), to keep the data layer free of Qt/PyQtGraph imports. Layer rules are documented in `docs/architecture.md`.
+- **Build:** `pyproject.toml` (src-layout, entry point `mdf-viewer`) + `requirements.txt` / `requirements-dev.txt`.
+
+### Environment
+- `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
+- Activate with `.venv\Scripts\activate`, then `pytest` (2 passing) and `python -m mdf_viewer` both work.
+
+### Next step
+Implement `model/mdf_loader.py` (`MdfLoader`) first — the Signal Browser, info boxes, and plotting all depend on loaded data.
