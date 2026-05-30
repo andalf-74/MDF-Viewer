@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mdf-viewer"
+version = "0.1.0"
+description = "Desktop viewer for ASAM MDF (MDF3/MDF4) measurement data files."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [{ name = "Andreas Maus", email = "andreas.maus.74@gmail.com" }]
+dependencies = [
+    "PyQt6>=6.6",
+    "pyqtgraph>=0.13",
+    "asammdf>=7.4",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-qt>=4.4",
+    "ruff>=0.6",
+]
+
+[project.gui-scripts]
+mdf-viewer = "mdf_viewer.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
