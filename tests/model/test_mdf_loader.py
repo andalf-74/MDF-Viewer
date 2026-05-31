@@ -287,3 +287,64 @@ def test_load_signal_integer_dtype_sets_is_integer(loader: MdfLoader) -> None:
 def test_load_signal_invalid_index_raises(loader: MdfLoader) -> None:
     with pytest.raises(MdfLoadError):
         loader.load_signal(999, 0)
+
+
+def _mock_signal(samples, timestamps=None, name="ch", unit="", comment=""):
+    """Build a minimal MagicMock that looks like an asammdf Signal."""
+    from unittest.mock import MagicMock
+    sig = MagicMock()
+    sig.samples = samples
+    sig.timestamps = timestamps if timestamps is not None else np.linspace(0, 1, len(samples))
+    sig.name = name
+    sig.unit = unit
+    sig.comment = comment
+    return sig
+
+
+def _loader_with_mock_mdf(string_sig, raw_sig=None):
+    """Return a MdfLoader whose _mdf.get() returns string_sig first, raw_sig second."""
+    from unittest.mock import MagicMock
+    ldr = MdfLoader()
+    ldr._mdf = MagicMock()
+    ldr._mdf.groups = [MagicMock()]
+    ldr._mdf.groups[0].channels = [MagicMock()]
+    ldr._mdf.groups[0].channels[0].name = string_sig.name
+    if raw_sig is not None:
+        ldr._mdf.get.side_effect = [string_sig, raw_sig]
+    else:
+        ldr._mdf.get.return_value = string_sig
+    return ldr
+
+
+def test_load_signal_string_samples_falls_back_to_raw() -> None:
+    t = np.array([0.0, 0.5, 1.0])
+    raw_samples = np.array([0, 1, 0], dtype=np.uint8)
+    string_sig = _mock_signal(np.array([b"Off", b"On", b"Off"]), t)
+    raw_sig = _mock_signal(raw_samples, t)
+    ldr = _loader_with_mock_mdf(string_sig, raw_sig)
+
+    data, meta = ldr.load_signal(0, 0)
+
+    assert np.array_equal(data.samples, raw_samples.astype(np.float64))
+    assert meta.is_integer is True
+
+
+def test_load_signal_raw_fallback_calls_get_with_raw_true() -> None:
+    t = np.array([0.0, 0.5])
+    raw_sig = _mock_signal(np.array([0, 1], dtype=np.uint8), t)
+    string_sig = _mock_signal(np.array([b"Off", b"On"]), t)
+    ldr = _loader_with_mock_mdf(string_sig, raw_sig)
+
+    ldr.load_signal(0, 0)
+
+    _, kwargs = ldr._mdf.get.call_args
+    assert kwargs.get("raw") is True
+
+
+def test_load_signal_non_numeric_even_with_raw_raises() -> None:
+    t = np.array([0.0, 0.5])
+    string_sig = _mock_signal(np.array([b"Off", b"On"]), t)
+    ldr = _loader_with_mock_mdf(string_sig, string_sig)
+
+    with pytest.raises(MdfLoadError, match="cannot be converted"):
+        ldr.load_signal(0, 0)

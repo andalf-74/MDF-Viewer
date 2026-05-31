@@ -211,11 +211,20 @@ class MdfLoader:
             raw_dtype = np.asarray(sig.samples).dtype
             timestamps = np.asarray(sig.timestamps, dtype=np.float64)
             samples = np.asarray(sig.samples, dtype=np.float64)
-        except (ValueError, TypeError) as exc:
-            raise MdfLoadError(
-                f"Channel '{channel_name}' samples cannot be converted to "
-                f"numeric values: {exc}"
-            ) from exc
+        except (ValueError, TypeError):
+            # Samples are strings/enums — retry with raw (unconverted) values.
+            try:
+                sig = mdf.get(
+                    channel_name, group=group_index, index=channel_index, raw=True
+                )
+                raw_dtype = np.asarray(sig.samples).dtype
+                timestamps = np.asarray(sig.timestamps, dtype=np.float64)
+                samples = np.asarray(sig.samples, dtype=np.float64)
+            except (ValueError, TypeError) as exc:
+                raise MdfLoadError(
+                    f"Channel '{channel_name}' samples cannot be converted to "
+                    f"numeric values: {exc}"
+                ) from exc
 
         data = SignalData(timestamps=timestamps, samples=samples)
 
