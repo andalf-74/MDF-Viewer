@@ -191,7 +191,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-05-31:** Cursor system complete — 229 tests passing.
+**As of 2026-05-31:** All planned features complete — 234 tests passing.
 
 ### Implemented
 
@@ -281,7 +281,9 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 **`PlotArea`** public API:
 - `add_signal(active)` — creates `ViewBox` + `AxisItem('right')` + `PlotDataItem`; sets `active.curve` and `active.view_box`; no-op for duplicates
 - `remove_signal(active)` — removes curve/ViewBox/axis from scene and layout; clears `active.curve` and `active.view_box`; no-op for unknowns
+- `recolor_signal(active, color)` — updates curve pen, axis pen, axis text pen, and `active.color`; no-op for unknowns
 - `zoom_to_fit()` — full X range from timestamps, auto Y per signal; no-op when empty
+- `plot_item` — read-only property exposing the inner `pg.PlotItem` (used by `CursorView`)
 
 ### Decisions made (continued)
 - **`CursorController` wiring:** optional dependency injected via `AppController.set_cursor_controller()`; all notify calls are guarded by `None` check so the cursor system can be omitted without touching `AppController`.
@@ -290,7 +292,10 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (229 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (234 passing) and `python -m mdf_viewer` both work.
 
-### Next step
-**Color change wiring** — connect `ActiveSignalsTable.color_change_requested` to update `ActiveSignal.color`, the curve pen in `PlotArea`, and the Y-axis pen. This is the last item before the first usable release.
+### Next steps
+All MVP features are implemented. Possible next work:
+- Manual testing with real MDF files (drop into `data/`)
+- Bug fixes and polish from real-world use
+- Future features from the Todo list in the spec (session persistence, recently opened files, multi-select in Signal Browser, etc.)
