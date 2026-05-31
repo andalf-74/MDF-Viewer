@@ -191,7 +191,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-05-31:** All planned features complete — 234 tests passing.
+**As of 2026-05-31:** All planned features complete + signal filter — 245 tests passing.
 
 ### Implemented
 
@@ -218,9 +218,10 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `load_signal(group_index, channel_index)` → `(SignalData, SignalMetadata)`
 
 **`SignalBrowser`** public API:
-- `populate(groups: list[ChannelGroupInfo])` — rebuilds the tree, groups expanded by default
-- `clear()` — resets the tree
+- `populate(groups: list[ChannelGroupInfo])` — rebuilds the tree, groups expanded, filter cleared
+- `clear()` — resets the tree and clears the filter
 - `add_signal_requested(group_index, channel_index)` — PyQt signal emitted on double-click or Add Signal button
+- Filter field: `QLineEdit` at the top; connected to a `QSortFilterProxyModel` with `setRecursiveFilteringEnabled(True)` (case-insensitive, partial match; groups visible when any child matches). `setClearButtonEnabled(True)` provides a built-in × button. `populate()` and `clear()` both reset the filter.
 
 **`ActiveSignal`** fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in. `__hash__ = object.__hash__` added so instances can be used as dict keys (auto-generated `__eq__` from `@dataclass` compares numpy arrays, which sets `__hash__` to `None` by default).
 
@@ -292,7 +293,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (234 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (245 passing) and `python -m mdf_viewer` both work.
 
 ### Next steps
 All MVP features are implemented. Possible next work:
