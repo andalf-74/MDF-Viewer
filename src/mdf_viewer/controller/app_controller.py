@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtGui import QColor
 
-from mdf_viewer.model.mdf_loader import MdfLoadError, MdfLoader
+from mdf_viewer.model.mdf_loader import MdfLoader
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
 if TYPE_CHECKING:

@@ -47,7 +47,7 @@ class CursorView(QObject):
             line.setVisible(False)
             self._pi.addItem(line)
             line.sigPositionChanged.connect(
-                lambda l, idx=i: self.cursor_moved.emit(idx, l.value())
+                lambda ln, idx=i: self.cursor_moved.emit(idx, ln.value())
             )
             self._lines.append(line)
 

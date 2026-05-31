@@ -11,9 +11,8 @@ from mdf_viewer.model.signal_metadata import SignalMetadata
 from mdf_viewer.view.measurement_info_box import (
     MeasurementInfoBox,
     _format_duration,
-    _measurement_rows,
 )
-from mdf_viewer.view.signal_info_box import SignalInfoBox, _metadata_rows
+from mdf_viewer.view.signal_info_box import SignalInfoBox
 
 
 # ---------------------------------------------------------------------------

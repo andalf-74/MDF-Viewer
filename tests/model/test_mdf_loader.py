@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
 from pathlib import Path
 
 import asammdf
@@ -61,10 +59,10 @@ def mdf4_path(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def loader(mdf4_path: Path) -> MdfLoader:
-    l = MdfLoader()
-    l.open(mdf4_path)
-    yield l
-    l.close()
+    ldr = MdfLoader()
+    ldr.open(mdf4_path)
+    yield ldr
+    ldr.close()
 
 
 # ---------------------------------------------------------------------------
@@ -72,41 +70,41 @@ def loader(mdf4_path: Path) -> MdfLoader:
 # ---------------------------------------------------------------------------
 
 def test_open_valid_file(mdf4_path: Path) -> None:
-    l = MdfLoader()
-    l.open(mdf4_path)
-    assert l.is_open
-    l.close()
+    ldr = MdfLoader()
+    ldr.open(mdf4_path)
+    assert ldr.is_open
+    ldr.close()
 
 
 def test_close_sets_not_open(mdf4_path: Path) -> None:
-    l = MdfLoader()
-    l.open(mdf4_path)
-    l.close()
-    assert not l.is_open
+    ldr = MdfLoader()
+    ldr.open(mdf4_path)
+    ldr.close()
+    assert not ldr.is_open
 
 
 def test_open_nonexistent_raises(tmp_path: Path) -> None:
-    l = MdfLoader()
+    ldr = MdfLoader()
     with pytest.raises(MdfLoadError):
-        l.open(tmp_path / "no_such_file.mf4")
+        ldr.open(tmp_path / "no_such_file.mf4")
 
 
 def test_open_invalid_file_raises(tmp_path: Path) -> None:
     bad = tmp_path / "bad.mf4"
     bad.write_bytes(b"this is not an MDF file at all")
-    l = MdfLoader()
+    ldr = MdfLoader()
     with pytest.raises(MdfLoadError):
-        l.open(bad)
+        ldr.open(bad)
 
 
 def test_open_replaces_previous_file(mdf4_path: Path, tmp_path: Path) -> None:
     second = tmp_path / "second.mf4"
     _make_mdf4(second)
-    l = MdfLoader()
-    l.open(mdf4_path)
-    l.open(second)  # should not raise; closes old file first
-    assert l.is_open
-    l.close()
+    ldr = MdfLoader()
+    ldr.open(mdf4_path)
+    ldr.open(second)  # should not raise; closes old file first
+    assert ldr.is_open
+    ldr.close()
 
 
 def test_close_when_not_open_is_noop() -> None:
@@ -122,15 +120,15 @@ def test_close_when_not_open_is_noop() -> None:
     ["measurement_info", "channel_tree"],
 )
 def test_requires_open(method: str) -> None:
-    l = MdfLoader()
+    ldr = MdfLoader()
     with pytest.raises(MdfLoadError, match="No file is open"):
-        getattr(l, method)()
+        getattr(ldr, method)()
 
 
 def test_load_signal_requires_open() -> None:
-    l = MdfLoader()
+    ldr = MdfLoader()
     with pytest.raises(MdfLoadError, match="No file is open"):
-        l.load_signal(0, 1)
+        ldr.load_signal(0, 1)
 
 
 # ---------------------------------------------------------------------------
