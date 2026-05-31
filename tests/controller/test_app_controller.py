@@ -167,6 +167,14 @@ def test_add_signal_appends_to_active_list(ctrl: AppController) -> None:
     assert len(ctrl.active_signals) == 1
 
 
+def test_add_signal_duplicate_is_noop(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 1)
+    assert len(ctrl.active_signals) == 1
+    deps["plot"].add_signal.assert_called_once()
+    deps["table"].add_row.assert_called_once()
+
+
 def test_add_signal_calls_plot_add_signal(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     deps["plot"].add_signal.assert_called_once()
@@ -186,7 +194,12 @@ def test_add_signal_assigns_color(ctrl: AppController) -> None:
     assert isinstance(ctrl.active_signals[0].color, QColor)
 
 
-def test_add_signal_colors_cycle_through_palette(ctrl: AppController) -> None:
+def test_add_signal_colors_cycle_through_palette(ctrl: AppController, deps: dict) -> None:
+    # Return metadata whose indices match the request so the duplicate guard
+    # doesn't block distinct channels.
+    deps["loader"].load_signal.side_effect = (
+        lambda gi, ci: (_make_signal_data(), _make_metadata(name=f"s{ci}", gi=gi, ci=ci))
+    )
     for i in range(len(_COLOR_PALETTE) + 1):
         ctrl.add_signal(0, i)
     colors = [s.color for s in ctrl.active_signals]

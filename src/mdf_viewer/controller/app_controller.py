@@ -97,9 +97,15 @@ class AppController:
     def add_signal(self, group_index: int, channel_index: int) -> None:
         """Load a channel and add it to the plot and the Active Signals Table.
 
-        Raises MdfLoadError if the channel cannot be read or its samples are
-        not numeric.
+        No-op if the channel is already active. Raises MdfLoadError if the
+        channel cannot be read or its samples are not numeric.
         """
+        if any(
+            s.metadata.group_index == group_index
+            and s.metadata.channel_index == channel_index
+            for s in self._active
+        ):
+            return
         data, meta = self._loader.load_signal(group_index, channel_index)
         rgb = _COLOR_PALETTE[self._color_index % len(_COLOR_PALETTE)]
         self._color_index += 1
