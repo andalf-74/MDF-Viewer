@@ -191,21 +191,21 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-05-31:** All planned features complete + signal filter — 245 tests passing.
+**As of 2026-05-31:** All planned features complete + signal filter + bug fixes — 258 tests passing.
 
 ### Implemented
 
 | Module | Description | Tests |
 |--------|-------------|-------|
-| `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` + `MdfLoadError` | 26 |
+| `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` + `MdfLoadError` | 31 |
 | `model/signal_data.py` | `SignalData` dataclass | 2 |
 | `view/signal_browser.py` | `SignalBrowser` QWidget (TreeView + Add Signal button) | 18 |
 | `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, wiring | 21 |
 | `view/measurement_info_box.py` | `MeasurementInfoBox` — file metadata, QFormLayout + placeholder | 18 |
-| `view/signal_info_box.py` | `SignalInfoBox` — signal metadata, QFormLayout + placeholder | 16 |
+| `view/signal_info_box.py` | `SignalInfoBox` — signal metadata, QFormLayout + placeholder | 18 |
 | `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons | 28 |
-| `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis | 18 |
-| `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic | 17 |
+| `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis | 28 |
+| `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic | 18 |
 | `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
 | `controller/app_controller.py` | `AppController` — coordinates all layers | 34 |
 | `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation | 28 |
@@ -215,7 +215,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `open(path)` / `close()` / `is_open`
 - `measurement_info()` → `MeasurementInfo`
 - `channel_tree()` → `list[ChannelGroupInfo]`
-- `load_signal(group_index, channel_index)` → `(SignalData, SignalMetadata)`
+- `load_signal(group_index, channel_index)` → `(SignalData, SignalMetadata)` — captures raw asammdf dtype before float64 conversion; sets `SignalMetadata.data_type` and `is_integer`
 
 **`SignalBrowser`** public API:
 - `populate(groups: list[ChannelGroupInfo])` — rebuilds the tree, groups expanded, filter cleared
@@ -223,7 +223,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `add_signal_requested(group_index, channel_index)` — PyQt signal emitted on double-click or Add Signal button
 - Filter field: `QLineEdit` at the top; connected to a `QSortFilterProxyModel` with `setRecursiveFilteringEnabled(True)` (case-insensitive, partial match; groups visible when any child matches). `setClearButtonEnabled(True)` provides a built-in × button. `populate()` and `clear()` both reset the filter.
 
-**`ActiveSignal`** fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in. `__hash__ = object.__hash__` added so instances can be used as dict keys (auto-generated `__eq__` from `@dataclass` compares numpy arrays, which sets `__hash__` to `None` by default).
+**`ActiveSignal`** fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in. `__hash__ = object.__hash__` and `__eq__ = object.__eq__` — identity semantics throughout to avoid numpy `__eq__` ambiguity (list `in` / `remove` also use `__eq__`).
 
 **`AppController`** public API:
 - `load_file(path)` — clears all state, opens file, populates browser + info box; resets color counter and cursor system; UI cleared before `open()` so state is clean on failure
@@ -242,7 +242,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 **`CursorView`** (`QObject`, lives inside `PlotArea.plot_item`):
 - Two dashed-yellow `pg.InfiniteLine` items (hidden until activated); `apply_mode(mode, positions)` shows/hides and repositions them
-- `update_labels(active_signals, positions, mode)` — creates/repositions `pg.TextItem` value labels (signal color, `{value:.4g} {unit}`); prunes stale labels
+- `update_labels(active_signals, positions, mode)` — creates/repositions `pg.TextItem` value labels (signal color, `{value:.4g}` — no unit); prunes stale labels
 - `remove_labels_for(active)` / `clear_labels()` — called on signal removal
 - Nearest-cursor logic: `pg.SignalProxy` on `scene.sigMouseMoved` (30 fps) — in TWO mode, only the closer cursor's labels are shown
 - `cursor_moved(index, x)` — `pyqtSignal` emitted on every drag step
@@ -257,7 +257,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 **`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController`, wires all three together, calls `set_controller`.
 
-**`MeasurementInfoBox`** / **`SignalInfoBox`**: both use a `QStackedWidget` — page 0 is a centred placeholder label, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` / `set_metadata` populates the form and switches to page 1; `clear()` switches back. Optional fields (empty string / `None`) are omitted. MDF4 XML tags in comment fields are stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`.
+**`MeasurementInfoBox`** / **`SignalInfoBox`**: both use a `QStackedWidget` — page 0 is a centred placeholder label, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` / `set_metadata` populates the form and switches to page 1; `clear()` switches back. Optional fields (empty string / `None`) are omitted. MDF4 XML tags in comment fields are stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`. `SignalInfoBox` shows a "Data type" row (e.g. `uint8`, `float64`) when `SignalMetadata.data_type` is populated.
 
 **`ActiveSignalsTable`** public API:
 - `add_row(active)` / `remove_row(active)` / `clear()` — row management; identity-based lookup (`is`) avoids numpy `__eq__` ambiguity on `SignalData`
@@ -291,10 +291,15 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - **CursorView lifetime:** `CursorView` is a `QObject` that holds references to PyQtGraph items added to `PlotArea.plot_item`. It is constructed in `app.py` after `MainWindow` so the PlotItem scene already exists. Tests keep the parent `PlotWidget` alive via a separate pytest fixture to prevent C++ object deletion.
 - **Nearest-cursor label logic:** uses identity-based label keys `(cursor_index, active)` to avoid numpy `__eq__` ambiguity (same pitfall as `ActiveSignalsTable._find_row`).
 - **Cursor label Y-tracking:** labels are added to the signal's own `ViewBox` (not the main PlotItem) so `setPos(x, y)` is in the signal's Y coordinate space and the label tracks Y pan/zoom automatically. `_labels` stores `(TextItem, ViewBox)` tuples. Cursor cleanup (`on_signal_removed`, `on_all_signals_cleared`) is called in `AppController` *before* `plot_area.remove_signal` so the ViewBox is still in the scene when `vb.removeItem(lbl)` runs.
+- **Cursor labels show value only:** no unit suffix — the unit is already on the Y-axis and in the Signal Info Box.
+- **`SignalMetadata.data_type` / `is_integer`:** `MdfLoader.load_signal` captures the raw asammdf dtype before the mandatory float64 conversion. `is_integer` is used by `PlotArea._SignalAxisItem` to suppress fractional ticks on discrete/integer signals (gear, enum, flag). `data_type` (e.g. `"uint8"`) is displayed in `SignalInfoBox`.
+- **`ActiveSignal.__eq__ = object.__eq__`:** list `in` and `remove` also use `__eq__`, which the dataclass version raises on numpy arrays. Identity equality is set alongside `__hash__` so both dict and list operations are consistent.
+- **Duplicate signal prevention:** `AppController.add_signal` checks `(group_index, channel_index)` against active signals' metadata before loading; returns early on duplicates.
+- **Y-axis tick formatting:** `_SignalAxisItem` subclasses `pg.AxisItem`; float signals use `:.6g` (strips floating-point noise like "256.000000007"); integer signals snap ticks to integer positions and format as plain integers.
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (246 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (258 passing) and `python -m mdf_viewer` both work.
 
 ### Next steps
 All MVP features are implemented. Possible next work:
