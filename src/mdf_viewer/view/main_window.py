@@ -64,6 +64,11 @@ class MainWindow(QMainWindow):
         """Wire the controller after it has been constructed with this window's views."""
         self._controller = controller
         self.signal_browser.add_signal_requested.connect(self._on_add_signal)
+        self.active_signals_table.remove_requested.connect(controller.remove_signal)
+        self.active_signals_table.remove_all_requested.connect(controller.remove_all)
+        self.active_signals_table.selection_changed.connect(
+            controller.set_selected_signal
+        )
 
     # ------------------------------------------------------------------
     # UI construction
