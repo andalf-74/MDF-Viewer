@@ -57,7 +57,7 @@ requirements.txt / requirements-dev.txt
 ### Menu Bar
 - **File**
   - Load MDF (opens file dialog)
-  - *(placeholder for future menu items)*
+  - Recently opened files (up to 4; shown between Load MDF and Exit when non-empty)
   - Exit
 
 ### Toolbar
@@ -150,7 +150,7 @@ Displays metadata for the currently selected signal in the Active Signals Table:
 ## File Handling
 
 - **Single file only (MVP)** – loading a new file replaces the current one
-- **No "recently opened" list (MVP)** – planned for future version
+- **Recently opened files** – up to 4 entries persisted in `settings.json`; shown in File menu; stale paths pruned silently on menu open; failed loads are not recorded
 - **No session persistence (MVP)** – application always starts fresh; saving/restoring active signals, colors, and window state is planned for a future version
 - **Robust error handling is mandatory** – the application must never crash on malformed, incomplete, or unexpected MDF content; errors must be caught and communicated to the user gracefully
 
@@ -166,7 +166,6 @@ Displays metadata for the currently selected signal in the Active Signals Table:
 ## Todo / Future Features (not MVP)
 
 - Multi-file support with multiple X-axes and synchronization (by timestamp overlap, manual time offset, or signal-based alignment)
-- Recently opened files list
 - Session persistence (active signals, colors, window layout)
 - Multi-select in Signal Browser
 - Additional toolbar and menu items (TBD)
@@ -191,7 +190,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-05-31:** All planned features complete + signal filter + bug fixes — 258 tests passing.
+**As of 2026-05-31:** All planned features complete + signal filter + recently opened files + bug fixes — 280 tests passing.
 
 ### Implemented
 
@@ -207,8 +206,9 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis | 28 |
 | `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic | 18 |
 | `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
-| `controller/app_controller.py` | `AppController` — coordinates all layers | 34 |
+| `controller/app_controller.py` | `AppController` — coordinates all layers | 37 |
 | `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation | 28 |
+| `settings.py` | `Settings` — JSON persistence for recent files | 12 |
 | `app.py` | MVC assembly point | — |
 
 **`MdfLoader`** is the sole importer of `asammdf`. Public API:
@@ -226,12 +226,13 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 **`ActiveSignal`** fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in. `__hash__ = object.__hash__` and `__eq__ = object.__eq__` — identity semantics throughout to avoid numpy `__eq__` ambiguity (list `in` / `remove` also use `__eq__`).
 
 **`AppController`** public API:
-- `load_file(path)` — clears all state, opens file, populates browser + info box; resets color counter and cursor system; UI cleared before `open()` so state is clean on failure
+- `load_file(path)` — clears all state, opens file, populates browser + info box; resets color counter and cursor system; calls `settings.add_recent(path)` on success only; UI cleared before `open()` so state is clean on failure
 - `add_signal(gi, ci)` — loads channel, assigns next palette color, notifies plot + table + cursor system
 - `remove_signal(active)` — removes from plot/table/list; notifies cursor system; clears selection if that signal was selected
 - `remove_all()` — removes all signals, clears table, notifies cursor system, clears selection
 - `set_selected_signal(active | None)` — drives the Signal Info Box
 - `set_cursor_controller(cc)` — optional; wired from `app.py` after construction
+- Constructor accepts optional `settings: Settings` — omitting it disables recent-file tracking without any other effect
 - `active_signals` / `selected_signal` — read-only state accessors
 
 **`CursorController`** public API:
@@ -250,12 +251,13 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 **`MainWindow`** public API:
 - Constructor creates all five view widgets as public attrs: `signal_browser`, `plot_area`, `active_signals_table`, `measurement_info_box`, `signal_info_box`
 - `set_controller(ctrl, cursor_ctrl=None)` — wires browser, table remove/selection signals to controller, and cursor toggle to `cursor_ctrl.toggle()`
+- `set_recent_files_provider(callable)` — supplies a `() -> list[Path]` called on every `File` menu open; results are inserted between Load MDF and Exit (section hidden when list is empty)
 - Layout: outer H-splitter → [SignalBrowser (260px) | center V-splitter | ActiveSignalsTable (260px)]; center → [PlotArea (3×) | bottom H-splitter → [MeasurementInfoBox | SignalInfoBox]]
-- Menu: File → Load MDF… (Ctrl+O) / Exit (Ctrl+Q)
+- Menu: File → Load MDF… (Ctrl+O) / [recent files] / Exit (Ctrl+Q)
 - Toolbar: Load File (folder icon) | Zoom to Fit (Ctrl+0) | Cursors (toggle)
-- Both load paths catch `MdfLoadError` and show `QMessageBox.critical`
+- All load paths (dialog and recent files) catch `MdfLoadError` and show `QMessageBox.critical`
 
-**`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController`, wires all three together, calls `set_controller`.
+**`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `Settings` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController`, wires all together; calls `set_controller` and `set_recent_files_provider(settings.get_and_prune)`.
 
 **`MeasurementInfoBox`** / **`SignalInfoBox`**: both use a `QStackedWidget` — page 0 is a centred placeholder label, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` / `set_metadata` populates the form and switches to page 1; `clear()` switches back. Optional fields (empty string / `None`) are omitted. MDF4 XML tags in comment fields are stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`. `SignalInfoBox` shows a "Data type" row (e.g. `uint8`, `float64`) when `SignalMetadata.data_type` is populated.
 
@@ -266,6 +268,13 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - Signals: `selection_changed(object)`, `remove_requested(object)`, `remove_all_requested()`, `color_change_requested(object, QColor)`
 - `_ColorSwatch`: flat `QPushButton` with styled background; click → `QColorDialog` → updates swatch + emits `color_change_requested`
 - Uses `selectionModel().selectedRows()` (not `currentRow()`) so `clearSelection()` correctly emits `None`
+
+**`Settings`** (`src/mdf_viewer/settings.py`):
+- `add_recent(path)` — resolves to absolute path, prepends, deduplicates, trims to `MAX_RECENT=4`, saves immediately
+- `recent_files() -> list[Path]` — raw list (may include missing paths)
+- `get_and_prune() -> list[Path]` — filters to existing paths, saves if anything was removed; used as the `MainWindow` recent-files provider
+- Config path: `%APPDATA%\mdf-viewer\settings.json` (Windows) / `~/.config/mdf-viewer/settings.json` (Linux); detected via `sys.platform`; parent dirs created on first save
+- Constructor accepts an optional `path` override (used in tests via `tmp_path`)
 
 ### Decisions made
 - **Qt binding:** PyQt6 (LGPL-friendly path; PyQtGraph supports it).
@@ -296,13 +305,15 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - **`ActiveSignal.__eq__ = object.__eq__`:** list `in` and `remove` also use `__eq__`, which the dataclass version raises on numpy arrays. Identity equality is set alongside `__hash__` so both dict and list operations are consistent.
 - **Duplicate signal prevention:** `AppController.add_signal` checks `(group_index, channel_index)` against active signals' metadata before loading; returns early on duplicates.
 - **Y-axis tick formatting:** `_SignalAxisItem` subclasses `pg.AxisItem`; float signals use `:.6g` (strips floating-point noise like "256.000000007"); integer signals snap ticks to integer positions and format as plain integers.
+- **Recent files persistence:** plain JSON (no `QSettings`/registry) for transparency and portability; platform path via `sys.platform` with no extra dependency; written immediately on successful load so a crash doesn't lose the entry; failed loads are never recorded; stale entries pruned silently when the File menu opens.
+- **Recent files menu wiring:** `MainWindow` takes a provider callable (`settings.get_and_prune`) rather than a direct `Settings` reference, keeping the view layer free of settings knowledge; `File.aboutToShow` triggers the rebuild so the list is always fresh.
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (258 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (280 passing) and `python -m mdf_viewer` both work.
 
 ### Next steps
 All MVP features are implemented. Possible next work:
 - Manual testing with real MDF files (drop into `data/`)
 - Bug fixes and polish from real-world use
-- Future features from the Todo list in the spec (session persistence, recently opened files, multi-select in Signal Browser, etc.)
+- Future features from the Todo list in the spec (session persistence, multi-select in Signal Browser, etc.)
