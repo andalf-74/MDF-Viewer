@@ -11,12 +11,133 @@ display, without either layer importing the other.
 
 from __future__ import annotations
 
+import os
+from typing import TYPE_CHECKING
+
+from PyQt6.QtGui import QColor
+
+from mdf_viewer.model.mdf_loader import MdfLoadError, MdfLoader
+from mdf_viewer.view_model.active_signal import ActiveSignal
+
+if TYPE_CHECKING:
+    from mdf_viewer.view.active_signals_table import ActiveSignalsTable
+    from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
+    from mdf_viewer.view.plot_area import PlotArea
+    from mdf_viewer.view.signal_browser import SignalBrowser
+    from mdf_viewer.view.signal_info_box import SignalInfoBox
+
+# Ordered color palette for new signals; cycles on overflow.
+_COLOR_PALETTE: tuple[tuple[int, int, int], ...] = (
+    (255, 85, 85),    # red
+    (85, 170, 255),   # blue
+    (100, 220, 100),  # green
+    (255, 170, 50),   # orange
+    (200, 100, 200),  # purple
+    (100, 220, 220),  # cyan
+    (255, 230, 85),   # yellow
+    (200, 150, 100),  # brown
+)
+
 
 class AppController:
     """Coordinates loading, active-signal management, and selection state."""
 
-    # To be implemented:
-    #   load_file(path) -> uses MdfLoader, populates the Signal Browser
-    #   add_signal(group_index, channel_index) -> creates an ActiveSignal
-    #   remove_signal(active_signal) / remove_all()
-    #   set_selected_signal(active_signal) -> drives the Signal Info Box
+    def __init__(
+        self,
+        loader: MdfLoader,
+        signal_browser: SignalBrowser,
+        plot_area: PlotArea,
+        active_signals_table: ActiveSignalsTable,
+        measurement_info_box: MeasurementInfoBox,
+        signal_info_box: SignalInfoBox,
+    ) -> None:
+        self._loader = loader
+        self._browser = signal_browser
+        self._plot = plot_area
+        self._table = active_signals_table
+        self._info_box = measurement_info_box
+        self._signal_info = signal_info_box
+
+        self._active: list[ActiveSignal] = []
+        self._selected: ActiveSignal | None = None
+        self._color_index: int = 0
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def load_file(self, path: str | os.PathLike) -> None:
+        """Open an MDF file and populate the Signal Browser.
+
+        Clears all existing active signals and resets the color counter.
+        Raises MdfLoadError if the file cannot be opened or read — the
+        caller is responsible for showing an error dialog.
+        """
+        # Clear existing state; loader.open() closes the old file regardless
+        # of whether the new one succeeds, so the UI must clear first.
+        self.remove_all()
+        self._browser.clear()
+        self._info_box.clear()
+        self._color_index = 0
+
+        self._loader.open(path)  # raises MdfLoadError on failure
+
+        groups = self._loader.channel_tree()
+        info = self._loader.measurement_info()
+        self._browser.populate(groups)
+        self._info_box.set_info(info)
+
+    def add_signal(self, group_index: int, channel_index: int) -> None:
+        """Load a channel and add it to the plot and the Active Signals Table.
+
+        Raises MdfLoadError if the channel cannot be read or its samples are
+        not numeric.
+        """
+        data, meta = self._loader.load_signal(group_index, channel_index)
+        rgb = _COLOR_PALETTE[self._color_index % len(_COLOR_PALETTE)]
+        self._color_index += 1
+        active = ActiveSignal(data=data, metadata=meta, color=QColor(*rgb))
+        self._active.append(active)
+        self._plot.add_signal(active)
+        self._table.add_row(active)
+
+    def remove_signal(self, active_signal: ActiveSignal) -> None:
+        """Remove one signal from the plot and the table.
+
+        No-op if the signal is not currently active.
+        """
+        if active_signal not in self._active:
+            return
+        self._plot.remove_signal(active_signal)
+        self._active.remove(active_signal)
+        self._table.remove_row(active_signal)
+        if self._selected is active_signal:
+            self.set_selected_signal(None)
+
+    def remove_all(self) -> None:
+        """Remove all active signals from the plot and the table."""
+        for sig in list(self._active):
+            self._plot.remove_signal(sig)
+        self._active.clear()
+        self._table.clear()
+        self.set_selected_signal(None)
+
+    def set_selected_signal(self, active_signal: ActiveSignal | None) -> None:
+        """Update the selection and drive the Signal Info Box."""
+        self._selected = active_signal
+        if active_signal is None:
+            self._signal_info.clear()
+        else:
+            self._signal_info.set_metadata(active_signal.metadata)
+
+    # ------------------------------------------------------------------
+    # Read-only state accessors
+    # ------------------------------------------------------------------
+
+    @property
+    def active_signals(self) -> list[ActiveSignal]:
+        return list(self._active)
+
+    @property
+    def selected_signal(self) -> ActiveSignal | None:
+        return self._selected

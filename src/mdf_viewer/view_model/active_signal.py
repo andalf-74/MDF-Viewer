@@ -8,14 +8,26 @@ PyQtGraph curve, its dedicated ViewBox, and its color). Living in the
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
+from typing import Any
 
+from PyQt6.QtGui import QColor
+
+from mdf_viewer.model.signal_data import SignalData
+from mdf_viewer.model.signal_metadata import SignalMetadata
+
+
+@dataclass
 class ActiveSignal:
     """Pairs model data with the plot objects that render a single signal.
 
-    Holds (to be implemented):
-      * data: SignalData
-      * metadata: SignalMetadata
-      * curve: pyqtgraph.PlotDataItem
-      * view_box: pyqtgraph.ViewBox  (per-signal Y axis)
-      * color: QColor
+    ``data`` and ``metadata`` are set at construction. ``curve`` and
+    ``view_box`` are filled in by PlotArea.add_signal() once a rendering
+    context exists.
     """
+
+    data: SignalData
+    metadata: SignalMetadata
+    color: QColor
+    curve: Any = field(default=None)     # pyqtgraph.PlotDataItem
+    view_box: Any = field(default=None)  # pyqtgraph.ViewBox
