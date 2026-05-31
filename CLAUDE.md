@@ -290,10 +290,11 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - **`CursorController` wiring:** optional dependency injected via `AppController.set_cursor_controller()`; all notify calls are guarded by `None` check so the cursor system can be omitted without touching `AppController`.
 - **CursorView lifetime:** `CursorView` is a `QObject` that holds references to PyQtGraph items added to `PlotArea.plot_item`. It is constructed in `app.py` after `MainWindow` so the PlotItem scene already exists. Tests keep the parent `PlotWidget` alive via a separate pytest fixture to prevent C++ object deletion.
 - **Nearest-cursor label logic:** uses identity-based label keys `(cursor_index, active)` to avoid numpy `__eq__` ambiguity (same pitfall as `ActiveSignalsTable._find_row`).
+- **Cursor label Y-tracking:** labels are added to the signal's own `ViewBox` (not the main PlotItem) so `setPos(x, y)` is in the signal's Y coordinate space and the label tracks Y pan/zoom automatically. `_labels` stores `(TextItem, ViewBox)` tuples. Cursor cleanup (`on_signal_removed`, `on_all_signals_cleared`) is called in `AppController` *before* `plot_area.remove_signal` so the ViewBox is still in the scene when `vb.removeItem(lbl)` runs.
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (245 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (246 passing) and `python -m mdf_viewer` both work.
 
 ### Next steps
 All MVP features are implemented. Possible next work:
