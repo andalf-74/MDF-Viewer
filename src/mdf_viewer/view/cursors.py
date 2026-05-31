@@ -116,8 +116,7 @@ class CursorView(QObject):
                     vb.addItem(lbl)
                     self._labels[key] = (lbl, vb)
                 lbl, _ = self._labels[key]
-                unit = active.metadata.unit
-                lbl.setText(f"{y:.4g}{(' ' + unit) if unit else ''}")
+                lbl.setText(f"{y:.4g}")
                 lbl.setPos(x, y)
 
         # Remove labels for keys no longer needed
