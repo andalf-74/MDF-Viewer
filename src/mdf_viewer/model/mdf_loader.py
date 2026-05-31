@@ -208,6 +208,7 @@ class MdfLoader:
             ) from exc
 
         try:
+            raw_dtype = np.asarray(sig.samples).dtype
             timestamps = np.asarray(sig.timestamps, dtype=np.float64)
             samples = np.asarray(sig.samples, dtype=np.float64)
         except (ValueError, TypeError) as exc:
@@ -236,6 +237,8 @@ class MdfLoader:
             max_value=max_val,
             group_index=group_index,
             channel_index=channel_index,
+            data_type=str(raw_dtype),
+            is_integer=bool(np.issubdtype(raw_dtype, np.integer)),
         )
 
         return data, meta

@@ -69,6 +69,8 @@ def _metadata_rows(meta: SignalMetadata) -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = [("Name", meta.name)]
     if meta.unit:
         rows.append(("Unit", meta.unit))
+    if meta.data_type:
+        rows.append(("Data type", meta.data_type))
     if meta.sample_count is not None:
         rows.append(("Samples", f"{meta.sample_count:,}"))
     if meta.min_value is not None:

@@ -222,15 +222,19 @@ def test_float_signal_uses_float_axis(plot: PlotArea) -> None:
 
 def test_integer_signal_uses_integer_axis(plot: PlotArea) -> None:
     t = np.linspace(0.0, 1.0, 10)
+    # Samples are float64 (as MdfLoader always produces), but metadata carries
+    # is_integer=True set from the raw dtype before conversion.
     data = SignalData(
         timestamps=t,
-        samples=np.array([-1, 0, 1, 2, 3, 4, 5, 6, 7, 8], dtype=np.int8),
+        samples=np.linspace(6.0, 8.0, 10),  # float64, as MdfLoader outputs
     )
-    meta = SignalMetadata(name="gear", group_index=0, channel_index=0)
+    meta = SignalMetadata(
+        name="gear", group_index=0, channel_index=0,
+        data_type="uint8", is_integer=True,
+    )
     active = ActiveSignal(data=data, metadata=meta, color=QColor(200, 100, 50))
     plot.add_signal(active)
-    axis = plot._data[active].axis
-    assert axis._integer_ticks
+    assert plot._data[active].axis._integer_ticks
 
 
 def test_float_tick_strings_use_g_format() -> None:

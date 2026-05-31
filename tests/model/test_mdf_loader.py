@@ -40,6 +40,12 @@ def _make_mdf4(path: Path) -> None:
                 unit="A",
                 comment="cosine wave",
             ),
+            asammdf.Signal(
+                samples=np.arange(101, dtype=np.uint8) % 9,
+                timestamps=t,
+                name="gear",
+                unit="",
+            ),
         ]
     )
     mdf.save(str(path), overwrite=True)
@@ -249,6 +255,19 @@ def test_load_signal_metadata_name_and_unit(loader: MdfLoader) -> None:
     assert meta.unit == "A"
 
 
+def test_load_signal_data_type_populated(loader: MdfLoader) -> None:
+    gi, ci = _find_channel_location(loader, "sin")
+    _, meta = loader.load_signal(gi, ci)
+    assert meta.data_type != ""
+
+
+def test_load_signal_float_is_not_integer(loader: MdfLoader) -> None:
+    gi, ci = _find_channel_location(loader, "sin")
+    _, meta = loader.load_signal(gi, ci)
+    # sin samples are float64 in the test fixture
+    assert not meta.is_integer
+
+
 def test_load_signal_min_max(loader: MdfLoader) -> None:
     gi, ci = _find_channel_location(loader, "sin")
     _, meta = loader.load_signal(gi, ci)
@@ -258,6 +277,13 @@ def test_load_signal_min_max(loader: MdfLoader) -> None:
     assert meta.max_value > 0
     assert meta.max_value <= 1.0 + 1e-9
     assert meta.min_value >= -1.0 - 1e-9
+
+
+def test_load_signal_integer_dtype_sets_is_integer(loader: MdfLoader) -> None:
+    gi, ci = _find_channel_location(loader, "gear")
+    _, meta = loader.load_signal(gi, ci)
+    assert meta.is_integer
+    assert meta.data_type == "uint8"
 
 
 def test_load_signal_invalid_index_raises(loader: MdfLoader) -> None:

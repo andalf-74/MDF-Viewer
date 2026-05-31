@@ -258,6 +258,17 @@ def test_sbox_set_metadata_omits_none_min_max(sbox: SignalInfoBox) -> None:
     assert "Max" not in texts
 
 
+def test_sbox_set_metadata_shows_data_type(sbox: SignalInfoBox) -> None:
+    meta = SignalMetadata(name="gear", data_type="uint8", is_integer=True)
+    sbox.set_metadata(meta)
+    assert "uint8" in _all_texts(_form_texts(sbox))
+
+
+def test_sbox_set_metadata_omits_empty_data_type(sbox: SignalInfoBox) -> None:
+    sbox.set_metadata(_make_meta())  # data_type="" by default
+    assert "Data type" not in _all_texts(_form_texts(sbox))
+
+
 def test_sbox_set_metadata_shows_comment(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(comment="measured at pin 3"))
     assert "measured at pin 3" in _all_texts(_form_texts(sbox))

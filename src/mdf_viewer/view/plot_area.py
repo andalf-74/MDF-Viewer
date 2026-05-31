@@ -14,7 +14,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
@@ -118,7 +117,7 @@ class PlotArea(QWidget):
 
         # Place a new right axis in the next available layout column.
         col = self._pi.layout.columnCount()
-        integer_ticks = np.issubdtype(active.data.samples.dtype, np.integer)
+        integer_ticks = active.metadata.is_integer
         axis = _SignalAxisItem(
             'right',
             linkView=vb,
