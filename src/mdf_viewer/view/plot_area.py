@@ -23,6 +23,18 @@ if TYPE_CHECKING:
     pass
 
 
+class _SignalAxisItem(pg.AxisItem):
+    """AxisItem that formats tick labels to 6 significant figures.
+
+    PyQtGraph's default tickStrings can produce floating-point noise
+    (e.g. "256.000000007"). :.6g strips trailing zeros and limits
+    precision to 6 significant figures.
+    """
+
+    def tickStrings(self, values, scale, spacing):
+        return [f"{v * scale:.6g}" for v in values]
+
+
 @dataclass
 class _SignalPlotData:
     """Internal per-signal rendering objects."""
@@ -77,7 +89,7 @@ class PlotArea(QWidget):
 
         # Place a new right axis in the next available layout column.
         col = self._pi.layout.columnCount()
-        axis = pg.AxisItem(
+        axis = _SignalAxisItem(
             'right',
             linkView=vb,
             pen=pg.mkPen(color=color),
