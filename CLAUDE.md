@@ -191,7 +191,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-05-31:** App is runnable end-to-end (blank panels) — 101 tests passing.
+**As of 2026-05-31:** All non-plot views implemented — 166 tests passing.
 
 ### Implemented
 
@@ -201,6 +201,9 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `model/signal_data.py` | `SignalData` dataclass | 2 |
 | `view/signal_browser.py` | `SignalBrowser` QWidget (TreeView + Add Signal button) | 18 |
 | `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, wiring | 21 |
+| `view/measurement_info_box.py` | `MeasurementInfoBox` — file metadata, QFormLayout + placeholder | 18 |
+| `view/signal_info_box.py` | `SignalInfoBox` — signal metadata, QFormLayout + placeholder | 16 |
+| `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons | 28 |
 | `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
 | `controller/app_controller.py` | `AppController` — coordinates all layers | 34 |
 | `app.py` | MVC assembly point | — |
@@ -230,13 +233,23 @@ All six `AppController` dependencies are injected (loader, browser, plot\_area, 
 
 **`MainWindow`** public API:
 - Constructor creates all five view widgets as public attrs: `signal_browser`, `plot_area`, `active_signals_table`, `measurement_info_box`, `signal_info_box`
-- `set_controller(ctrl)` — wires `browser.add_signal_requested → controller.add_signal`; called from `app.py` after controller construction
+- `set_controller(ctrl)` — wires browser, table remove/selection signals to controller; called from `app.py` after controller construction
 - Layout: outer H-splitter → [SignalBrowser (260px) | center V-splitter | ActiveSignalsTable (260px)]; center → [PlotArea (3×) | bottom H-splitter → [MeasurementInfoBox | SignalInfoBox]]
 - Menu: File → Load MDF… (Ctrl+O) / Exit (Ctrl+Q)
 - Toolbar: Load File (folder icon) | Zoom to Fit (Ctrl+0) | Cursors (toggle stub)
 - Both load paths catch `MdfLoadError` and show `QMessageBox.critical`
 
 **`app.py`**: constructs `MainWindow`, reads its view attrs, builds `MdfLoader` + `AppController`, calls `set_controller`, shows the window.
+
+**`MeasurementInfoBox`** / **`SignalInfoBox`**: both use a `QStackedWidget` — page 0 is a centred placeholder label, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` / `set_metadata` populates the form and switches to page 1; `clear()` switches back. Optional fields (empty string / `None`) are omitted. MDF4 XML tags in comment fields are stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`.
+
+**`ActiveSignalsTable`** public API:
+- `add_row(active)` / `remove_row(active)` / `clear()` — row management; identity-based lookup (`is`) avoids numpy `__eq__` ambiguity on `SignalData`
+- `show_cursor_columns(bool)` — reveals/hides C1, C2, Δ columns (hidden by default)
+- `update_cursor_values(active, c1, c2, delta)` — fills cursor cells by row
+- Signals: `selection_changed(object)`, `remove_requested(object)`, `remove_all_requested()`, `color_change_requested(object, QColor)`
+- `_ColorSwatch`: flat `QPushButton` with styled background; click → `QColorDialog` → updates swatch + emits `color_change_requested`
+- Uses `selectionModel().selectedRows()` (not `currentRow()`) so `clearSelection()` correctly emits `None`
 
 ### Decisions made
 - **Qt binding:** PyQt6 (LGPL-friendly path; PyQtGraph supports it).
@@ -246,14 +259,11 @@ All six `AppController` dependencies are injected (loader, browser, plot\_area, 
 - **Signal color palette:** 8-color cycling tuple defined in `app_controller.py`; resets on `load_file()`.
 - **View imports in controller:** `TYPE_CHECKING`-only — no runtime view imports; all views are injected.
 - **MVC assembly:** `MainWindow` creates view widgets; `app.py` reads them to construct `AppController`; `set_controller` completes the wiring. No layer constructs another's object graph.
+- **Identity-based row lookup in `ActiveSignalsTable`:** `ActiveSignal` is a mutable dataclass with numpy-array fields; `__eq__` raises `ValueError` on boolean coercion. All lookups use `is` via `_find_row()`.
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (101 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (166 passing) and `python -m mdf_viewer` both work.
 
-### Next steps (remaining stubs)
-Implement the four remaining view stubs in roughly this order:
-1. `view/measurement_info_box.py` — `set_info(MeasurementInfo)` / `clear()`, read-only label grid
-2. `view/signal_info_box.py` — `set_metadata(SignalMetadata)` / `clear()`, read-only label grid
-3. `view/active_signals_table.py` — color swatch, name, cursor values, Remove/Remove All buttons
-4. `view/plot_area.py` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, zoom\_to\_fit
+### Next step
+`view/plot_area.py` — the last remaining stub. PyQtGraph `GraphicsLayoutWidget`, shared X-axis, per-signal `ViewBox` + right-side Y-axis, `add_signal` / `remove_signal` / `zoom_to_fit`. This is the most complex piece.
