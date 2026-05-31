@@ -191,15 +191,17 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-05-31:** Two features fully implemented and tested (46 tests passing).
+**As of 2026-05-31:** Core MVC backbone complete — 80 tests passing.
 
 ### Implemented
 
 | Module | Description | Tests |
 |--------|-------------|-------|
 | `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` + `MdfLoadError` | 26 |
-| `view/signal_browser.py` | `SignalBrowser` QWidget (TreeView + Add Signal button) | 18 |
 | `model/signal_data.py` | `SignalData` dataclass | 2 |
+| `view/signal_browser.py` | `SignalBrowser` QWidget (TreeView + Add Signal button) | 18 |
+| `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
+| `controller/app_controller.py` | `AppController` — coordinates all layers | 34 |
 
 **`MdfLoader`** is the sole importer of `asammdf`. Public API:
 - `open(path)` / `close()` / `is_open`
@@ -212,15 +214,29 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `clear()` — resets the tree
 - `add_signal_requested(group_index, channel_index)` — PyQt signal emitted on double-click or Add Signal button
 
+**`ActiveSignal`** fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in.
+
+**`AppController`** public API:
+- `load_file(path)` — clears all state, opens file, populates browser + info box; resets color counter; UI cleared before `open()` so state is clean on failure
+- `add_signal(gi, ci)` — loads channel, assigns next palette color, notifies plot + table
+- `remove_signal(active)` — removes from plot/table/list; clears selection if that signal was selected
+- `remove_all()` — removes all signals, clears table and selection
+- `set_selected_signal(active | None)` — drives the Signal Info Box
+- `active_signals` / `selected_signal` — read-only state accessors
+
+All six `AppController` dependencies are injected (loader, browser, plot\_area, active\_signals\_table, measurement\_info\_box, signal\_info\_box). Controller tests use `MagicMock` — no QApplication or real file needed.
+
 ### Decisions made
 - **Qt binding:** PyQt6 (LGPL-friendly path; PyQtGraph supports it).
 - **`ActiveSignal` location:** `src/mdf_viewer/view_model/` (not `model/`), to keep the data layer free of Qt/PyQtGraph imports. Layer rules are documented in `docs/architecture.md`.
 - **Build:** `pyproject.toml` (src-layout, entry point `mdf-viewer`) + `requirements.txt` / `requirements-dev.txt`.
 - **MDF4 `header.author`** does not round-trip via asammdf (stored in XML comment block). The `MeasurementInfo.extra` dict is available for raw fields if needed later.
+- **Signal color palette:** 8-color cycling tuple defined in `app_controller.py`; resets on `load_file()`.
+- **View imports in controller:** `TYPE_CHECKING`-only — no runtime view imports; all views are injected.
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (46 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (80 passing) and `python -m mdf_viewer` both work.
 
 ### Next step
-`AppController` — wires `MdfLoader` → `SignalBrowser` (file load path) and will later drive the plot area and active signals table.
+`MainWindow` — assembles the splitter layout, wires `AppController` to all widgets, adds menu bar (File → Load MDF / Exit) and toolbar (Load File, Zoom to Fit, Cursor Toggle). This makes the app runnable end-to-end.
