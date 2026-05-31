@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pyqtgraph as pg
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
@@ -24,14 +25,42 @@ if TYPE_CHECKING:
 
 
 class _SignalAxisItem(pg.AxisItem):
-    """AxisItem that formats tick labels to 6 significant figures.
+    """AxisItem with improved tick formatting.
 
-    PyQtGraph's default tickStrings can produce floating-point noise
-    (e.g. "256.000000007"). :.6g strips trailing zeros and limits
-    precision to 6 significant figures.
+    For float signals: labels use :.6g (6 significant figures, no trailing
+    zeros — eliminates floating-point noise like "256.000000007").
+
+    For integer signals (discrete values such as gear, enum, flag):
+    - tickValues snaps all ticks to integer positions, suppressing
+      fractional ticks like 7.5 on a gear axis.
+    - tickStrings formats values as plain integers ("7" not "7.0").
     """
 
+    def __init__(self, *args, integer_ticks: bool = False, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._integer_ticks = integer_ticks
+
+    def tickValues(self, minVal, maxVal, size):
+        ticks = super().tickValues(minVal, maxVal, size)
+        if not self._integer_ticks:
+            return ticks
+        # Snap every proposed tick to the nearest integer and deduplicate.
+        seen: set[int] = set()
+        result = []
+        for spacing, values in ticks:
+            int_vals = []
+            for v in values:
+                iv = int(round(v))
+                if iv not in seen and minVal - 0.5 <= iv <= maxVal + 0.5:
+                    seen.add(iv)
+                    int_vals.append(float(iv))
+            if int_vals:
+                result.append((max(spacing, 1.0), int_vals))
+        return result
+
     def tickStrings(self, values, scale, spacing):
+        if self._integer_ticks:
+            return [str(int(round(v * scale))) for v in values]
         return [f"{v * scale:.6g}" for v in values]
 
 
@@ -89,11 +118,13 @@ class PlotArea(QWidget):
 
         # Place a new right axis in the next available layout column.
         col = self._pi.layout.columnCount()
+        integer_ticks = np.issubdtype(active.data.samples.dtype, np.integer)
         axis = _SignalAxisItem(
             'right',
             linkView=vb,
             pen=pg.mkPen(color=color),
             textPen=pg.mkPen(color=color),
+            integer_ticks=integer_ticks,
         )
         self._pi.layout.addItem(axis, 2, col)
 

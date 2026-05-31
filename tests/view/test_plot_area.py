@@ -13,7 +13,7 @@ from pytestqt.qtbot import QtBot
 
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
-from mdf_viewer.view.plot_area import PlotArea
+from mdf_viewer.view.plot_area import PlotArea, _SignalAxisItem
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
 
@@ -207,6 +207,58 @@ def test_recolor_does_not_affect_other_signals(plot: PlotArea) -> None:
     plot.add_signal(b)
     plot.recolor_signal(a, QColor(0, 255, 0))
     assert b.color == QColor(0, 0, 255)
+
+
+# ---------------------------------------------------------------------------
+# _SignalAxisItem tick formatting
+# ---------------------------------------------------------------------------
+
+def test_float_signal_uses_float_axis(plot: PlotArea) -> None:
+    active = _make_active()  # float64 samples
+    plot.add_signal(active)
+    axis = plot._data[active].axis
+    assert not axis._integer_ticks
+
+
+def test_integer_signal_uses_integer_axis(plot: PlotArea) -> None:
+    t = np.linspace(0.0, 1.0, 10)
+    data = SignalData(
+        timestamps=t,
+        samples=np.array([-1, 0, 1, 2, 3, 4, 5, 6, 7, 8], dtype=np.int8),
+    )
+    meta = SignalMetadata(name="gear", group_index=0, channel_index=0)
+    active = ActiveSignal(data=data, metadata=meta, color=QColor(200, 100, 50))
+    plot.add_signal(active)
+    axis = plot._data[active].axis
+    assert axis._integer_ticks
+
+
+def test_float_tick_strings_use_g_format() -> None:
+    axis = _SignalAxisItem("left")
+    result = axis.tickStrings([256.000000007, 0.001234567, -3.14159], 1.0, 1.0)
+    assert result == ["256", "0.00123457", "-3.14159"]
+
+
+def test_integer_tick_strings_are_plain_ints() -> None:
+    axis = _SignalAxisItem("left", integer_ticks=True)
+    result = axis.tickStrings([1.0, 2.0, 7.0, -1.0], 1.0, 1.0)
+    assert result == ["1", "2", "7", "-1"]
+
+
+def test_integer_tick_values_no_fractions(plot: PlotArea) -> None:
+    axis = _SignalAxisItem("left", integer_ticks=True)
+    # Ask for ticks across range 0–8 (gear signal)
+    ticks = axis.tickValues(0.0, 8.0, 300)
+    all_values = [v for _, vals in ticks for v in vals]
+    # Every tick must be a whole number
+    assert all(v == int(v) for v in all_values)
+
+
+def test_integer_tick_values_no_duplicates(plot: PlotArea) -> None:
+    axis = _SignalAxisItem("left", integer_ticks=True)
+    ticks = axis.tickValues(-1.0, 8.0, 300)
+    all_values = [v for _, vals in ticks for v in vals]
+    assert len(all_values) == len(set(all_values))
 
 
 def test_zoom_to_fit_sets_x_range(plot: PlotArea) -> None:
