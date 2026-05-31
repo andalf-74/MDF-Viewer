@@ -34,14 +34,21 @@ Three distinct signal classes have been identified from the prototype:
 
 ## Project Structure
 
-Propose a clean folder structure with at minimum:
-- Source code separated from tests and documentation
-- A `src/` or equivalent directory for application code
-- A `tests/` directory
-- A `docs/` directory
-- Standard Python project files (`pyproject.toml` or `setup.py`, `requirements.txt`, `.gitignore`)
+```
+src/mdf_viewer/
+    model/          # Pure data — no Qt/PyQtGraph imports
+    view/           # Pure UI — no business logic
+    view_model/     # ActiveSignal: bridges model data with plot objects
+    controller/     # Coordinates model ↔ view
+tests/
+    model/
+    view/
+docs/
+pyproject.toml      # src-layout, entry point mdf-viewer
+requirements.txt / requirements-dev.txt
+```
 
-The `.gitignore` must cover both Windows and macOS development environments.
+`.gitignore` covers Windows and macOS development environments.
 
 ---
 
@@ -184,16 +191,36 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-05-30:** Project scaffold is complete and committed (git initialized; first commit `387d999`). Feature implementation has not started — all view/controller/loader modules are skeletons (class + docstring + commented "to be implemented" contract).
+**As of 2026-05-31:** Two features fully implemented and tested (46 tests passing).
+
+### Implemented
+
+| Module | Description | Tests |
+|--------|-------------|-------|
+| `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` + `MdfLoadError` | 26 |
+| `view/signal_browser.py` | `SignalBrowser` QWidget (TreeView + Add Signal button) | 18 |
+| `model/signal_data.py` | `SignalData` dataclass | 2 |
+
+**`MdfLoader`** is the sole importer of `asammdf`. Public API:
+- `open(path)` / `close()` / `is_open`
+- `measurement_info()` → `MeasurementInfo`
+- `channel_tree()` → `list[ChannelGroupInfo]`
+- `load_signal(group_index, channel_index)` → `(SignalData, SignalMetadata)`
+
+**`SignalBrowser`** public API:
+- `populate(groups: list[ChannelGroupInfo])` — rebuilds the tree, groups expanded by default
+- `clear()` — resets the tree
+- `add_signal_requested(group_index, channel_index)` — PyQt signal emitted on double-click or Add Signal button
 
 ### Decisions made
 - **Qt binding:** PyQt6 (LGPL-friendly path; PyQtGraph supports it).
 - **`ActiveSignal` location:** `src/mdf_viewer/view_model/` (not `model/`), to keep the data layer free of Qt/PyQtGraph imports. Layer rules are documented in `docs/architecture.md`.
 - **Build:** `pyproject.toml` (src-layout, entry point `mdf-viewer`) + `requirements.txt` / `requirements-dev.txt`.
+- **MDF4 `header.author`** does not round-trip via asammdf (stored in XML comment block). The `MeasurementInfo.extra` dict is available for raw fields if needed later.
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (2 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (46 passing) and `python -m mdf_viewer` both work.
 
 ### Next step
-Implement `model/mdf_loader.py` (`MdfLoader`) first — the Signal Browser, info boxes, and plotting all depend on loaded data.
+`AppController` — wires `MdfLoader` → `SignalBrowser` (file load path) and will later drive the plot area and active signals table.
