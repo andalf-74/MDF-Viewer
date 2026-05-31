@@ -191,7 +191,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-05-31:** Core MVC backbone complete — 80 tests passing.
+**As of 2026-05-31:** App is runnable end-to-end (blank panels) — 101 tests passing.
 
 ### Implemented
 
@@ -200,8 +200,10 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` + `MdfLoadError` | 26 |
 | `model/signal_data.py` | `SignalData` dataclass | 2 |
 | `view/signal_browser.py` | `SignalBrowser` QWidget (TreeView + Add Signal button) | 18 |
+| `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, wiring | 21 |
 | `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
 | `controller/app_controller.py` | `AppController` — coordinates all layers | 34 |
+| `app.py` | MVC assembly point | — |
 
 **`MdfLoader`** is the sole importer of `asammdf`. Public API:
 - `open(path)` / `close()` / `is_open`
@@ -226,6 +228,16 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 All six `AppController` dependencies are injected (loader, browser, plot\_area, active\_signals\_table, measurement\_info\_box, signal\_info\_box). Controller tests use `MagicMock` — no QApplication or real file needed.
 
+**`MainWindow`** public API:
+- Constructor creates all five view widgets as public attrs: `signal_browser`, `plot_area`, `active_signals_table`, `measurement_info_box`, `signal_info_box`
+- `set_controller(ctrl)` — wires `browser.add_signal_requested → controller.add_signal`; called from `app.py` after controller construction
+- Layout: outer H-splitter → [SignalBrowser (260px) | center V-splitter | ActiveSignalsTable (260px)]; center → [PlotArea (3×) | bottom H-splitter → [MeasurementInfoBox | SignalInfoBox]]
+- Menu: File → Load MDF… (Ctrl+O) / Exit (Ctrl+Q)
+- Toolbar: Load File (folder icon) | Zoom to Fit (Ctrl+0) | Cursors (toggle stub)
+- Both load paths catch `MdfLoadError` and show `QMessageBox.critical`
+
+**`app.py`**: constructs `MainWindow`, reads its view attrs, builds `MdfLoader` + `AppController`, calls `set_controller`, shows the window.
+
 ### Decisions made
 - **Qt binding:** PyQt6 (LGPL-friendly path; PyQtGraph supports it).
 - **`ActiveSignal` location:** `src/mdf_viewer/view_model/` (not `model/`), to keep the data layer free of Qt/PyQtGraph imports. Layer rules are documented in `docs/architecture.md`.
@@ -233,10 +245,15 @@ All six `AppController` dependencies are injected (loader, browser, plot\_area, 
 - **MDF4 `header.author`** does not round-trip via asammdf (stored in XML comment block). The `MeasurementInfo.extra` dict is available for raw fields if needed later.
 - **Signal color palette:** 8-color cycling tuple defined in `app_controller.py`; resets on `load_file()`.
 - **View imports in controller:** `TYPE_CHECKING`-only — no runtime view imports; all views are injected.
+- **MVC assembly:** `MainWindow` creates view widgets; `app.py` reads them to construct `AppController`; `set_controller` completes the wiring. No layer constructs another's object graph.
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (80 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (101 passing) and `python -m mdf_viewer` both work.
 
-### Next step
-`MainWindow` — assembles the splitter layout, wires `AppController` to all widgets, adds menu bar (File → Load MDF / Exit) and toolbar (Load File, Zoom to Fit, Cursor Toggle). This makes the app runnable end-to-end.
+### Next steps (remaining stubs)
+Implement the four remaining view stubs in roughly this order:
+1. `view/measurement_info_box.py` — `set_info(MeasurementInfo)` / `clear()`, read-only label grid
+2. `view/signal_info_box.py` — `set_metadata(SignalMetadata)` / `clear()`, read-only label grid
+3. `view/active_signals_table.py` — color swatch, name, cursor values, Remove/Remove All buttons
+4. `view/plot_area.py` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, zoom\_to\_fit
