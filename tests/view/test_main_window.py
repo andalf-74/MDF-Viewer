@@ -193,3 +193,28 @@ def test_add_signal_error_shows_message_box(
         wired.signal_browser.add_signal_requested.emit(0, 1)
     mock_crit.assert_called_once()
     assert "non-numeric channel" in mock_crit.call_args[0][2]
+
+
+def test_color_change_calls_recolor_signal(
+    wired: MainWindow, qtbot: QtBot
+) -> None:
+    from unittest.mock import patch as _patch
+    from PyQt6.QtGui import QColor
+    import numpy as np
+    from mdf_viewer.model.signal_data import SignalData
+    from mdf_viewer.model.signal_metadata import SignalMetadata
+    from mdf_viewer.view_model.active_signal import ActiveSignal
+
+    t = np.linspace(0, 1, 10)
+    active = ActiveSignal(
+        data=SignalData(timestamps=t, samples=t),
+        metadata=SignalMetadata(name="x", group_index=0, channel_index=0),
+        color=QColor(255, 0, 0),
+    )
+    wired.plot_area.add_signal(active)
+    new_color = QColor(0, 255, 0)
+
+    with _patch.object(wired.plot_area, "recolor_signal") as mock_recolor:
+        wired.active_signals_table.color_change_requested.emit(active, new_color)
+
+    mock_recolor.assert_called_once_with(active, new_color)

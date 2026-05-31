@@ -73,6 +73,9 @@ class MainWindow(QMainWindow):
         self.active_signals_table.selection_changed.connect(
             controller.set_selected_signal
         )
+        self.active_signals_table.color_change_requested.connect(
+            self._on_color_changed
+        )
 
     # ------------------------------------------------------------------
     # UI construction
@@ -165,6 +168,9 @@ class MainWindow(QMainWindow):
             self._controller.add_signal(group_index, channel_index)
         except MdfLoadError as exc:
             QMessageBox.critical(self, "Error Loading Signal", str(exc))
+
+    def _on_color_changed(self, active, new_color) -> None:
+        self.plot_area.recolor_signal(active, new_color)
 
     def _on_zoom_to_fit(self) -> None:
         if hasattr(self.plot_area, "zoom_to_fit"):

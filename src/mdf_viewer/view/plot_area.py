@@ -111,6 +111,17 @@ class PlotArea(QWidget):
         active.view_box = None
         self._update_view_geometries()
 
+    def recolor_signal(self, active: ActiveSignal, color) -> None:
+        """Update curve pen, Y-axis pen, and active.color. No-op if not present."""
+        if active not in self._data:
+            return
+        spd = self._data[active]
+        pen = pg.mkPen(color=color, width=2)
+        spd.curve.setPen(pen)
+        spd.axis.setPen(pg.mkPen(color=color))
+        spd.axis.setTextPen(pg.mkPen(color=color))
+        active.color = color
+
     def zoom_to_fit(self) -> None:
         """Reset viewport: full X range across all signals, auto Y per signal."""
         if not self._data:

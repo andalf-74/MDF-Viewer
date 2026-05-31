@@ -175,6 +175,40 @@ def test_zoom_to_fit_with_signals_no_crash(plot: PlotArea) -> None:
     plot.zoom_to_fit()  # must not raise
 
 
+# ---------------------------------------------------------------------------
+# recolor_signal
+# ---------------------------------------------------------------------------
+
+def test_recolor_updates_active_color(plot: PlotArea) -> None:
+    active = _make_active(color=QColor(255, 0, 0))
+    plot.add_signal(active)
+    new_color = QColor(0, 0, 255)
+    plot.recolor_signal(active, new_color)
+    assert active.color == new_color
+
+
+def test_recolor_updates_curve_pen(plot: PlotArea) -> None:
+    active = _make_active(color=QColor(255, 0, 0))
+    plot.add_signal(active)
+    new_color = QColor(0, 200, 50)
+    plot.recolor_signal(active, new_color)
+    assert active.curve.opts["pen"].color().name() == new_color.name()
+
+
+def test_recolor_noop_for_unknown(plot: PlotArea) -> None:
+    stranger = _make_active()
+    plot.recolor_signal(stranger, QColor(0, 255, 0))  # must not raise
+
+
+def test_recolor_does_not_affect_other_signals(plot: PlotArea) -> None:
+    a = _make_active("a", color=QColor(255, 0, 0))
+    b = _make_active("b", color=QColor(0, 0, 255))
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.recolor_signal(a, QColor(0, 255, 0))
+    assert b.color == QColor(0, 0, 255)
+
+
 def test_zoom_to_fit_sets_x_range(plot: PlotArea) -> None:
     t = np.linspace(0.5, 2.5, 50)
     data = SignalData(timestamps=t, samples=np.ones(50))
