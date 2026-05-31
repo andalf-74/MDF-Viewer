@@ -191,7 +191,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-05-31:** All views implemented — MVP feature-complete — 184 tests passing.
+**As of 2026-05-31:** Cursor system complete — 229 tests passing.
 
 ### Implemented
 
@@ -205,8 +205,10 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `view/signal_info_box.py` | `SignalInfoBox` — signal metadata, QFormLayout + placeholder | 16 |
 | `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons | 28 |
 | `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis | 18 |
+| `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic | 17 |
 | `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
 | `controller/app_controller.py` | `AppController` — coordinates all layers | 34 |
+| `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation | 28 |
 | `app.py` | MVC assembly point | — |
 
 **`MdfLoader`** is the sole importer of `asammdf`. Public API:
@@ -223,24 +225,36 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 **`ActiveSignal`** fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in. `__hash__ = object.__hash__` added so instances can be used as dict keys (auto-generated `__eq__` from `@dataclass` compares numpy arrays, which sets `__hash__` to `None` by default).
 
 **`AppController`** public API:
-- `load_file(path)` — clears all state, opens file, populates browser + info box; resets color counter; UI cleared before `open()` so state is clean on failure
-- `add_signal(gi, ci)` — loads channel, assigns next palette color, notifies plot + table
-- `remove_signal(active)` — removes from plot/table/list; clears selection if that signal was selected
-- `remove_all()` — removes all signals, clears table and selection
+- `load_file(path)` — clears all state, opens file, populates browser + info box; resets color counter and cursor system; UI cleared before `open()` so state is clean on failure
+- `add_signal(gi, ci)` — loads channel, assigns next palette color, notifies plot + table + cursor system
+- `remove_signal(active)` — removes from plot/table/list; notifies cursor system; clears selection if that signal was selected
+- `remove_all()` — removes all signals, clears table, notifies cursor system, clears selection
 - `set_selected_signal(active | None)` — drives the Signal Info Box
+- `set_cursor_controller(cc)` — optional; wired from `app.py` after construction
 - `active_signals` / `selected_signal` — read-only state accessors
 
-All six `AppController` dependencies are injected (loader, browser, plot\_area, active\_signals\_table, measurement\_info\_box, signal\_info\_box). Controller tests use `MagicMock` — no QApplication or real file needed.
+**`CursorController`** public API:
+- `toggle()` — HIDDEN → ONE → TWO → HIDDEN; on first activation places cursors at plot X range start + 10% span; subsequent toggles use remembered positions
+- `reset()` — called by `AppController.load_file()`; hides cursors and marks positions for re-initialisation on next activation
+- `on_signal_added(active)` / `on_signal_removed(active)` / `on_all_signals_cleared()` — keep label state in sync
+- Drives `ActiveSignalsTable.update_cursor_values()` and `CursorView.update_labels()` on every drag and toggle
+
+**`CursorView`** (`QObject`, lives inside `PlotArea.plot_item`):
+- Two dashed-yellow `pg.InfiniteLine` items (hidden until activated); `apply_mode(mode, positions)` shows/hides and repositions them
+- `update_labels(active_signals, positions, mode)` — creates/repositions `pg.TextItem` value labels (signal color, `{value:.4g} {unit}`); prunes stale labels
+- `remove_labels_for(active)` / `clear_labels()` — called on signal removal
+- Nearest-cursor logic: `pg.SignalProxy` on `scene.sigMouseMoved` (30 fps) — in TWO mode, only the closer cursor's labels are shown
+- `cursor_moved(index, x)` — `pyqtSignal` emitted on every drag step
 
 **`MainWindow`** public API:
 - Constructor creates all five view widgets as public attrs: `signal_browser`, `plot_area`, `active_signals_table`, `measurement_info_box`, `signal_info_box`
-- `set_controller(ctrl)` — wires browser, table remove/selection signals to controller; called from `app.py` after controller construction
+- `set_controller(ctrl, cursor_ctrl=None)` — wires browser, table remove/selection signals to controller, and cursor toggle to `cursor_ctrl.toggle()`
 - Layout: outer H-splitter → [SignalBrowser (260px) | center V-splitter | ActiveSignalsTable (260px)]; center → [PlotArea (3×) | bottom H-splitter → [MeasurementInfoBox | SignalInfoBox]]
 - Menu: File → Load MDF… (Ctrl+O) / Exit (Ctrl+Q)
-- Toolbar: Load File (folder icon) | Zoom to Fit (Ctrl+0) | Cursors (toggle stub)
+- Toolbar: Load File (folder icon) | Zoom to Fit (Ctrl+0) | Cursors (toggle)
 - Both load paths catch `MdfLoadError` and show `QMessageBox.critical`
 
-**`app.py`**: constructs `MainWindow`, reads its view attrs, builds `MdfLoader` + `AppController`, calls `set_controller`, shows the window.
+**`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController`, wires all three together, calls `set_controller`.
 
 **`MeasurementInfoBox`** / **`SignalInfoBox`**: both use a `QStackedWidget` — page 0 is a centred placeholder label, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` / `set_metadata` populates the form and switches to page 1; `clear()` switches back. Optional fields (empty string / `None`) are omitted. MDF4 XML tags in comment fields are stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`.
 
@@ -269,12 +283,14 @@ All six `AppController` dependencies are injected (loader, browser, plot\_area, 
 - `remove_signal(active)` — removes curve/ViewBox/axis from scene and layout; clears `active.curve` and `active.view_box`; no-op for unknowns
 - `zoom_to_fit()` — full X range from timestamps, auto Y per signal; no-op when empty
 
+### Decisions made (continued)
+- **`CursorController` wiring:** optional dependency injected via `AppController.set_cursor_controller()`; all notify calls are guarded by `None` check so the cursor system can be omitted without touching `AppController`.
+- **CursorView lifetime:** `CursorView` is a `QObject` that holds references to PyQtGraph items added to `PlotArea.plot_item`. It is constructed in `app.py` after `MainWindow` so the PlotItem scene already exists. Tests keep the parent `PlotWidget` alive via a separate pytest fixture to prevent C++ object deletion.
+- **Nearest-cursor label logic:** uses identity-based label keys `(cursor_index, active)` to avoid numpy `__eq__` ambiguity (same pitfall as `ActiveSignalsTable._find_row`).
+
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (184 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (229 passing) and `python -m mdf_viewer` both work.
 
-### Next steps
-MVP core is complete. Remaining work before first usable release:
-- **Cursor system** — `CursorController` + `CursorView` (toggle 0→1→2→0, draggable `InfiniteLine`, value labels near curve intersection, feed values to `ActiveSignalsTable.update_cursor_values`)
-- **Color change wiring** — connect `ActiveSignalsTable.color_change_requested` to update `ActiveSignal.color`, curve pen, and Y-axis pen in `PlotArea`
-- **`data/` folder** — place real MDF files here for manual testing (gitignored by `*.mf4` / `*.mdf` rules)
+### Next step
+**Color change wiring** — connect `ActiveSignalsTable.color_change_requested` to update `ActiveSignal.color`, the curve pen in `PlotArea`, and the Y-axis pen. This is the last item before the first usable release.
