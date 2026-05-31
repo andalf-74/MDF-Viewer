@@ -191,7 +191,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-05-31:** All non-plot views implemented — 166 tests passing.
+**As of 2026-05-31:** All views implemented — MVP feature-complete — 184 tests passing.
 
 ### Implemented
 
@@ -204,6 +204,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `view/measurement_info_box.py` | `MeasurementInfoBox` — file metadata, QFormLayout + placeholder | 18 |
 | `view/signal_info_box.py` | `SignalInfoBox` — signal metadata, QFormLayout + placeholder | 16 |
 | `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons | 28 |
+| `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis | 18 |
 | `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
 | `controller/app_controller.py` | `AppController` — coordinates all layers | 34 |
 | `app.py` | MVC assembly point | — |
@@ -219,7 +220,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `clear()` — resets the tree
 - `add_signal_requested(group_index, channel_index)` — PyQt signal emitted on double-click or Add Signal button
 
-**`ActiveSignal`** fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in.
+**`ActiveSignal`** fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in. `__hash__ = object.__hash__` added so instances can be used as dict keys (auto-generated `__eq__` from `@dataclass` compares numpy arrays, which sets `__hash__` to `None` by default).
 
 **`AppController`** public API:
 - `load_file(path)` — clears all state, opens file, populates browser + info box; resets color counter; UI cleared before `open()` so state is clean on failure
@@ -260,10 +261,20 @@ All six `AppController` dependencies are injected (loader, browser, plot\_area, 
 - **View imports in controller:** `TYPE_CHECKING`-only — no runtime view imports; all views are injected.
 - **MVC assembly:** `MainWindow` creates view widgets; `app.py` reads them to construct `AppController`; `set_controller` completes the wiring. No layer constructs another's object graph.
 - **Identity-based row lookup in `ActiveSignalsTable`:** `ActiveSignal` is a mutable dataclass with numpy-array fields; `__eq__` raises `ValueError` on boolean coercion. All lookups use `is` via `_find_row()`.
+- **`PlotArea` multi-axis pattern:** `pi.vb` (main ViewBox) is the X-axis host only — no curves added to it. Each signal gets its own `ViewBox` with `setXLink(pi)` for shared X, and a `AxisItem('right')` placed at the next layout column. `pi.vb.sigResized` → `_update_view_geometries()` keeps extra ViewBoxes geometrically aligned.
+- **`PlotArea` zoom_to_fit:** computes X bounds from `active.data.timestamps` across all signals, calls `pi.vb.setXRange` (propagates via XLink), then `vb.autoRange()` per signal for independent Y reset.
+
+**`PlotArea`** public API:
+- `add_signal(active)` — creates `ViewBox` + `AxisItem('right')` + `PlotDataItem`; sets `active.curve` and `active.view_box`; no-op for duplicates
+- `remove_signal(active)` — removes curve/ViewBox/axis from scene and layout; clears `active.curve` and `active.view_box`; no-op for unknowns
+- `zoom_to_fit()` — full X range from timestamps, auto Y per signal; no-op when empty
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (166 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (184 passing) and `python -m mdf_viewer` both work.
 
-### Next step
-`view/plot_area.py` — the last remaining stub. PyQtGraph `GraphicsLayoutWidget`, shared X-axis, per-signal `ViewBox` + right-side Y-axis, `add_signal` / `remove_signal` / `zoom_to_fit`. This is the most complex piece.
+### Next steps
+MVP core is complete. Remaining work before first usable release:
+- **Cursor system** — `CursorController` + `CursorView` (toggle 0→1→2→0, draggable `InfiniteLine`, value labels near curve intersection, feed values to `ActiveSignalsTable.update_cursor_values`)
+- **Color change wiring** — connect `ActiveSignalsTable.color_change_requested` to update `ActiveSignal.color`, curve pen, and Y-axis pen in `PlotArea`
+- **`data/` folder** — place real MDF files here for manual testing (gitignored by `*.mf4` / `*.mdf` rules)
