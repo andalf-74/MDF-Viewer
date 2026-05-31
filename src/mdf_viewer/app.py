@@ -14,15 +14,24 @@ def run(argv: list[str]) -> int:
     """
     from PyQt6.QtWidgets import QApplication
 
-    app = QApplication(argv)
-
-    # Wiring is added as the layers are implemented:
-    #   controller = AppController()
-    #   window = MainWindow(controller)
-    #   window.show()
+    from mdf_viewer.controller.app_controller import AppController
+    from mdf_viewer.model.mdf_loader import MdfLoader
     from mdf_viewer.view.main_window import MainWindow
 
-    window = MainWindow()
-    window.show()
+    app = QApplication(argv)
 
+    window = MainWindow()
+
+    loader = MdfLoader()
+    controller = AppController(
+        loader=loader,
+        signal_browser=window.signal_browser,
+        plot_area=window.plot_area,
+        active_signals_table=window.active_signals_table,
+        measurement_info_box=window.measurement_info_box,
+        signal_info_box=window.signal_info_box,
+    )
+    window.set_controller(controller)
+
+    window.show()
     return app.exec()
