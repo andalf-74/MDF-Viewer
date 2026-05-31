@@ -117,22 +117,24 @@ class AppController:
         """
         if active_signal not in self._active:
             return
+        # Cursor labels must be removed before the plot destroys the ViewBox.
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.on_signal_removed(active_signal)
         self._plot.remove_signal(active_signal)
         self._active.remove(active_signal)
         self._table.remove_row(active_signal)
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.on_signal_removed(active_signal)
         if self._selected is active_signal:
             self.set_selected_signal(None)
 
     def remove_all(self) -> None:
         """Remove all active signals from the plot and the table."""
+        # Clear cursor labels before ViewBoxes are destroyed.
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.on_all_signals_cleared()
         for sig in list(self._active):
             self._plot.remove_signal(sig)
         self._active.clear()
         self._table.clear()
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.on_all_signals_cleared()
         self.set_selected_signal(None)
 
     def set_selected_signal(self, active_signal: ActiveSignal | None) -> None:

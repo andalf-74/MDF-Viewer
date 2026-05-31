@@ -16,7 +16,7 @@ from mdf_viewer.view_model.active_signal import ActiveSignal
 
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Fixtures and helpers
 # ---------------------------------------------------------------------------
 
 def _make_active(name: str = "sig", color: QColor | None = None) -> ActiveSignal:
@@ -24,6 +24,19 @@ def _make_active(name: str = "sig", color: QColor | None = None) -> ActiveSignal
     data = SignalData(timestamps=t, samples=np.sin(2 * np.pi * t))
     meta = SignalMetadata(name=name, unit="V", group_index=0, channel_index=0)
     return ActiveSignal(data=data, metadata=meta, color=color or QColor(255, 85, 85))
+
+
+def _make_active_with_vb(
+    pw: pg.PlotWidget,
+    name: str = "sig",
+    color: QColor | None = None,
+) -> ActiveSignal:
+    """Create an ActiveSignal with a real ViewBox attached (needed for label tests)."""
+    active = _make_active(name, color)
+    vb = pg.ViewBox()
+    pw.getPlotItem().scene().addItem(vb)
+    active.view_box = vb
+    return active
 
 
 @pytest.fixture()
@@ -90,63 +103,84 @@ def test_apply_mode_sets_line_positions(cv: CursorView) -> None:
 # update_labels
 # ---------------------------------------------------------------------------
 
-def test_update_labels_creates_label_for_signal(cv: CursorView) -> None:
-    active = _make_active()
+def test_update_labels_creates_label_for_signal(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    active = _make_active_with_vb(pw)
     cv.apply_mode(CursorMode.ONE, [0.25, 0.75])
     cv.update_labels([active], [0.25, 0.75], CursorMode.ONE)
     assert len(cv._labels) == 1
 
 
-def test_update_labels_two_mode_creates_two_per_signal(cv: CursorView) -> None:
-    active = _make_active()
+def test_update_labels_two_mode_creates_two_per_signal(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    active = _make_active_with_vb(pw)
     cv.apply_mode(CursorMode.TWO, [0.25, 0.75])
     cv.update_labels([active], [0.25, 0.75], CursorMode.TWO)
     assert len(cv._labels) == 2
 
 
-def test_update_labels_multiple_signals(cv: CursorView) -> None:
-    sigs = [_make_active(f"s{i}") for i in range(3)]
+def test_update_labels_multiple_signals(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    sigs = [_make_active_with_vb(pw, f"s{i}") for i in range(3)]
     cv.apply_mode(CursorMode.ONE, [0.5, 0.8])
     cv.update_labels(sigs, [0.5, 0.8], CursorMode.ONE)
     assert len(cv._labels) == 3
 
 
-def test_update_labels_removes_stale_labels(cv: CursorView) -> None:
-    sigs = [_make_active("a"), _make_active("b")]
+def test_update_labels_removes_stale_labels(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    sigs = [_make_active_with_vb(pw, "a"), _make_active_with_vb(pw, "b")]
     cv.apply_mode(CursorMode.ONE, [0.5, 0.8])
     cv.update_labels(sigs, [0.5, 0.8], CursorMode.ONE)
     assert len(cv._labels) == 2
-    # Remove one signal
     cv.update_labels(sigs[:1], [0.5, 0.8], CursorMode.ONE)
     assert len(cv._labels) == 1
 
 
-def test_update_labels_out_of_range_hides_label(cv: CursorView) -> None:
-    active = _make_active()
+def test_update_labels_out_of_range_hides_label(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    active = _make_active_with_vb(pw)
     cv.apply_mode(CursorMode.ONE, [5.0, 6.0])
     cv.update_labels([active], [5.0, 6.0], CursorMode.ONE)
     # Cursor at x=5.0, signal only covers [0,1] → no label created
-    assert all(not lbl.isVisible() for lbl in cv._labels.values())
+    assert all(not lbl.isVisible() for lbl, _ in cv._labels.values())
+
+
+def test_update_labels_skips_signal_without_view_box(cv: CursorView) -> None:
+    # Signal with view_box=None (not yet added to plot) should be skipped.
+    active = _make_active()  # view_box is None
+    cv.apply_mode(CursorMode.ONE, [0.25, 0.75])
+    cv.update_labels([active], [0.25, 0.75], CursorMode.ONE)
+    assert len(cv._labels) == 0
 
 
 # ---------------------------------------------------------------------------
 # Label visibility rules
 # ---------------------------------------------------------------------------
 
-def test_one_mode_label_always_visible(cv: CursorView) -> None:
-    active = _make_active()
+def test_one_mode_label_always_visible(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    active = _make_active_with_vb(pw)
     cv.apply_mode(CursorMode.ONE, [0.25, 0.75])
     cv.update_labels([active], [0.25, 0.75], CursorMode.ONE)
-    label = cv._labels[(0, active)]
-    assert label.isVisible()
+    lbl, _ = cv._labels[(0, active)]
+    assert lbl.isVisible()
 
 
-def test_hidden_mode_labels_not_visible(cv: CursorView) -> None:
-    active = _make_active()
+def test_hidden_mode_labels_not_visible(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    active = _make_active_with_vb(pw)
     cv.apply_mode(CursorMode.ONE, [0.25, 0.75])
     cv.update_labels([active], [0.25, 0.75], CursorMode.ONE)
     cv.apply_mode(CursorMode.HIDDEN, [0.25, 0.75])
-    for lbl in cv._labels.values():
+    for lbl, _ in cv._labels.values():
         assert not lbl.isVisible()
 
 
@@ -154,8 +188,11 @@ def test_hidden_mode_labels_not_visible(cv: CursorView) -> None:
 # remove_labels_for / clear_labels
 # ---------------------------------------------------------------------------
 
-def test_remove_labels_for_removes_only_that_signal(cv: CursorView) -> None:
-    a, b = _make_active("a"), _make_active("b")
+def test_remove_labels_for_removes_only_that_signal(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    a = _make_active_with_vb(pw, "a")
+    b = _make_active_with_vb(pw, "b")
     cv.apply_mode(CursorMode.ONE, [0.5, 0.8])
     cv.update_labels([a, b], [0.5, 0.8], CursorMode.ONE)
     cv.remove_labels_for(a)
@@ -164,8 +201,10 @@ def test_remove_labels_for_removes_only_that_signal(cv: CursorView) -> None:
     assert any(r is b for r in remaining)
 
 
-def test_clear_labels_removes_all(cv: CursorView) -> None:
-    sigs = [_make_active(f"s{i}") for i in range(3)]
+def test_clear_labels_removes_all(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    sigs = [_make_active_with_vb(pw, f"s{i}") for i in range(3)]
     cv.apply_mode(CursorMode.ONE, [0.5, 0.8])
     cv.update_labels(sigs, [0.5, 0.8], CursorMode.ONE)
     cv.clear_labels()

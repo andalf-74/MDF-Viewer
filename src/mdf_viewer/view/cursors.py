@@ -6,6 +6,10 @@ in CursorController; this class only handles the visual representation.
 
 Label visibility rule: with ONE cursor, its labels are always shown; with
 TWO cursors, only the cursor nearest the mouse pointer shows its labels.
+
+Each label is parented to the signal's own ViewBox (not the main PlotItem),
+so it lives in that signal's Y coordinate space. This means the label
+automatically tracks Y panning and zooming without any extra update calls.
 """
 
 from __future__ import annotations
@@ -47,8 +51,9 @@ class CursorView(QObject):
             )
             self._lines.append(line)
 
-        # (cursor_index, ActiveSignal) → TextItem
-        self._labels: dict[tuple[int, ActiveSignal], pg.TextItem] = {}
+        # (cursor_index, ActiveSignal) → (TextItem, ViewBox)
+        # Labels are owned by the signal's ViewBox so they track Y pan/zoom.
+        self._labels: dict[tuple[int, ActiveSignal], tuple[pg.TextItem, pg.ViewBox]] = {}
 
         # Mouse tracking to determine nearest cursor
         self._mouse_proxy = pg.SignalProxy(
@@ -78,7 +83,12 @@ class CursorView(QObject):
         positions: list[float],
         mode: CursorMode,
     ) -> None:
-        """Create or reposition value labels for all signal × cursor pairs."""
+        """Create or reposition value labels for all signal × cursor pairs.
+
+        Each label is parented to the signal's own ViewBox so it stays
+        anchored to the correct Y position even when the Y axis is panned
+        or zoomed independently.
+        """
         self._mode = mode
         current_keys: set[tuple[int, ActiveSignal]] = set()
 
@@ -87,13 +97,15 @@ class CursorView(QObject):
                 continue
             x = positions[ci]
             for active in active_signals:
+                vb = active.view_box
+                if vb is None:
+                    continue
                 key = (ci, active)
                 current_keys.add(key)
                 y = _interpolate(active, x)
                 if y is None:
-                    # Out of range — hide label if it exists
                     if key in self._labels:
-                        self._labels[key].setVisible(False)
+                        self._labels[key][0].setVisible(False)
                     continue
                 if key not in self._labels:
                     lbl = pg.TextItem(
@@ -101,30 +113,38 @@ class CursorView(QObject):
                         color=active.color,
                         anchor=(0.0, 1.0),
                     )
-                    self._pi.addItem(lbl)
-                    self._labels[key] = lbl
+                    vb.addItem(lbl)
+                    self._labels[key] = (lbl, vb)
+                lbl, _ = self._labels[key]
                 unit = active.metadata.unit
-                text = f"{y:.4g}{(' ' + unit) if unit else ''}"
-                self._labels[key].setText(text)
-                self._labels[key].setPos(x, y)
+                lbl.setText(f"{y:.4g}{(' ' + unit) if unit else ''}")
+                lbl.setPos(x, y)
 
         # Remove labels for keys no longer needed
         stale = set(self._labels) - current_keys
         for key in stale:
-            self._pi.removeItem(self._labels.pop(key))
+            lbl, vb = self._labels.pop(key)
+            vb.removeItem(lbl)
 
         self._refresh_label_visibility()
 
     def remove_labels_for(self, active: ActiveSignal) -> None:
-        """Remove all labels associated with a specific signal."""
+        """Remove all labels for a specific signal.
+
+        Must be called before the signal's ViewBox is destroyed.
+        """
         stale = [k for k in self._labels if k[1] is active]
         for key in stale:
-            self._pi.removeItem(self._labels.pop(key))
+            lbl, vb = self._labels.pop(key)
+            vb.removeItem(lbl)
 
     def clear_labels(self) -> None:
-        """Remove all value labels from the plot."""
-        for lbl in self._labels.values():
-            self._pi.removeItem(lbl)
+        """Remove all value labels from the plot.
+
+        Must be called before signal ViewBoxes are destroyed.
+        """
+        for lbl, vb in self._labels.values():
+            vb.removeItem(lbl)
         self._labels.clear()
 
     # ------------------------------------------------------------------
@@ -132,7 +152,7 @@ class CursorView(QObject):
     # ------------------------------------------------------------------
 
     def _refresh_label_visibility(self) -> None:
-        for (ci, _), lbl in self._labels.items():
+        for (ci, _), (lbl, _) in self._labels.items():
             lbl.setVisible(self._should_show(ci))
 
     def _should_show(self, cursor_idx: int) -> bool:
