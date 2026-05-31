@@ -125,6 +125,10 @@ class PlotArea(QWidget):
         for spd in self._data.values():
             spd.view_box.autoRange()
 
+    @property
+    def plot_item(self) -> pg.PlotItem:
+        return self._pi
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------

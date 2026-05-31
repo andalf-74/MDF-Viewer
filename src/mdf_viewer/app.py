@@ -15,7 +15,9 @@ def run(argv: list[str]) -> int:
     from PyQt6.QtWidgets import QApplication
 
     from mdf_viewer.controller.app_controller import AppController
+    from mdf_viewer.controller.cursor_controller import CursorController
     from mdf_viewer.model.mdf_loader import MdfLoader
+    from mdf_viewer.view.cursors import CursorView
     from mdf_viewer.view.main_window import MainWindow
 
     app = QApplication(argv)
@@ -31,7 +33,15 @@ def run(argv: list[str]) -> int:
         measurement_info_box=window.measurement_info_box,
         signal_info_box=window.signal_info_box,
     )
-    window.set_controller(controller)
 
+    cursor_view = CursorView(window.plot_area.plot_item)
+    cursor_ctrl = CursorController(
+        cursor_view=cursor_view,
+        get_x_range=lambda: tuple(window.plot_area.plot_item.vb.viewRange()[0]),
+        active_signals_table=window.active_signals_table,
+    )
+    controller.set_cursor_controller(cursor_ctrl)
+
+    window.set_controller(controller, cursor_ctrl)
     window.show()
     return app.exec()

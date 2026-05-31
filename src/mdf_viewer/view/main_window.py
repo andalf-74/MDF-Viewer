@@ -49,6 +49,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._controller: AppController | None = None
+        self._cursor_ctrl = None
         self.setWindowTitle("MDF-Viewer")
         self.resize(1280, 800)
         self._build_actions()
@@ -60,9 +61,12 @@ class MainWindow(QMainWindow):
     # Public API
     # ------------------------------------------------------------------
 
-    def set_controller(self, controller: AppController) -> None:
+    def set_controller(
+        self, controller: AppController, cursor_ctrl=None
+    ) -> None:
         """Wire the controller after it has been constructed with this window's views."""
         self._controller = controller
+        self._cursor_ctrl = cursor_ctrl
         self.signal_browser.add_signal_requested.connect(self._on_add_signal)
         self.active_signals_table.remove_requested.connect(controller.remove_signal)
         self.active_signals_table.remove_all_requested.connect(controller.remove_all)
@@ -167,4 +171,5 @@ class MainWindow(QMainWindow):
             self.plot_area.zoom_to_fit()
 
     def _on_cursor_toggle(self) -> None:
-        pass  # implemented when CursorController is ready
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.toggle()

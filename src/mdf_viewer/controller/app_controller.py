@@ -61,10 +61,15 @@ class AppController:
         self._active: list[ActiveSignal] = []
         self._selected: ActiveSignal | None = None
         self._color_index: int = 0
+        self._cursor_ctrl = None  # set by set_cursor_controller()
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def set_cursor_controller(self, cursor_ctrl) -> None:
+        """Wire in the CursorController after construction."""
+        self._cursor_ctrl = cursor_ctrl
 
     def load_file(self, path: str | os.PathLike) -> None:
         """Open an MDF file and populate the Signal Browser.
@@ -86,6 +91,8 @@ class AppController:
         info = self._loader.measurement_info()
         self._browser.populate(groups)
         self._info_box.set_info(info)
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.reset()
 
     def add_signal(self, group_index: int, channel_index: int) -> None:
         """Load a channel and add it to the plot and the Active Signals Table.
@@ -100,6 +107,8 @@ class AppController:
         self._active.append(active)
         self._plot.add_signal(active)
         self._table.add_row(active)
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.on_signal_added(active)
 
     def remove_signal(self, active_signal: ActiveSignal) -> None:
         """Remove one signal from the plot and the table.
@@ -111,6 +120,8 @@ class AppController:
         self._plot.remove_signal(active_signal)
         self._active.remove(active_signal)
         self._table.remove_row(active_signal)
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.on_signal_removed(active_signal)
         if self._selected is active_signal:
             self.set_selected_signal(None)
 
@@ -120,6 +131,8 @@ class AppController:
             self._plot.remove_signal(sig)
         self._active.clear()
         self._table.clear()
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.on_all_signals_cleared()
         self.set_selected_signal(None)
 
     def set_selected_signal(self, active_signal: ActiveSignal | None) -> None:
