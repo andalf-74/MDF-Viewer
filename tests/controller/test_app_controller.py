@@ -158,6 +158,44 @@ def test_load_file_clears_ui_even_on_error(ctrl: AppController, deps: dict) -> N
     deps["browser"].clear.assert_called()
 
 
+def test_load_file_adds_to_recent_on_success(deps: dict) -> None:
+    settings = MagicMock()
+    ctrl = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+        settings=settings,
+    )
+    ctrl.load_file("test.mf4")
+    settings.add_recent.assert_called_once_with("test.mf4")
+
+
+def test_load_file_does_not_add_to_recent_on_failure(deps: dict) -> None:
+    settings = MagicMock()
+    deps["loader"].open.side_effect = MdfLoadError("bad file")
+    ctrl = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+        settings=settings,
+    )
+    with pytest.raises(MdfLoadError):
+        ctrl.load_file("bad.mf4")
+    settings.add_recent.assert_not_called()
+
+
+def test_load_file_without_settings_does_not_crash(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.load_file("test.mf4")  # no settings injected — must not raise
+
+
 # ---------------------------------------------------------------------------
 # add_signal
 # ---------------------------------------------------------------------------

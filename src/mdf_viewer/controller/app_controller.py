@@ -20,6 +20,7 @@ from mdf_viewer.model.mdf_loader import MdfLoader
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
 if TYPE_CHECKING:
+    from mdf_viewer.settings import Settings
     from mdf_viewer.view.active_signals_table import ActiveSignalsTable
     from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
     from mdf_viewer.view.plot_area import PlotArea
@@ -50,6 +51,7 @@ class AppController:
         active_signals_table: ActiveSignalsTable,
         measurement_info_box: MeasurementInfoBox,
         signal_info_box: SignalInfoBox,
+        settings: Settings | None = None,
     ) -> None:
         self._loader = loader
         self._browser = signal_browser
@@ -57,6 +59,7 @@ class AppController:
         self._table = active_signals_table
         self._info_box = measurement_info_box
         self._signal_info = signal_info_box
+        self._settings = settings
 
         self._active: list[ActiveSignal] = []
         self._selected: ActiveSignal | None = None
@@ -93,6 +96,8 @@ class AppController:
         self._info_box.set_info(info)
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.reset()
+        if self._settings is not None:
+            self._settings.add_recent(path)
 
     def add_signal(self, group_index: int, channel_index: int) -> None:
         """Load a channel and add it to the plot and the Active Signals Table.

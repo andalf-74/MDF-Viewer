@@ -195,6 +195,72 @@ def test_add_signal_error_shows_message_box(
     assert "non-numeric channel" in mock_crit.call_args[0][2]
 
 
+# ---------------------------------------------------------------------------
+# Recent files menu
+# ---------------------------------------------------------------------------
+
+def test_recent_files_not_shown_without_provider(window: MainWindow) -> None:
+    window._file_menu.aboutToShow.emit()
+    assert window._recent_actions == []
+
+
+def test_recent_files_shown_when_provider_set(
+    window: MainWindow, tmp_path, qtbot: QtBot
+) -> None:
+    p = tmp_path / "test.mf4"
+    p.touch()
+    window.set_recent_files_provider(lambda: [p])
+    window._file_menu.aboutToShow.emit()
+    assert len(window._recent_actions) == 1
+    assert window._recent_actions[0].text() == "test.mf4"
+
+
+def test_recent_files_empty_provider_shows_no_actions(
+    window: MainWindow, qtbot: QtBot
+) -> None:
+    window.set_recent_files_provider(lambda: [])
+    window._file_menu.aboutToShow.emit()
+    assert window._recent_actions == []
+    assert window._recent_sep is None
+
+
+def test_recent_files_rebuilt_on_each_show(
+    window: MainWindow, tmp_path, qtbot: QtBot
+) -> None:
+    p = tmp_path / "file.mf4"
+    p.touch()
+    calls = []
+    window.set_recent_files_provider(lambda: calls.append(1) or [p])
+    window._file_menu.aboutToShow.emit()
+    window._file_menu.aboutToShow.emit()
+    assert len(calls) == 2
+    assert len(window._recent_actions) == 1  # not doubled
+
+
+def test_open_recent_calls_controller(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path, qtbot: QtBot
+) -> None:
+    p = tmp_path / "recent.mf4"
+    p.touch()
+    wired.set_recent_files_provider(lambda: [p])
+    wired._file_menu.aboutToShow.emit()
+    wired._recent_actions[0].trigger()
+    mock_controller.load_file.assert_called_once_with(p)
+
+
+def test_open_recent_error_shows_message_box(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path, qtbot: QtBot
+) -> None:
+    p = tmp_path / "bad.mf4"
+    p.touch()
+    mock_controller.load_file.side_effect = MdfLoadError("bad file")
+    wired.set_recent_files_provider(lambda: [p])
+    wired._file_menu.aboutToShow.emit()
+    with patch("mdf_viewer.view.main_window.QMessageBox.critical") as mock_crit:
+        wired._recent_actions[0].trigger()
+    mock_crit.assert_called_once()
+
+
 def test_color_change_calls_recolor_signal(
     wired: MainWindow, qtbot: QtBot
 ) -> None:

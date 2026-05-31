@@ -17,12 +17,14 @@ def run(argv: list[str]) -> int:
     from mdf_viewer.controller.app_controller import AppController
     from mdf_viewer.controller.cursor_controller import CursorController
     from mdf_viewer.model.mdf_loader import MdfLoader
+    from mdf_viewer.settings import Settings
     from mdf_viewer.view.cursors import CursorView
     from mdf_viewer.view.main_window import MainWindow
 
     app = QApplication(argv)
 
     window = MainWindow()
+    settings = Settings()
 
     loader = MdfLoader()
     controller = AppController(
@@ -32,7 +34,9 @@ def run(argv: list[str]) -> int:
         active_signals_table=window.active_signals_table,
         measurement_info_box=window.measurement_info_box,
         signal_info_box=window.signal_info_box,
+        settings=settings,
     )
+    window.set_recent_files_provider(settings.get_and_prune)
 
     cursor_view = CursorView(window.plot_area.plot_item)
     cursor_ctrl = CursorController(

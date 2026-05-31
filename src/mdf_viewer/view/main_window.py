@@ -18,7 +18,8 @@ data-loading or plotting logic.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QKeySequence
@@ -50,6 +51,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._controller: AppController | None = None
         self._cursor_ctrl = None
+        self._recent_provider: Callable[[], list[Path]] | None = None
+        self._recent_actions: list[QAction] = []
+        self._recent_sep: QAction | None = None
         self.setWindowTitle("MDF-Viewer")
         self.resize(1280, 800)
         self._build_actions()
@@ -77,6 +81,12 @@ class MainWindow(QMainWindow):
             self._on_color_changed
         )
 
+    def set_recent_files_provider(
+        self, provider: Callable[[], list[Path]]
+    ) -> None:
+        """Supply a callable that returns the current recent files list."""
+        self._recent_provider = provider
+
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
@@ -98,13 +108,14 @@ class MainWindow(QMainWindow):
         self._cursor_action.triggered.connect(self._on_cursor_toggle)
 
     def _build_menu(self) -> None:
-        file_menu = self.menuBar().addMenu("&File")
-        file_menu.addAction(self._load_action)
-        file_menu.addSeparator()
-        exit_action = QAction("Exit", self)
-        exit_action.setShortcut(QKeySequence("Ctrl+Q"))
-        exit_action.triggered.connect(self.close)
-        file_menu.addAction(exit_action)
+        self._file_menu = self.menuBar().addMenu("&File")
+        self._file_menu.addAction(self._load_action)
+        self._file_menu.addSeparator()
+        self._exit_action = QAction("Exit", self)
+        self._exit_action.setShortcut(QKeySequence("Ctrl+Q"))
+        self._exit_action.triggered.connect(self.close)
+        self._file_menu.addAction(self._exit_action)
+        self._file_menu.aboutToShow.connect(self._rebuild_recent_files)
 
     def _build_toolbar(self) -> None:
         toolbar = self.addToolBar("Main")
@@ -179,3 +190,33 @@ class MainWindow(QMainWindow):
     def _on_cursor_toggle(self) -> None:
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.toggle()
+
+    def _rebuild_recent_files(self) -> None:
+        for action in self._recent_actions:
+            self._file_menu.removeAction(action)
+        if self._recent_sep is not None:
+            self._file_menu.removeAction(self._recent_sep)
+        self._recent_actions = []
+        self._recent_sep = None
+
+        if self._recent_provider is None:
+            return
+        paths = self._recent_provider()
+        if not paths:
+            return
+
+        self._recent_sep = self._file_menu.insertSeparator(self._exit_action)
+        for path in paths:
+            action = QAction(Path(path).name, self)
+            action.setToolTip(str(path))
+            action.triggered.connect(lambda checked, p=path: self._on_open_recent(p))
+            self._file_menu.insertAction(self._exit_action, action)
+            self._recent_actions.append(action)
+
+    def _on_open_recent(self, path: Path) -> None:
+        if self._controller is None:
+            return
+        try:
+            self._controller.load_file(path)
+        except MdfLoadError as exc:
+            QMessageBox.critical(self, "Load Error", str(exc))
