@@ -19,9 +19,11 @@ from mdf_viewer.model.signal_metadata import SignalMetadata
 
 @dataclass
 class ActiveSignal:
-    # Mutable dataclass: auto-generated __eq__ compares numpy arrays (ambiguous
-    # boolean coercion). Opt in to identity-based hashing so instances can be
-    # used as dict keys and in sets.
+    # Mutable dataclass: auto-generated __eq__ and __hash__ compare all fields,
+    # including numpy arrays whose boolean coercion raises ValueError.
+    # Use identity semantics throughout — two ActiveSignal instances represent
+    # distinct plot objects even if they wrap the same channel data.
+    __eq__ = object.__eq__
     __hash__ = object.__hash__
     """Pairs model data with the plot objects that render a single signal.
 
