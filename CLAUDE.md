@@ -190,7 +190,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-05-31:** All planned features complete + signal filter + recently opened files + bug fixes — 280 tests passing.
+**As of 2026-05-31:** All planned features complete + signal filter + recently opened files + bug fixes — 283 tests passing.
 
 ### Implemented
 
@@ -215,7 +215,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `open(path)` / `close()` / `is_open`
 - `measurement_info()` → `MeasurementInfo`
 - `channel_tree()` → `list[ChannelGroupInfo]`
-- `load_signal(group_index, channel_index)` → `(SignalData, SignalMetadata)` — captures raw asammdf dtype before float64 conversion; sets `SignalMetadata.data_type` and `is_integer`
+- `load_signal(group_index, channel_index)` → `(SignalData, SignalMetadata)` — captures raw asammdf dtype before float64 conversion; sets `SignalMetadata.data_type` and `is_integer`; if float64 conversion fails (enum/string samples), retries with `raw=True` to get the underlying integer encoding; raises `MdfLoadError` only if raw values are also non-numeric
 
 **`SignalBrowser`** public API:
 - `populate(groups: list[ChannelGroupInfo])` — rebuilds the tree, groups expanded, filter cleared
@@ -307,10 +307,11 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - **Y-axis tick formatting:** `_SignalAxisItem` subclasses `pg.AxisItem`; float signals use `:.6g` (strips floating-point noise like "256.000000007"); integer signals snap ticks to integer positions and format as plain integers.
 - **Recent files persistence:** plain JSON (no `QSettings`/registry) for transparency and portability; platform path via `sys.platform` with no extra dependency; written immediately on successful load so a crash doesn't lose the entry; failed loads are never recorded; stale entries pruned silently when the File menu opens.
 - **Recent files menu wiring:** `MainWindow` takes a provider callable (`settings.get_and_prune`) rather than a direct `Settings` reference, keeping the view layer free of settings knowledge; `File.aboutToShow` triggers the rebuild so the list is always fresh.
+- **Enum/string signal fallback:** `load_signal` retries with `raw=True` when physical values are non-numeric byte strings (common for CAN enum signals like gear position or state flags); raw integer encoding is numeric and plots correctly with the existing integer-tick axis.
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (280 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (283 passing) and `python -m mdf_viewer` both work.
 
 ### Next steps
 All MVP features are implemented. Possible next work:
