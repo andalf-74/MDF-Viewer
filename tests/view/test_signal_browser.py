@@ -57,6 +57,12 @@ def populated_browser(browser: SignalBrowser, sample_groups) -> SignalBrowser:
     return browser
 
 
+def _px(browser: SignalBrowser, item):
+    """Map a source model QStandardItem to its proxy model QModelIndex."""
+    src = browser._model.indexFromItem(item)
+    return browser._proxy.mapFromSource(src)
+
+
 # ---------------------------------------------------------------------------
 # Initial state
 # ---------------------------------------------------------------------------
@@ -67,6 +73,15 @@ def test_tree_initially_empty(browser: SignalBrowser) -> None:
 
 def test_add_button_disabled_initially(browser: SignalBrowser) -> None:
     assert not browser._add_btn.isEnabled()
+
+
+def test_filter_field_exists(browser: SignalBrowser) -> None:
+    from PyQt6.QtWidgets import QLineEdit
+    assert isinstance(browser._filter_edit, QLineEdit)
+
+
+def test_filter_field_has_placeholder(browser: SignalBrowser) -> None:
+    assert browser._filter_edit.placeholderText() != ""
 
 
 # ---------------------------------------------------------------------------
@@ -120,6 +135,13 @@ def test_populate_replaces_previous_content(
     assert browser._model.item(0).text() == "Solo"
 
 
+def test_populate_clears_filter(browser: SignalBrowser, sample_groups) -> None:
+    browser.populate(sample_groups)
+    browser._filter_edit.setText("sin")
+    browser.populate(sample_groups)
+    assert browser._filter_edit.text() == ""
+
+
 # ---------------------------------------------------------------------------
 # clear()
 # ---------------------------------------------------------------------------
@@ -130,14 +152,18 @@ def test_clear_removes_items(populated_browser: SignalBrowser) -> None:
 
 
 def test_clear_disables_add_button(populated_browser: SignalBrowser) -> None:
-    # Select a channel to enable the button, then clear
     group_item = populated_browser._model.item(0)
-    chan_index = populated_browser._model.indexFromItem(group_item.child(1))
-    populated_browser._tree.setCurrentIndex(chan_index)
+    populated_browser._tree.setCurrentIndex(_px(populated_browser, group_item.child(1)))
     assert populated_browser._add_btn.isEnabled()
 
     populated_browser.clear()
     assert not populated_browser._add_btn.isEnabled()
+
+
+def test_clear_resets_filter(populated_browser: SignalBrowser) -> None:
+    populated_browser._filter_edit.setText("sin")
+    populated_browser.clear()
+    assert populated_browser._filter_edit.text() == ""
 
 
 # ---------------------------------------------------------------------------
@@ -147,20 +173,18 @@ def test_clear_disables_add_button(populated_browser: SignalBrowser) -> None:
 def test_add_button_enabled_when_channel_selected(
     populated_browser: SignalBrowser,
 ) -> None:
-    chan_index = populated_browser._model.indexFromItem(
-        populated_browser._model.item(0).child(1)  # "sin [V]"
+    populated_browser._tree.setCurrentIndex(
+        _px(populated_browser, populated_browser._model.item(0).child(1))
     )
-    populated_browser._tree.setCurrentIndex(chan_index)
     assert populated_browser._add_btn.isEnabled()
 
 
 def test_add_button_disabled_when_group_selected(
     populated_browser: SignalBrowser,
 ) -> None:
-    group_index = populated_browser._model.indexFromItem(
-        populated_browser._model.item(0)
+    populated_browser._tree.setCurrentIndex(
+        _px(populated_browser, populated_browser._model.item(0))
     )
-    populated_browser._tree.setCurrentIndex(group_index)
     assert not populated_browser._add_btn.isEnabled()
 
 
@@ -171,11 +195,8 @@ def test_add_button_disabled_when_group_selected(
 def test_add_button_emits_correct_indices(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
-    # Select "cos [A]" which is group=0, channel=2
     cos_item = populated_browser._model.item(0).child(2)
-    populated_browser._tree.setCurrentIndex(
-        populated_browser._model.indexFromItem(cos_item)
-    )
+    populated_browser._tree.setCurrentIndex(_px(populated_browser, cos_item))
     with qtbot.waitSignal(
         populated_browser.add_signal_requested, timeout=500
     ) as blocker:
@@ -187,34 +208,77 @@ def test_double_click_channel_emits_signal(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
     sin_item = populated_browser._model.item(0).child(1)
-    sin_index = populated_browser._model.indexFromItem(sin_item)
     with qtbot.waitSignal(
         populated_browser.add_signal_requested, timeout=500
     ) as blocker:
-        populated_browser._tree.doubleClicked.emit(sin_index)
+        populated_browser._tree.doubleClicked.emit(_px(populated_browser, sin_item))
     assert blocker.args == [0, 1]
 
 
 def test_double_click_group_does_not_emit(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
-    group_index = populated_browser._model.indexFromItem(
-        populated_browser._model.item(0)
-    )
     with qtbot.assertNotEmitted(populated_browser.add_signal_requested):
-        populated_browser._tree.doubleClicked.emit(group_index)
+        populated_browser._tree.doubleClicked.emit(
+            _px(populated_browser, populated_browser._model.item(0))
+        )
 
 
 def test_speed_channel_correct_indices(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
-    # "speed [km/h]" is group=1, channel=0
     speed_item = populated_browser._model.item(1).child(0)
-    populated_browser._tree.setCurrentIndex(
-        populated_browser._model.indexFromItem(speed_item)
-    )
+    populated_browser._tree.setCurrentIndex(_px(populated_browser, speed_item))
     with qtbot.waitSignal(
         populated_browser.add_signal_requested, timeout=500
     ) as blocker:
         populated_browser._add_btn.click()
     assert blocker.args == [1, 0]
+
+
+# ---------------------------------------------------------------------------
+# Filter behaviour
+# ---------------------------------------------------------------------------
+
+def test_filter_hides_non_matching_groups(populated_browser: SignalBrowser) -> None:
+    # "sin" only appears in Group 0 → Group 1 should be hidden
+    populated_browser._filter_edit.setText("sin")
+    assert populated_browser._proxy.rowCount() == 1
+
+
+def test_filter_shows_parent_group_when_child_matches(
+    populated_browser: SignalBrowser,
+) -> None:
+    populated_browser._filter_edit.setText("sin")
+    group0_proxy = populated_browser._proxy.index(0, 0)
+    assert populated_browser._proxy.data(group0_proxy) == "Group 0"
+
+
+def test_filter_shows_only_matching_children(populated_browser: SignalBrowser) -> None:
+    populated_browser._filter_edit.setText("sin")
+    group0_proxy = populated_browser._proxy.index(0, 0)
+    assert populated_browser._proxy.rowCount(group0_proxy) == 1
+
+
+def test_filter_case_insensitive(populated_browser: SignalBrowser) -> None:
+    populated_browser._filter_edit.setText("SIN")
+    assert populated_browser._proxy.rowCount() == 1
+
+
+def test_filter_empty_shows_all(populated_browser: SignalBrowser) -> None:
+    populated_browser._filter_edit.setText("sin")
+    populated_browser._filter_edit.clear()
+    assert populated_browser._proxy.rowCount() == 2
+
+
+def test_filter_no_match_hides_all(populated_browser: SignalBrowser) -> None:
+    populated_browser._filter_edit.setText("zzznomatch")
+    assert populated_browser._proxy.rowCount() == 0
+
+
+def test_filter_matches_partial_name(populated_browser: SignalBrowser) -> None:
+    # "speed" is in Group 1; "spee" should match it
+    populated_browser._filter_edit.setText("spee")
+    assert populated_browser._proxy.rowCount() == 1
+    group1_proxy = populated_browser._proxy.index(0, 0)
+    assert "Group 1" in populated_browser._proxy.data(group1_proxy)

@@ -7,9 +7,10 @@ Holds no model data itself; populated by the controller, reports intent out.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QSortFilterProxyModel, pyqtSignal
 from PyQt6.QtGui import QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
+    QLineEdit,
     QPushButton,
     QTreeView,
     QVBoxLayout,
@@ -23,7 +24,7 @@ _LOCATION_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 class SignalBrowser(QWidget):
-    """Channel-group / channel hierarchy tree with an Add Signal button."""
+    """Channel-group / channel hierarchy tree with a filter field and Add Signal button."""
 
     add_signal_requested = pyqtSignal(int, int)  # (group_index, channel_index)
 
@@ -35,6 +36,11 @@ class SignalBrowser(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
+
+        self._filter_edit = QLineEdit()
+        self._filter_edit.setPlaceholderText("Filter signals…")
+        self._filter_edit.setClearButtonEnabled(True)
+        layout.addWidget(self._filter_edit)
 
         self._tree = QTreeView()
         self._tree.setHeaderHidden(True)
@@ -48,8 +54,15 @@ class SignalBrowser(QWidget):
         layout.addWidget(self._add_btn)
 
         self._model = QStandardItemModel(self)
-        self._tree.setModel(self._model)
 
+        self._proxy = QSortFilterProxyModel(self)
+        self._proxy.setSourceModel(self._model)
+        self._proxy.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self._proxy.setRecursiveFilteringEnabled(True)
+        self._proxy.setFilterKeyColumn(0)
+        self._tree.setModel(self._proxy)
+
+        self._filter_edit.textChanged.connect(self._proxy.setFilterFixedString)
         self._tree.doubleClicked.connect(self._on_double_click)
         self._tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._add_btn.clicked.connect(self._on_add_clicked)
@@ -61,8 +74,10 @@ class SignalBrowser(QWidget):
     def populate(self, groups: list[ChannelGroupInfo]) -> None:
         """Rebuild the tree from a channel hierarchy.
 
-        Replaces any previously loaded content. Groups are expanded by default.
+        Clears the filter so all signals in the new file are immediately visible.
+        Groups are expanded by default.
         """
+        self._filter_edit.clear()
         self._model.clear()
         for group in groups:
             group_item = _make_group_item(group.name)
@@ -75,7 +90,8 @@ class SignalBrowser(QWidget):
         self._add_btn.setEnabled(False)
 
     def clear(self) -> None:
-        """Remove all tree items and disable the Add Signal button."""
+        """Remove all tree items, clear the filter, and disable the Add Signal button."""
+        self._filter_edit.clear()
         self._model.clear()
         self._add_btn.setEnabled(False)
 
@@ -91,8 +107,9 @@ class SignalBrowser(QWidget):
         if loc is not None:
             self.add_signal_requested.emit(loc[0], loc[1])
 
-    def _on_double_click(self, index) -> None:
-        item = self._model.itemFromIndex(index)
+    def _on_double_click(self, proxy_index) -> None:
+        source_index = self._proxy.mapToSource(proxy_index)
+        item = self._model.itemFromIndex(source_index)
         if item is None:
             return
         loc = item.data(_LOCATION_ROLE)
@@ -108,7 +125,8 @@ class SignalBrowser(QWidget):
         indexes = self._tree.selectedIndexes()
         if not indexes:
             return None
-        item = self._model.itemFromIndex(indexes[0])
+        source_index = self._proxy.mapToSource(indexes[0])
+        item = self._model.itemFromIndex(source_index)
         if item is None:
             return None
         return item.data(_LOCATION_ROLE)
