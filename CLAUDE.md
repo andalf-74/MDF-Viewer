@@ -254,7 +254,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `set_recent_files_provider(callable)` — supplies a `() -> list[Path]` called on every `File` menu open; results are inserted between Load MDF and Exit (section hidden when list is empty)
 - Layout: outer H-splitter → [SignalBrowser (260px) | center V-splitter | ActiveSignalsTable (260px)]; center → [PlotArea (3×) | bottom H-splitter → [MeasurementInfoBox | SignalInfoBox]]
 - Menu: File → Load MDF… (Ctrl+O) / [recent files] / Exit (Ctrl+Q)
-- Toolbar: Load File (folder icon) | Zoom to Fit (Ctrl+0) | Cursors (toggle)
+- Toolbar: Load File | Zoom to Fit (Ctrl+0) | Cursors (toggle) — all three use custom PNG icons from `resources/icons/`
 - All load paths (dialog and recent files) catch `MdfLoadError` and show `QMessageBox.critical`
 
 **`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `Settings` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController`, wires all together; calls `set_controller` and `set_recent_files_provider(settings.get_and_prune)`.
@@ -308,6 +308,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - **Recent files persistence:** plain JSON (no `QSettings`/registry) for transparency and portability; platform path via `sys.platform` with no extra dependency; written immediately on successful load so a crash doesn't lose the entry; failed loads are never recorded; stale entries pruned silently when the File menu opens.
 - **Recent files menu wiring:** `MainWindow` takes a provider callable (`settings.get_and_prune`) rather than a direct `Settings` reference, keeping the view layer free of settings knowledge; `File.aboutToShow` triggers the rebuild so the list is always fresh.
 - **Enum/string signal fallback:** `load_signal` retries with `raw=True` when physical values are non-numeric byte strings (common for CAN enum signals like gear position or state flags); raw integer encoding is numeric and plots correctly with the existing integer-tick axis.
+- **Toolbar icons:** custom PNGs in `src/mdf_viewer/resources/icons/`; 32×32 px 1× and 64×64 px `@2x` HiDPI variants loaded via `QIcon.addFile()`; `_load_icon(name)` helper in `main_window.py` wires both sizes into one `QIcon`.
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
