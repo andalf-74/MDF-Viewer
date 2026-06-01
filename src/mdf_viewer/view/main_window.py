@@ -21,15 +21,23 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QAction, QKeySequence
+from PyQt6.QtCore import Qt, QSize
+from PyQt6.QtGui import QAction, QIcon, QKeySequence
 from PyQt6.QtWidgets import (
     QFileDialog,
     QMainWindow,
     QMessageBox,
     QSplitter,
-    QStyle,
 )
+
+_ICONS_DIR = Path(__file__).parent.parent / "resources" / "icons"
+
+
+def _load_icon(name: str) -> QIcon:
+    icon = QIcon()
+    icon.addFile(str(_ICONS_DIR / f"{name}.png"), QSize(32, 32))
+    icon.addFile(str(_ICONS_DIR / f"{name}@2x.png"), QSize(64, 64))
+    return icon
 
 from mdf_viewer.model.mdf_loader import MdfLoadError
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
@@ -92,18 +100,17 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _build_actions(self) -> None:
-        load_icon = self.style().standardIcon(QStyle.StandardPixmap.SP_DirOpenIcon)
-        self._load_action = QAction(load_icon, "Load MDF…", self)
+        self._load_action = QAction(_load_icon("folder"), "Load MDF…", self)
         self._load_action.setShortcut(QKeySequence.StandardKey.Open)
         self._load_action.setToolTip("Load MDF File (Ctrl+O)")
         self._load_action.triggered.connect(self._on_load_file)
 
-        self._zoom_fit_action = QAction("Zoom to Fit", self)
+        self._zoom_fit_action = QAction(_load_icon("zoom_to_fit"), "Zoom to Fit", self)
         self._zoom_fit_action.setShortcut(QKeySequence("Ctrl+0"))
         self._zoom_fit_action.setToolTip("Zoom to fit all active signals")
         self._zoom_fit_action.triggered.connect(self._on_zoom_to_fit)
 
-        self._cursor_action = QAction("Cursors", self)
+        self._cursor_action = QAction(_load_icon("cursors"), "Cursors", self)
         self._cursor_action.setToolTip("Toggle cursors (off → 1 → 2 → off)")
         self._cursor_action.triggered.connect(self._on_cursor_toggle)
 
