@@ -12,11 +12,13 @@ def run(argv: list[str]) -> int:
 
     Returns the application's exit code.
     """
-    from PyQt6.QtWidgets import QApplication
+    from pathlib import Path
+
+    from PyQt6.QtWidgets import QApplication, QMessageBox
 
     from mdf_viewer.controller.app_controller import AppController
     from mdf_viewer.controller.cursor_controller import CursorController
-    from mdf_viewer.model.mdf_loader import MdfLoader
+    from mdf_viewer.model.mdf_loader import MdfLoadError, MdfLoader
     from mdf_viewer.settings import Settings
     from mdf_viewer.view.cursors import CursorView
     from mdf_viewer.view.main_window import MainWindow
@@ -48,4 +50,14 @@ def run(argv: list[str]) -> int:
 
     window.set_controller(controller, cursor_ctrl)
     window.show()
+
+    # Load a file passed on the command line (e.g. via .mf4 file association).
+    if len(argv) > 1:
+        path = Path(argv[1])
+        if path.is_file():
+            try:
+                controller.load_file(path)
+            except MdfLoadError as exc:
+                QMessageBox.critical(window, "Load Error", str(exc))
+
     return app.exec()
