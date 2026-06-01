@@ -4,7 +4,9 @@
 
 MDF-Viewer is a desktop application for visualizing ASAM MDF measurement data files (MDF3 and MDF4). It is a greenfield rewrite based on the author's prior experience with a working prototype. The goal is a clean, maintainable architecture from the start – the prototype suffered from tight coupling between data, UI, and plotting components.
 
-The application is developed as a private project, targeting individual engineers and automotive measurement professionals. A future commercial release (one-time purchase model) is possible.
+The application is developed as a free, open-source project, targeting individual engineers and automotive measurement professionals.
+
+**GitHub:** https://github.com/andalf-74/MDF-Viewer (public)
 
 **Target platforms:** Windows, Linux  
 **Language:** Python  
@@ -190,7 +192,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-05-31:** All planned features complete + signal filter + recently opened files + bug fixes — 283 tests passing.
+**As of 2026-06-01:** v1.0 released. All MVP features complete — 283 tests passing.
 
 ### Implemented
 
@@ -257,7 +259,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - Toolbar: Load File | Zoom to Fit (Ctrl+0) | Cursors (toggle) — all three use custom PNG icons from `resources/icons/`
 - All load paths (dialog and recent files) catch `MdfLoadError` and show `QMessageBox.critical`
 
-**`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `Settings` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController`, wires all together; calls `set_controller` and `set_recent_files_provider(settings.get_and_prune)`.
+**`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `Settings` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController`, wires all together; calls `set_controller` and `set_recent_files_provider(settings.get_and_prune)`. If `sys.argv[1]` is a file path (e.g. via `.mf4` file association), loads it immediately after `window.show()`.
 
 **`MeasurementInfoBox`** / **`SignalInfoBox`**: both use a `QStackedWidget` — page 0 is a centred placeholder label, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` / `set_metadata` populates the form and switches to page 1; `clear()` switches back. Optional fields (empty string / `None`) are omitted. MDF4 XML tags in comment fields are stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`. `SignalInfoBox` shows a "Data type" row (e.g. `uint8`, `float64`) when `SignalMetadata.data_type` is populated.
 
@@ -310,12 +312,26 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - **Enum/string signal fallback:** `load_signal` retries with `raw=True` when physical values are non-numeric byte strings (common for CAN enum signals like gear position or state flags); raw integer encoding is numeric and plots correctly with the existing integer-tick axis.
 - **Toolbar icons:** custom PNGs in `src/mdf_viewer/resources/icons/`; 32×32 px 1× and 64×64 px `@2x` HiDPI variants loaded via `QIcon.addFile()`; `_load_icon(name)` helper in `main_window.py` wires both sizes into one `QIcon`.
 
+### Release build
+
+| File | Purpose |
+|------|---------|
+| `installer/mdf_viewer.spec` | PyInstaller spec — one-folder Windows bundle |
+| `installer/mdf_viewer.iss` | Inno Setup 6 script — per-user installer with optional file associations |
+
+**To build:**
+1. `pyinstaller installer/mdf_viewer.spec --distpath dist --workpath dist/_build` → produces `dist/MDF-Viewer/`
+2. `"C:/Program Files (x86)/Inno Setup 6/ISCC.exe" installer/mdf_viewer.iss` → produces `installer/dist/MDF-Viewer-1.0-Setup.exe`
+
+`dist/` is in `.gitignore`; build artifacts are never committed. The `.spec` and `.iss` files are committed under `installer/`.
+
+**v1.0 release:** https://github.com/andalf-74/MDF-Viewer/releases/tag/v1.0 — ships both `MDF-Viewer-1.0-Setup.exe` (installer) and `MDF-Viewer-1.0-Windows.zip` (portable).
+
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
 - Activate with `.venv\Scripts\activate`, then `pytest` (283 passing) and `python -m mdf_viewer` both work.
 
 ### Next steps
-All MVP features are implemented. Possible next work:
-- Manual testing with real MDF files (drop into `data/`)
+v1.0 shipped. Possible next work:
 - Bug fixes and polish from real-world use
-- Future features from the Todo list in the spec (session persistence, multi-select in Signal Browser, etc.)
+- Future features from the Todo list (session persistence, multi-select in Signal Browser, etc.)
