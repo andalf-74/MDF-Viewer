@@ -125,10 +125,18 @@ class CursorController:
     # ------------------------------------------------------------------
 
     def _place_initial_positions(self) -> None:
-        try:
-            x_min, x_max = self._get_x_range()
-        except Exception:
-            x_min, x_max = 0.0, 1.0
+        if self._active_signals:
+            ts_all = [s.data.timestamps for s in self._active_signals if len(s.data.timestamps)]
+            if ts_all:
+                x_min = float(min(t[0] for t in ts_all))
+                x_max = float(max(t[-1] for t in ts_all))
+            else:
+                x_min, x_max = 0.0, 1.0
+        else:
+            try:
+                x_min, x_max = self._get_x_range()
+            except Exception:
+                x_min, x_max = 0.0, 1.0
         span = max(x_max - x_min, 0.0)
         self._positions[0] = x_min
         self._positions[1] = x_min + span * 0.1

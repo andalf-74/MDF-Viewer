@@ -301,3 +301,41 @@ def test_fmt_float() -> None:
 
 def test_fmt_zero() -> None:
     assert _fmt(0.0) == "0"
+
+
+# ---------------------------------------------------------------------------
+# _place_initial_positions — cursor placed at data range, not view range
+# ---------------------------------------------------------------------------
+
+def test_first_toggle_places_cursor_at_data_start(view: MagicMock, table: MagicMock) -> None:
+    # get_x_range returns a padded view range that starts before the data.
+    t = np.linspace(5.0, 10.0, 50)
+    active = ActiveSignal(
+        data=SignalData(timestamps=t, samples=np.zeros(50)),
+        metadata=SignalMetadata(name="s", unit="", group_index=0, channel_index=0),
+        color=QColor(255, 0, 0),
+    )
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (-1.0, 11.0),  # padded view range
+        active_signals_table=table,
+    )
+    ctrl.on_signal_added(active)
+    ctrl.toggle()
+
+    positions = view.apply_mode.call_args[0][1]
+    assert positions[0] == pytest.approx(5.0), "cursor 1 should start at data t_min"
+    assert positions[1] == pytest.approx(5.5), "cursor 2 should be 10 % into data span"
+
+
+def test_first_toggle_without_signals_uses_get_x_range(view: MagicMock, table: MagicMock) -> None:
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (2.0, 4.0),
+        active_signals_table=table,
+    )
+    ctrl.toggle()
+
+    positions = view.apply_mode.call_args[0][1]
+    assert positions[0] == pytest.approx(2.0)
+    assert positions[1] == pytest.approx(2.2)
