@@ -84,7 +84,8 @@ requirements.txt / requirements-dev.txt
 - Signals can be added to the plot via:
   - Double-click on a signal node
   - Select (highlight) + click "Add Signal" button below the list
-- Future feature (not MVP): Multi-select to add multiple signals at once
+  - Drag one or more selected signals onto the Plot Area or Active Signals Table
+- Multi-select: `ExtendedSelection` mode — Ctrl+click (individual), Shift+click (range); all three add paths emit all selected channels at once
 
 ---
 
@@ -114,6 +115,7 @@ Selection in this table drives the Signal Info Box content.
 - Each active signal has its own Y-axis on the right side, colored to match the signal
 - Individual Y-axis pan and zoom per signal
 - PyQtGraph ViewBox per signal for independent Y scaling
+- Accepts drag-and-drop: MDF files (loads file; prompts for confirmation if one is already open) and signals dragged from the Signal Browser
 
 ### Cursors
 - Vertical line(s) draggable via drag & drop in the plot
@@ -169,7 +171,6 @@ Displays metadata for the currently selected signal in the Active Signals Table:
 
 - Multi-file support with multiple X-axes and synchronization (by timestamp overlap, manual time offset, or signal-based alignment)
 - Session persistence (active signals, colors, window layout)
-- Multi-select in Signal Browser
 - Additional toolbar and menu items (TBD)
 
 ---
@@ -192,7 +193,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-01:** v1.0 released. All MVP features complete — 283 tests passing.
+**As of 2026-06-02:** v1.0 released; post-release improvements ongoing — 332 tests passing.
 
 ### Implemented
 
@@ -200,15 +201,16 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 |--------|-------------|-------|
 | `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` + `MdfLoadError` | 31 |
 | `model/signal_data.py` | `SignalData` dataclass | 2 |
-| `view/signal_browser.py` | `SignalBrowser` QWidget (TreeView + Add Signal button) | 18 |
-| `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, wiring | 21 |
+| `view/_mime.py` | Shared MIME type constant for signal drag-and-drop | — |
+| `view/signal_browser.py` | `SignalBrowser` — TreeView, multi-select, Add Signal button, drag | 21 |
+| `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, status bar, wiring | 32 |
 | `view/measurement_info_box.py` | `MeasurementInfoBox` — file metadata, QFormLayout + placeholder | 18 |
 | `view/signal_info_box.py` | `SignalInfoBox` — signal metadata, QFormLayout + placeholder | 18 |
-| `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons | 28 |
-| `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis | 28 |
+| `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons, drop target | 32 |
+| `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target | 35 |
 | `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic | 18 |
 | `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
-| `controller/app_controller.py` | `AppController` — coordinates all layers | 37 |
+| `controller/app_controller.py` | `AppController` — coordinates all layers | 39 |
 | `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation | 28 |
 | `settings.py` | `Settings` — JSON persistence for recent files | 12 |
 | `app.py` | MVC assembly point | — |
@@ -222,20 +224,22 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 **`SignalBrowser`** public API:
 - `populate(groups: list[ChannelGroupInfo])` — rebuilds the tree, groups expanded, filter cleared
 - `clear()` — resets the tree and clears the filter
-- `add_signal_requested(group_index, channel_index)` — PyQt signal emitted on double-click or Add Signal button
+- `add_signals_requested(list[tuple[int,int]])` — PyQt signal emitted with all selected channel locations on double-click, Add Signal button click, or drag initiation
 - Filter field: `QLineEdit` at the top; connected to a `QSortFilterProxyModel` with `setRecursiveFilteringEnabled(True)` (case-insensitive, partial match; groups visible when any child matches). `setClearButtonEnabled(True)` provides a built-in × button. `populate()` and `clear()` both reset the filter.
+- Selection mode: `ExtendedSelection` — Ctrl+click and Shift+click select multiple channels; the Add Signal button emits all selected channels at once
+- Drag: `_DragTreeView` subclass encodes selected `(group_index, channel_index)` pairs as JSON in `application/x-mdf-viewer-signals` MIME data; drop targets are `PlotArea` and `ActiveSignalsTable`
 
 **`ActiveSignal`** fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in. `__hash__ = object.__hash__` and `__eq__ = object.__eq__` — identity semantics throughout to avoid numpy `__eq__` ambiguity (list `in` / `remove` also use `__eq__`).
 
 **`AppController`** public API:
 - `load_file(path)` — clears all state, opens file, populates browser + info box; resets color counter and cursor system; calls `settings.add_recent(path)` on success only; UI cleared before `open()` so state is clean on failure
-- `add_signal(gi, ci)` — loads channel, assigns next palette color, notifies plot + table + cursor system
+- `add_signal(gi, ci) -> bool` — loads channel, assigns next palette color, notifies plot + table + cursor system; returns `True` if added, `False` if already active (duplicate)
 - `remove_signal(active)` — removes from plot/table/list; notifies cursor system; clears selection if that signal was selected
 - `remove_all()` — removes all signals, clears table, notifies cursor system, clears selection
 - `set_selected_signal(active | None)` — drives the Signal Info Box
 - `set_cursor_controller(cc)` — optional; wired from `app.py` after construction
 - Constructor accepts optional `settings: Settings` — omitting it disables recent-file tracking without any other effect
-- `active_signals` / `selected_signal` — read-only state accessors
+- `active_signals` / `selected_signal` / `is_file_loaded` — read-only state accessors
 
 **`CursorController`** public API:
 - `toggle()` — HIDDEN → ONE → TWO → HIDDEN; on first activation places cursors at plot X range start + 10% span; subsequent toggles use remembered positions
@@ -252,12 +256,15 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 **`MainWindow`** public API:
 - Constructor creates all five view widgets as public attrs: `signal_browser`, `plot_area`, `active_signals_table`, `measurement_info_box`, `signal_info_box`
-- `set_controller(ctrl, cursor_ctrl=None)` — wires browser, table remove/selection signals to controller, and cursor toggle to `cursor_ctrl.toggle()`
+- `set_controller(ctrl, cursor_ctrl=None)` — wires browser, table remove/selection signals to controller, drop signals from plot_area and active_signals_table, and cursor toggle to `cursor_ctrl.toggle()`
 - `set_recent_files_provider(callable)` — supplies a `() -> list[Path]` called on every `File` menu open; results are inserted between Load MDF and Exit (section hidden when list is empty)
+- `show_status(message, timeout_ms=3000)` — displays a transient message in the `QStatusBar`
 - Layout: outer H-splitter → [SignalBrowser (260px) | center V-splitter | ActiveSignalsTable (260px)]; center → [PlotArea (3×) | bottom H-splitter → [MeasurementInfoBox | SignalInfoBox]]
 - Menu: File → Load MDF… (Ctrl+O) / [recent files] / Exit (Ctrl+Q)
 - Toolbar: Load File | Zoom to Fit (Ctrl+0) | Cursors (toggle) — all three use custom PNG icons from `resources/icons/`
-- All load paths (dialog and recent files) catch `MdfLoadError` and show `QMessageBox.critical`
+- All load paths (dialog, recent files, file drop) catch `MdfLoadError` and show `QMessageBox.critical`
+- `_on_add_signals(locations)` — called by browser `add_signals_requested`, plot `signals_dropped`, and table `signals_dropped`; loops over locations, counts duplicates (skipped silently), shows status bar message if any were skipped
+- `_on_file_dropped(path)` — called by `plot_area.file_dropped`; shows `QMessageBox.question` if a file is already loaded, then calls `controller.load_file`
 
 **`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `Settings` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController`, wires all together; calls `set_controller` and `set_recent_files_provider(settings.get_and_prune)`. If `sys.argv[1]` is a file path (e.g. via `.mf4` file association), loads it immediately after `window.show()`.
 
@@ -267,9 +274,10 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `add_row(active)` / `remove_row(active)` / `clear()` — row management; identity-based lookup (`is`) avoids numpy `__eq__` ambiguity on `SignalData`
 - `show_cursor_columns(bool)` — reveals/hides C1, C2, Δ columns (hidden by default)
 - `update_cursor_values(active, c1, c2, delta)` — fills cursor cells by row
-- Signals: `selection_changed(object)`, `remove_requested(object)`, `remove_all_requested()`, `color_change_requested(object, QColor)`
+- Signals: `selection_changed(object)`, `remove_requested(object)`, `remove_all_requested()`, `color_change_requested(object, QColor)`, `signals_dropped(list)`
 - `_ColorSwatch`: flat `QPushButton` with styled background; click → `QColorDialog` → updates swatch + emits `color_change_requested`
 - Uses `selectionModel().selectedRows()` (not `currentRow()`) so `clearSelection()` correctly emits `None`
+- Drop target: event filter on `_table.viewport()` accepts `application/x-mdf-viewer-signals` MIME data and emits `signals_dropped`
 
 **`Settings`** (`src/mdf_viewer/settings.py`):
 - `add_recent(path)` — resolves to absolute path, prepends, deduplicates, trims to `MAX_RECENT=4`, saves immediately
@@ -296,6 +304,8 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `recolor_signal(active, color)` — updates curve pen, axis pen, axis text pen, and `active.color`; no-op for unknowns
 - `zoom_to_fit()` — full X range from timestamps, auto Y per signal; no-op when empty
 - `plot_item` — read-only property exposing the inner `pg.PlotItem` (used by `CursorView`)
+- Signals: `y_grid_toggled(bool)`, `file_dropped(object)` (Path), `signals_dropped(list)`
+- Drop target: event filter on `_pw.viewport()` accepts MDF file URLs (`.mf4`/`.mdf`/`.dat`) and `application/x-mdf-viewer-signals` MIME data
 
 ### Decisions made (continued)
 - **`CursorController` wiring:** optional dependency injected via `AppController.set_cursor_controller()`; all notify calls are guarded by `None` check so the cursor system can be omitted without touching `AppController`.
@@ -305,12 +315,15 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - **Cursor labels show value only:** no unit suffix — the unit is already on the Y-axis and in the Signal Info Box.
 - **`SignalMetadata.data_type` / `is_integer`:** `MdfLoader.load_signal` captures the raw asammdf dtype before the mandatory float64 conversion. `is_integer` is used by `PlotArea._SignalAxisItem` to suppress fractional ticks on discrete/integer signals (gear, enum, flag). `data_type` (e.g. `"uint8"`) is displayed in `SignalInfoBox`.
 - **`ActiveSignal.__eq__ = object.__eq__`:** list `in` and `remove` also use `__eq__`, which the dataclass version raises on numpy arrays. Identity equality is set alongside `__hash__` so both dict and list operations are consistent.
-- **Duplicate signal prevention:** `AppController.add_signal` checks `(group_index, channel_index)` against active signals' metadata before loading; returns early on duplicates.
+- **Duplicate signal prevention:** `AppController.add_signal` checks `(group_index, channel_index)` against active signals' metadata before loading; returns `False` on duplicates (callers use the return value to count skips for the status bar message).
 - **Y-axis tick formatting:** `_SignalAxisItem` subclasses `pg.AxisItem`; float signals use `:.6g` (strips floating-point noise like "256.000000007"); integer signals snap ticks to integer positions and format as plain integers.
 - **Recent files persistence:** plain JSON (no `QSettings`/registry) for transparency and portability; platform path via `sys.platform` with no extra dependency; written immediately on successful load so a crash doesn't lose the entry; failed loads are never recorded; stale entries pruned silently when the File menu opens.
 - **Recent files menu wiring:** `MainWindow` takes a provider callable (`settings.get_and_prune`) rather than a direct `Settings` reference, keeping the view layer free of settings knowledge; `File.aboutToShow` triggers the rebuild so the list is always fresh.
 - **Enum/string signal fallback:** `load_signal` retries with `raw=True` when physical values are non-numeric byte strings (common for CAN enum signals like gear position or state flags); raw integer encoding is numeric and plots correctly with the existing integer-tick axis.
 - **Toolbar icons:** custom PNGs in `src/mdf_viewer/resources/icons/`; 32×32 px 1× and 64×64 px `@2x` HiDPI variants loaded via `QIcon.addFile()`; `_load_icon(name)` helper in `main_window.py` wires both sizes into one `QIcon`.
+- **Drag-and-drop MIME type:** `application/x-mdf-viewer-signals` (defined in `view/_mime.py`); payload is a JSON-encoded list of `[group_index, channel_index]` pairs. Event filters installed on `_pw.viewport()` (PlotArea) and `_table.viewport()` (ActiveSignalsTable) handle DragEnter/DragMove/Drop without subclassing PyQtGraph or QTableWidget.
+- **File drop confirmation:** `MainWindow._on_file_dropped` checks `controller.is_file_loaded` (delegated to `loader.is_open`) before replacing an open file; uses `QMessageBox.question` so the user can cancel.
+- **Status bar skip notification:** `MainWindow._on_add_signals` counts duplicates via `add_signal`'s `bool` return value and calls `show_status` with a singular/plural message ("1 signal already active, skipped." / "N signals already active, skipped.").
 
 ### Release build
 
@@ -329,9 +342,9 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (283 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (332 passing) and `python -m mdf_viewer` both work.
 
 ### Next steps
-v1.0 shipped. Possible next work:
+v1.0 shipped; post-release improvements ongoing. Open issues: #5 (wildcard filter), #9 (filter performance), #10 (check for updates), #11 (cursor distinction).
 - Bug fixes and polish from real-world use
-- Future features from the Todo list (session persistence, multi-select in Signal Browser, etc.)
+- Future features from the Todo list (session persistence, etc.)
