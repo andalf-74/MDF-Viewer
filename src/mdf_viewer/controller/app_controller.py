@@ -121,6 +121,12 @@ class AppController:
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.on_signal_added(active)
 
+    def recolor_signal(self, active_signal: ActiveSignal, color: QColor) -> None:
+        """Update the color of an active signal's curve, axis, and cursor labels."""
+        self._plot.recolor_signal(active_signal, color)
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.recolor_signal(active_signal, color)
+
     def remove_signal(self, active_signal: ActiveSignal) -> None:
         """Remove one signal from the plot and the table.
 

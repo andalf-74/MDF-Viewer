@@ -389,3 +389,31 @@ def test_set_selected_signal_none_clears_property(ctrl: AppController) -> None:
     ctrl.set_selected_signal(ctrl.active_signals[0])
     ctrl.set_selected_signal(None)
     assert ctrl.selected_signal is None
+
+
+# ---------------------------------------------------------------------------
+# recolor_signal
+# ---------------------------------------------------------------------------
+
+def test_recolor_signal_calls_plot(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    active = ctrl.active_signals[0]
+    new_color = QColor(0, 200, 100)
+    ctrl.recolor_signal(active, new_color)
+    deps["plot"].recolor_signal.assert_called_once_with(active, new_color)
+
+
+def test_recolor_signal_notifies_cursor_ctrl(ctrl: AppController, deps: dict) -> None:
+    cursor_ctrl = MagicMock()
+    ctrl.set_cursor_controller(cursor_ctrl)
+    ctrl.add_signal(0, 1)
+    active = ctrl.active_signals[0]
+    new_color = QColor(0, 200, 100)
+    ctrl.recolor_signal(active, new_color)
+    cursor_ctrl.recolor_signal.assert_called_once_with(active, new_color)
+
+
+def test_recolor_signal_without_cursor_ctrl_does_not_crash(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    active = ctrl.active_signals[0]
+    ctrl.recolor_signal(active, QColor(0, 200, 100))  # no cursor_ctrl set — must not raise

@@ -262,9 +262,8 @@ def test_open_recent_error_shows_message_box(
 
 
 def test_color_change_calls_recolor_signal(
-    wired: MainWindow, qtbot: QtBot
+    wired: MainWindow, mock_controller: MagicMock, qtbot: QtBot
 ) -> None:
-    from unittest.mock import patch as _patch
     from PyQt6.QtGui import QColor
     import numpy as np
     from mdf_viewer.model.signal_data import SignalData
@@ -277,10 +276,8 @@ def test_color_change_calls_recolor_signal(
         metadata=SignalMetadata(name="x", group_index=0, channel_index=0),
         color=QColor(255, 0, 0),
     )
-    wired.plot_area.add_signal(active)
     new_color = QColor(0, 255, 0)
 
-    with _patch.object(wired.plot_area, "recolor_signal") as mock_recolor:
-        wired.active_signals_table.color_change_requested.emit(active, new_color)
+    wired.active_signals_table.color_change_requested.emit(active, new_color)
 
-    mock_recolor.assert_called_once_with(active, new_color)
+    mock_controller.recolor_signal.assert_called_once_with(active, new_color)

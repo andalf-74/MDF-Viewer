@@ -94,6 +94,10 @@ class CursorController:
             self._view.apply_mode(CursorMode.HIDDEN, self._positions)
             self._table.show_cursor_columns(False)
 
+    def recolor_signal(self, active: ActiveSignal, color) -> None:
+        """Update cursor label colors when a signal's color changes."""
+        self._view.recolor_labels(active, color)
+
     def on_signal_added(self, active: ActiveSignal) -> None:
         self._active_signals.append(active)
         self._refresh(update_labels=True)

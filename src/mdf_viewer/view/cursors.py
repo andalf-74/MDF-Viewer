@@ -127,6 +127,12 @@ class CursorView(QObject):
 
         self._refresh_label_visibility()
 
+    def recolor_labels(self, active: ActiveSignal, color) -> None:
+        """Update the color of all existing labels for a specific signal."""
+        for (_, sig), (lbl, _) in self._labels.items():
+            if sig is active:
+                lbl.setColor(color)
+
     def remove_labels_for(self, active: ActiveSignal) -> None:
         """Remove all labels for a specific signal.
 

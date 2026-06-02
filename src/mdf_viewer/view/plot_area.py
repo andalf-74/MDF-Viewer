@@ -163,6 +163,7 @@ class PlotArea(QWidget):
         spd.axis.setPen(pg.mkPen(color=color))
         spd.axis.setTextPen(pg.mkPen(color=color))
         active.color = color
+        spd.view_box.update()
 
     def zoom_to_fit(self) -> None:
         """Reset viewport: full X range across all signals, auto Y per signal."""
