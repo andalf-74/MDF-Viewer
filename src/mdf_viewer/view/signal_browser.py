@@ -1,15 +1,24 @@
 """SignalBrowser — left panel TreeView of the full MDF channel hierarchy.
 
-Emits add_signal_requested(group_index, channel_index) when the user wants to
-add a signal (double-click a channel node, or select + "Add Signal" button).
+Emits add_signals_requested(list) when the user wants to add one or more
+signals (double-click a channel node, select + "Add Signal" button, or drag).
 Holds no model data itself; populated by the controller, reports intent out.
 """
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, QSortFilterProxyModel, pyqtSignal
-from PyQt6.QtGui import QStandardItem, QStandardItemModel
+import json
+
+from PyQt6.QtCore import (
+    QByteArray,
+    QMimeData,
+    QSortFilterProxyModel,
+    Qt,
+    pyqtSignal,
+)
+from PyQt6.QtGui import QDrag, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QLineEdit,
     QPushButton,
     QTreeView,
@@ -18,15 +27,36 @@ from PyQt6.QtWidgets import (
 )
 
 from mdf_viewer.model.mdf_loader import ChannelGroupInfo
+from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
 
 # Stores (group_index, channel_index) tuple on channel items; None on group items.
 _LOCATION_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
+class _DragTreeView(QTreeView):
+    """QTreeView that encodes selected signal locations as MIME data on drag."""
+
+    def __init__(self, get_locations, parent=None):
+        super().__init__(parent)
+        self._get_locations = get_locations
+
+    def startDrag(self, supported_actions):
+        locations = self._get_locations()
+        if not locations:
+            return
+        data = json.dumps([[gi, ci] for gi, ci in locations]).encode()
+        mime = QMimeData()
+        mime.setData(SIGNAL_MIME_TYPE, QByteArray(data))
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        drag.exec(Qt.DropAction.CopyAction)
+
+
 class SignalBrowser(QWidget):
     """Channel-group / channel hierarchy tree with a filter field and Add Signal button."""
 
-    add_signal_requested = pyqtSignal(int, int)  # (group_index, channel_index)
+    # Emits a list of (group_index, channel_index) tuples — one or many.
+    add_signals_requested = pyqtSignal(list)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -42,11 +72,13 @@ class SignalBrowser(QWidget):
         self._filter_edit.setClearButtonEnabled(True)
         layout.addWidget(self._filter_edit)
 
-        self._tree = QTreeView()
+        self._tree = _DragTreeView(self._selected_locations)
         self._tree.setHeaderHidden(True)
         self._tree.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
-        self._tree.setSelectionMode(QTreeView.SelectionMode.SingleSelection)
+        self._tree.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)
         self._tree.setUniformRowHeights(True)
+        self._tree.setDragEnabled(True)
+        self._tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
         layout.addWidget(self._tree)
 
         self._add_btn = QPushButton("Add Signal")
@@ -100,12 +132,12 @@ class SignalBrowser(QWidget):
     # ------------------------------------------------------------------
 
     def _on_selection_changed(self) -> None:
-        self._add_btn.setEnabled(self._current_location() is not None)
+        self._add_btn.setEnabled(bool(self._selected_locations()))
 
     def _on_add_clicked(self) -> None:
-        loc = self._current_location()
-        if loc is not None:
-            self.add_signal_requested.emit(loc[0], loc[1])
+        locs = self._selected_locations()
+        if locs:
+            self.add_signals_requested.emit(locs)
 
     def _on_double_click(self, proxy_index) -> None:
         source_index = self._proxy.mapToSource(proxy_index)
@@ -114,22 +146,23 @@ class SignalBrowser(QWidget):
             return
         loc = item.data(_LOCATION_ROLE)
         if loc is not None:
-            self.add_signal_requested.emit(loc[0], loc[1])
+            self.add_signals_requested.emit([loc])
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
-    def _current_location(self) -> tuple[int, int] | None:
-        """Return (group_index, channel_index) for the selected channel, or None."""
-        indexes = self._tree.selectedIndexes()
-        if not indexes:
-            return None
-        source_index = self._proxy.mapToSource(indexes[0])
-        item = self._model.itemFromIndex(source_index)
-        if item is None:
-            return None
-        return item.data(_LOCATION_ROLE)
+    def _selected_locations(self) -> list[tuple[int, int]]:
+        """Return [(group_index, channel_index), ...] for all selected channel items."""
+        locations = []
+        for idx in self._tree.selectedIndexes():
+            src = self._proxy.mapToSource(idx)
+            item = self._model.itemFromIndex(src)
+            if item is not None:
+                loc = item.data(_LOCATION_ROLE)
+                if loc is not None:
+                    locations.append(loc)
+        return locations
 
 
 # ---------------------------------------------------------------------------

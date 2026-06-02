@@ -12,6 +12,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pytestqt.qtbot import QtBot
 
+from PyQt6.QtWidgets import QMessageBox
+
 from mdf_viewer.model.mdf_loader import MdfLoadError
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.main_window import MainWindow
@@ -138,7 +140,7 @@ def test_toolbar_has_cursor_action(window: MainWindow) -> None:
 def test_add_signal_connects_after_set_controller(
     wired: MainWindow, mock_controller: MagicMock, qtbot: QtBot
 ) -> None:
-    wired.signal_browser.add_signal_requested.emit(2, 5)
+    wired.signal_browser.add_signals_requested.emit([(2, 5)])
     mock_controller.add_signal.assert_called_once_with(2, 5)
 
 
@@ -146,7 +148,7 @@ def test_add_signal_not_called_before_set_controller(
     window: MainWindow, qtbot: QtBot
 ) -> None:
     # Emit before set_controller — must not crash
-    window.signal_browser.add_signal_requested.emit(0, 1)
+    window.signal_browser.add_signals_requested.emit([(0, 1)])
 
 
 def test_load_file_calls_controller(
@@ -190,7 +192,7 @@ def test_add_signal_error_shows_message_box(
 ) -> None:
     mock_controller.add_signal.side_effect = MdfLoadError("non-numeric channel")
     with patch("mdf_viewer.view.main_window.QMessageBox.critical") as mock_crit:
-        wired.signal_browser.add_signal_requested.emit(0, 1)
+        wired.signal_browser.add_signals_requested.emit([(0, 1)])
     mock_crit.assert_called_once()
     assert "non-numeric channel" in mock_crit.call_args[0][2]
 
@@ -258,6 +260,109 @@ def test_open_recent_error_shows_message_box(
     wired._file_menu.aboutToShow.emit()
     with patch("mdf_viewer.view.main_window.QMessageBox.critical") as mock_crit:
         wired._recent_actions[0].trigger()
+    mock_crit.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Status bar
+# ---------------------------------------------------------------------------
+
+def test_status_bar_present(window: MainWindow) -> None:
+    assert window.statusBar() is not None
+
+
+def test_show_status_displays_message(window: MainWindow) -> None:
+    window.show_status("hello world", timeout_ms=0)
+    assert window.statusBar().currentMessage() == "hello world"
+
+
+# ---------------------------------------------------------------------------
+# _on_add_signals — multi-add and skip notification
+# ---------------------------------------------------------------------------
+
+def test_on_add_signals_calls_add_signal_for_each(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.add_signal.return_value = True
+    wired._on_add_signals([(0, 1), (1, 2)])
+    assert mock_controller.add_signal.call_count == 2
+    mock_controller.add_signal.assert_any_call(0, 1)
+    mock_controller.add_signal.assert_any_call(1, 2)
+
+
+def test_on_add_signals_shows_status_when_skipped(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.add_signal.return_value = False
+    wired._on_add_signals([(0, 1), (0, 2)])
+    msg = wired.statusBar().currentMessage()
+    assert "2 signals already active" in msg
+
+
+def test_on_add_signals_skipped_singular(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.add_signal.return_value = False
+    wired._on_add_signals([(0, 1)])
+    msg = wired.statusBar().currentMessage()
+    assert "1 signal already active" in msg
+
+
+def test_on_add_signals_no_status_when_none_skipped(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.add_signal.return_value = True
+    wired._on_add_signals([(0, 1)])
+    assert wired.statusBar().currentMessage() == ""
+
+
+# ---------------------------------------------------------------------------
+# _on_file_dropped
+# ---------------------------------------------------------------------------
+
+def test_file_dropped_loads_when_no_file_loaded(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mock_controller.is_file_loaded = False
+    path = tmp_path / "test.mf4"
+    wired._on_file_dropped(path)
+    mock_controller.load_file.assert_called_once_with(path)
+
+
+def test_file_dropped_asks_confirmation_when_file_loaded(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mock_controller.is_file_loaded = True
+    path = tmp_path / "test.mf4"
+    with patch(
+        "mdf_viewer.view.main_window.QMessageBox.question",
+        return_value=QMessageBox.StandardButton.No,
+    ):
+        wired._on_file_dropped(path)
+    mock_controller.load_file.assert_not_called()
+
+
+def test_file_dropped_loads_when_confirmed(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mock_controller.is_file_loaded = True
+    path = tmp_path / "test.mf4"
+    with patch(
+        "mdf_viewer.view.main_window.QMessageBox.question",
+        return_value=QMessageBox.StandardButton.Yes,
+    ):
+        wired._on_file_dropped(path)
+    mock_controller.load_file.assert_called_once_with(path)
+
+
+def test_file_dropped_error_shows_message_box(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mock_controller.is_file_loaded = False
+    mock_controller.load_file.side_effect = MdfLoadError("corrupt")
+    path = tmp_path / "bad.mf4"
+    with patch("mdf_viewer.view.main_window.QMessageBox.critical") as mock_crit:
+        wired._on_file_dropped(path)
     mock_crit.assert_called_once()
 
 

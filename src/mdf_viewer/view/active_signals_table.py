@@ -8,7 +8,9 @@ Selection in this table drives the Signal Info Box via selection_changed.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt, pyqtSignal
+import json
+
+from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QKeyEvent
 from PyQt6.QtWidgets import (
     QColorDialog,
@@ -22,6 +24,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
 _COL_COLOR = 0
@@ -48,6 +51,8 @@ class ActiveSignalsTable(QWidget):
     color_change_requested = pyqtSignal(object, QColor)
     # active_signal — emitted when user selects Toggle Step Mode from context menu
     step_mode_toggle_requested = pyqtSignal(object)
+    # list of (group_index, channel_index) — emitted when signals are dropped onto the table
+    signals_dropped = pyqtSignal(list)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -162,6 +167,9 @@ class ActiveSignalsTable(QWidget):
         self._remove_btn.clicked.connect(self._on_remove_clicked)
         self._remove_all_btn.clicked.connect(self.remove_all_requested)
 
+        self._table.viewport().setAcceptDrops(True)
+        self._table.viewport().installEventFilter(self)
+
     # ------------------------------------------------------------------
     # Slots (private)
     # ------------------------------------------------------------------
@@ -213,6 +221,30 @@ class ActiveSignalsTable(QWidget):
         action.triggered.connect(lambda: self.step_mode_toggle_requested.emit(active))
         menu.addAction(action)
         menu.exec(self._table.viewport().mapToGlobal(pos))
+
+    def eventFilter(self, watched, event):
+        if watched is self._table.viewport():
+            t = event.type()
+            if t == QEvent.Type.DragEnter:
+                if event.mimeData().hasFormat(SIGNAL_MIME_TYPE):
+                    event.acceptProposedAction()
+                else:
+                    event.ignore()
+                return True
+            elif t == QEvent.Type.DragMove:
+                if event.mimeData().hasFormat(SIGNAL_MIME_TYPE):
+                    event.acceptProposedAction()
+                else:
+                    event.ignore()
+                return True
+            elif t == QEvent.Type.Drop:
+                if event.mimeData().hasFormat(SIGNAL_MIME_TYPE):
+                    data = bytes(event.mimeData().data(SIGNAL_MIME_TYPE))
+                    locs = [tuple(item) for item in json.loads(data)]
+                    self.signals_dropped.emit(locs)
+                    event.acceptProposedAction()
+                return True
+        return super().eventFilter(watched, event)
 
     def _find_row(self, active: ActiveSignal) -> int | None:
         """Return the row index of *active* using identity, or None."""

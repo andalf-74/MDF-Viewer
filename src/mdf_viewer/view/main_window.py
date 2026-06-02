@@ -79,7 +79,10 @@ class MainWindow(QMainWindow):
         """Wire the controller after it has been constructed with this window's views."""
         self._controller = controller
         self._cursor_ctrl = cursor_ctrl
-        self.signal_browser.add_signal_requested.connect(self._on_add_signal)
+        self.signal_browser.add_signals_requested.connect(self._on_add_signals)
+        self.plot_area.signals_dropped.connect(self._on_add_signals)
+        self.plot_area.file_dropped.connect(self._on_file_dropped)
+        self.active_signals_table.signals_dropped.connect(self._on_add_signals)
         self.active_signals_table.remove_requested.connect(controller.remove_signal)
         self.active_signals_table.remove_all_requested.connect(controller.remove_all)
         self.active_signals_table.selection_changed.connect(
@@ -92,6 +95,10 @@ class MainWindow(QMainWindow):
             controller.toggle_step_mode
         )
         self.plot_area.y_grid_toggled.connect(controller.on_y_grid_toggled)
+
+    def show_status(self, message: str, timeout_ms: int = 3000) -> None:
+        """Show a transient status bar message."""
+        self.statusBar().showMessage(message, timeout_ms)
 
     def set_recent_files_provider(
         self, provider: Callable[[], list[Path]]
@@ -170,6 +177,37 @@ class MainWindow(QMainWindow):
     # Slots
     # ------------------------------------------------------------------
 
+    def _on_add_signals(self, locations: list) -> None:
+        if self._controller is None:
+            return
+        skipped = 0
+        for gi, ci in locations:
+            try:
+                if not self._controller.add_signal(gi, ci):
+                    skipped += 1
+            except MdfLoadError as exc:
+                QMessageBox.critical(self, "Error Loading Signal", str(exc))
+        if skipped:
+            noun = "signal" if skipped == 1 else "signals"
+            self.show_status(f"{skipped} {noun} already active, skipped.")
+
+    def _on_file_dropped(self, path) -> None:
+        if self._controller is None:
+            return
+        if self._controller.is_file_loaded:
+            reply = QMessageBox.question(
+                self,
+                "Replace File",
+                f"Replace the currently loaded file with\n{Path(path).name}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        try:
+            self._controller.load_file(path)
+        except MdfLoadError as exc:
+            QMessageBox.critical(self, "Load Error", str(exc))
+
     def _on_load_file(self) -> None:
         if self._controller is None:
             return
@@ -182,14 +220,6 @@ class MainWindow(QMainWindow):
             self._controller.load_file(path)
         except MdfLoadError as exc:
             QMessageBox.critical(self, "Load Error", str(exc))
-
-    def _on_add_signal(self, group_index: int, channel_index: int) -> None:
-        if self._controller is None:
-            return
-        try:
-            self._controller.add_signal(group_index, channel_index)
-        except MdfLoadError as exc:
-            QMessageBox.critical(self, "Error Loading Signal", str(exc))
 
     def _on_zoom_to_fit(self) -> None:
         if hasattr(self.plot_area, "zoom_to_fit"):

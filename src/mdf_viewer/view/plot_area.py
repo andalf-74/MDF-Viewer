@@ -11,17 +11,22 @@ linked to pi.vb, so panning or zooming X anywhere propagates to all signals.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pyqtgraph as pg
-from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtCore import QEvent, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
+from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
 if TYPE_CHECKING:
     pass
+
+_MDF_SUFFIXES = {'.mf4', '.mdf', '.dat'}
 
 
 class _SignalAxisItem(pg.AxisItem):
@@ -77,6 +82,10 @@ class PlotArea(QWidget):
 
     # Emitted when the user toggles the Y-grid checkbox in the plot context menu.
     y_grid_toggled = pyqtSignal(bool)
+    # Emitted when an MDF file is dropped onto the plot.
+    file_dropped = pyqtSignal(object)  # Path
+    # Emitted when signals are dragged from the Signal Browser and dropped.
+    signals_dropped = pyqtSignal(list)  # list of (group_index, channel_index)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -95,6 +104,9 @@ class PlotArea(QWidget):
 
         self._pi.vb.sigResized.connect(self._update_view_geometries)
         self._pi.ctrl.yGridCheck.toggled.connect(self._on_y_grid_toggled)
+
+        self._pw.viewport().setAcceptDrops(True)
+        self._pw.viewport().installEventFilter(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -206,6 +218,56 @@ class PlotArea(QWidget):
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def eventFilter(self, watched, event):
+        if watched is self._pw.viewport():
+            t = event.type()
+            if t == QEvent.Type.DragEnter:
+                if self._accepts_drag(event.mimeData()):
+                    event.acceptProposedAction()
+                else:
+                    event.ignore()
+                return True
+            elif t == QEvent.Type.DragMove:
+                if self._accepts_drag(event.mimeData()):
+                    event.acceptProposedAction()
+                else:
+                    event.ignore()
+                return True
+            elif t == QEvent.Type.Drop:
+                self._on_drop(event)
+                return True
+        return super().eventFilter(watched, event)
+
+    def _accepts_drag(self, mime_data) -> bool:
+        if mime_data.hasFormat(SIGNAL_MIME_TYPE):
+            return True
+        if mime_data.hasUrls():
+            return any(
+                u.isLocalFile()
+                and Path(u.toLocalFile()).suffix.lower() in _MDF_SUFFIXES
+                for u in mime_data.urls()
+            )
+        return False
+
+    def _on_drop(self, event) -> None:
+        mime = event.mimeData()
+        if mime.hasFormat(SIGNAL_MIME_TYPE):
+            data = bytes(mime.data(SIGNAL_MIME_TYPE))
+            locs = [tuple(item) for item in json.loads(data)]
+            self.signals_dropped.emit(locs)
+            event.acceptProposedAction()
+        elif mime.hasUrls():
+            for url in mime.urls():
+                if url.isLocalFile():
+                    path = Path(url.toLocalFile())
+                    if path.suffix.lower() in _MDF_SUFFIXES:
+                        self.file_dropped.emit(path)
+                        event.acceptProposedAction()
+                        return
+            event.ignore()
+        else:
+            event.ignore()
 
     def _on_y_grid_toggled(self, checked: bool) -> None:
         self.y_grid_toggled.emit(checked)

@@ -6,6 +6,8 @@ All tests require a QApplication (provided by pytest-qt's qtbot fixture).
 from __future__ import annotations
 
 import pytest
+from PyQt6.QtCore import QItemSelectionModel
+from PyQt6.QtWidgets import QAbstractItemView
 from pytestqt.qtbot import QtBot
 
 from mdf_viewer.model.mdf_loader import ChannelGroupInfo
@@ -82,6 +84,22 @@ def test_filter_field_exists(browser: SignalBrowser) -> None:
 
 def test_filter_field_has_placeholder(browser: SignalBrowser) -> None:
     assert browser._filter_edit.placeholderText() != ""
+
+
+# ---------------------------------------------------------------------------
+# Selection mode and drag
+# ---------------------------------------------------------------------------
+
+def test_selection_mode_is_extended(browser: SignalBrowser) -> None:
+    assert browser._tree.selectionMode() == QAbstractItemView.SelectionMode.ExtendedSelection
+
+
+def test_drag_enabled(browser: SignalBrowser) -> None:
+    assert browser._tree.dragEnabled()
+
+
+def test_drag_mode_is_drag_only(browser: SignalBrowser) -> None:
+    assert browser._tree.dragDropMode() == QAbstractItemView.DragDropMode.DragOnly
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +207,7 @@ def test_add_button_disabled_when_group_selected(
 
 
 # ---------------------------------------------------------------------------
-# add_signal_requested signal
+# add_signals_requested signal — single selection
 # ---------------------------------------------------------------------------
 
 def test_add_button_emits_correct_indices(
@@ -198,10 +216,10 @@ def test_add_button_emits_correct_indices(
     cos_item = populated_browser._model.item(0).child(2)
     populated_browser._tree.setCurrentIndex(_px(populated_browser, cos_item))
     with qtbot.waitSignal(
-        populated_browser.add_signal_requested, timeout=500
+        populated_browser.add_signals_requested, timeout=500
     ) as blocker:
         populated_browser._add_btn.click()
-    assert blocker.args == [0, 2]
+    assert blocker.args == [[(0, 2)]]
 
 
 def test_double_click_channel_emits_signal(
@@ -209,16 +227,16 @@ def test_double_click_channel_emits_signal(
 ) -> None:
     sin_item = populated_browser._model.item(0).child(1)
     with qtbot.waitSignal(
-        populated_browser.add_signal_requested, timeout=500
+        populated_browser.add_signals_requested, timeout=500
     ) as blocker:
         populated_browser._tree.doubleClicked.emit(_px(populated_browser, sin_item))
-    assert blocker.args == [0, 1]
+    assert blocker.args == [[(0, 1)]]
 
 
 def test_double_click_group_does_not_emit(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
-    with qtbot.assertNotEmitted(populated_browser.add_signal_requested):
+    with qtbot.assertNotEmitted(populated_browser.add_signals_requested):
         populated_browser._tree.doubleClicked.emit(
             _px(populated_browser, populated_browser._model.item(0))
         )
@@ -230,10 +248,51 @@ def test_speed_channel_correct_indices(
     speed_item = populated_browser._model.item(1).child(0)
     populated_browser._tree.setCurrentIndex(_px(populated_browser, speed_item))
     with qtbot.waitSignal(
-        populated_browser.add_signal_requested, timeout=500
+        populated_browser.add_signals_requested, timeout=500
     ) as blocker:
         populated_browser._add_btn.click()
-    assert blocker.args == [1, 0]
+    assert blocker.args == [[(1, 0)]]
+
+
+# ---------------------------------------------------------------------------
+# add_signals_requested signal — multi-selection
+# ---------------------------------------------------------------------------
+
+def test_add_button_emits_all_selected_channels(
+    populated_browser: SignalBrowser, qtbot: QtBot
+) -> None:
+    sm = populated_browser._tree.selectionModel()
+    sin_idx = _px(populated_browser, populated_browser._model.item(0).child(1))
+    cos_idx = _px(populated_browser, populated_browser._model.item(0).child(2))
+    sm.select(sin_idx, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+    sm.select(cos_idx, QItemSelectionModel.SelectionFlag.Select)
+    with qtbot.waitSignal(populated_browser.add_signals_requested, timeout=500) as blocker:
+        populated_browser._add_btn.click()
+    locations = blocker.args[0]
+    assert (0, 1) in locations
+    assert (0, 2) in locations
+
+
+def test_selected_locations_excludes_group_items(
+    populated_browser: SignalBrowser,
+) -> None:
+    group_item = populated_browser._model.item(0)
+    populated_browser._tree.setCurrentIndex(_px(populated_browser, group_item))
+    assert populated_browser._selected_locations() == []
+
+
+def test_selected_locations_returns_multiple(
+    populated_browser: SignalBrowser,
+) -> None:
+    sm = populated_browser._tree.selectionModel()
+    sin_idx = _px(populated_browser, populated_browser._model.item(0).child(1))
+    cos_idx = _px(populated_browser, populated_browser._model.item(0).child(2))
+    sm.select(sin_idx, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+    sm.select(cos_idx, QItemSelectionModel.SelectionFlag.Select)
+    locs = populated_browser._selected_locations()
+    assert len(locs) == 2
+    assert (0, 1) in locs
+    assert (0, 2) in locs
 
 
 # ---------------------------------------------------------------------------

@@ -6,15 +6,35 @@ than PyQtGraph internals. All tests require a QApplication via qtbot.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+from unittest.mock import MagicMock
+
 import numpy as np
 import pytest
+from PyQt6.QtCore import QByteArray, QEvent, QMimeData, QUrl
 from PyQt6.QtGui import QColor
 from pytestqt.qtbot import QtBot
 
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
+from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
 from mdf_viewer.view.plot_area import PlotArea, _SignalAxisItem
 from mdf_viewer.view_model.active_signal import ActiveSignal
+
+
+def _drop_event(mime_data):
+    event = MagicMock()
+    event.type.return_value = QEvent.Type.Drop
+    event.mimeData.return_value = mime_data
+    return event
+
+
+def _drag_enter_event(mime_data):
+    event = MagicMock()
+    event.type.return_value = QEvent.Type.DragEnter
+    event.mimeData.return_value = mime_data
+    return event
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +283,81 @@ def test_integer_tick_values_no_duplicates(plot: PlotArea) -> None:
     ticks = axis.tickValues(-1.0, 8.0, 300)
     all_values = [v for _, vals in ticks for v in vals]
     assert len(all_values) == len(set(all_values))
+
+
+# ---------------------------------------------------------------------------
+# Drag and drop — signals
+# ---------------------------------------------------------------------------
+
+def test_signals_dropped_emitted_on_signal_mime(plot: PlotArea, qtbot: QtBot) -> None:
+    locs = [[0, 1], [1, 2]]
+    mime = QMimeData()
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(json.dumps(locs).encode()))
+    with qtbot.waitSignal(plot.signals_dropped) as blocker:
+        plot.eventFilter(plot._pw.viewport(), _drop_event(mime))
+    assert blocker.args[0] == [(0, 1), (1, 2)]
+
+
+def test_signals_dropped_not_emitted_for_wrong_mime(
+    plot: PlotArea, qtbot: QtBot
+) -> None:
+    mime = QMimeData()
+    mime.setText("irrelevant")
+    with qtbot.assertNotEmitted(plot.signals_dropped):
+        plot.eventFilter(plot._pw.viewport(), _drop_event(mime))
+
+
+# ---------------------------------------------------------------------------
+# Drag and drop — file
+# ---------------------------------------------------------------------------
+
+def test_file_dropped_emitted_on_mdf_url(
+    plot: PlotArea, qtbot: QtBot, tmp_path: Path
+) -> None:
+    path = tmp_path / "data.mf4"
+    path.touch()
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(path))])
+    with qtbot.waitSignal(plot.file_dropped) as blocker:
+        plot.eventFilter(plot._pw.viewport(), _drop_event(mime))
+    assert blocker.args[0] == path
+
+
+def test_file_dropped_not_emitted_for_non_mdf(
+    plot: PlotArea, qtbot: QtBot, tmp_path: Path
+) -> None:
+    path = tmp_path / "data.csv"
+    path.touch()
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(path))])
+    with qtbot.assertNotEmitted(plot.file_dropped):
+        plot.eventFilter(plot._pw.viewport(), _drop_event(mime))
+
+
+def test_drag_enter_accepted_for_signal_mime(plot: PlotArea) -> None:
+    mime = QMimeData()
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(b"[]"))
+    event = _drag_enter_event(mime)
+    plot.eventFilter(plot._pw.viewport(), event)
+    event.acceptProposedAction.assert_called_once()
+
+
+def test_drag_enter_accepted_for_mdf_url(plot: PlotArea, tmp_path: Path) -> None:
+    path = tmp_path / "data.mf4"
+    path.touch()
+    mime = QMimeData()
+    mime.setUrls([QUrl.fromLocalFile(str(path))])
+    event = _drag_enter_event(mime)
+    plot.eventFilter(plot._pw.viewport(), event)
+    event.acceptProposedAction.assert_called_once()
+
+
+def test_drag_enter_ignored_for_unknown_mime(plot: PlotArea) -> None:
+    mime = QMimeData()
+    mime.setText("not a signal or file")
+    event = _drag_enter_event(mime)
+    plot.eventFilter(plot._pw.viewport(), event)
+    event.ignore.assert_called_once()
 
 
 def test_zoom_to_fit_sets_x_range(plot: PlotArea) -> None:

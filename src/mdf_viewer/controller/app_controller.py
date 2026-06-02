@@ -100,18 +100,19 @@ class AppController:
         if self._settings is not None:
             self._settings.add_recent(path)
 
-    def add_signal(self, group_index: int, channel_index: int) -> None:
+    def add_signal(self, group_index: int, channel_index: int) -> bool:
         """Load a channel and add it to the plot and the Active Signals Table.
 
-        No-op if the channel is already active. Raises MdfLoadError if the
-        channel cannot be read or its samples are not numeric.
+        Returns True if added, False if the channel was already active.
+        Raises MdfLoadError if the channel cannot be read or its samples are
+        not numeric.
         """
         if any(
             s.metadata.group_index == group_index
             and s.metadata.channel_index == channel_index
             for s in self._active
         ):
-            return
+            return False
         data, meta = self._loader.load_signal(group_index, channel_index)
         rgb = _COLOR_PALETTE[self._color_index % len(_COLOR_PALETTE)]
         self._color_index += 1
@@ -121,6 +122,7 @@ class AppController:
         self._table.add_row(active)
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.on_signal_added(active)
+        return True
 
     def toggle_step_mode(self, active_signal: ActiveSignal) -> None:
         """Flip the step-mode flag for a signal and update the plot."""
@@ -184,6 +186,10 @@ class AppController:
     # ------------------------------------------------------------------
     # Read-only state accessors
     # ------------------------------------------------------------------
+
+    @property
+    def is_file_loaded(self) -> bool:
+        return self._loader.is_open
 
     @property
     def active_signals(self) -> list[ActiveSignal]:

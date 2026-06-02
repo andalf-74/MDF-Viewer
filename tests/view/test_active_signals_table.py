@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import json
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from PyQt6.QtCore import QByteArray, QEvent, QMimeData
 from PyQt6.QtGui import QColor
 from pytestqt.qtbot import QtBot
 
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
+from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable, _ColorSwatch
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
@@ -310,3 +313,57 @@ def test_cursor_columns_are_interactive(table: ActiveSignalsTable) -> None:
     hdr = table._table.horizontalHeader()
     for col in (2, 3, 4):  # _CURSOR_COLS
         assert hdr.sectionResizeMode(col) == QHeaderView.ResizeMode.Interactive
+
+
+# ---------------------------------------------------------------------------
+# Drag and drop — signals
+# ---------------------------------------------------------------------------
+
+def _drop_event(mime_data):
+    event = MagicMock()
+    event.type.return_value = QEvent.Type.Drop
+    event.mimeData.return_value = mime_data
+    return event
+
+
+def _drag_enter_event(mime_data):
+    event = MagicMock()
+    event.type.return_value = QEvent.Type.DragEnter
+    event.mimeData.return_value = mime_data
+    return event
+
+
+def test_signals_dropped_emitted_on_valid_mime(
+    table: ActiveSignalsTable, qtbot: QtBot
+) -> None:
+    locs = [[0, 1], [1, 2]]
+    mime = QMimeData()
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(json.dumps(locs).encode()))
+    with qtbot.waitSignal(table.signals_dropped) as blocker:
+        table.eventFilter(table._table.viewport(), _drop_event(mime))
+    assert blocker.args[0] == [(0, 1), (1, 2)]
+
+
+def test_signals_dropped_not_emitted_for_wrong_mime(
+    table: ActiveSignalsTable, qtbot: QtBot
+) -> None:
+    mime = QMimeData()
+    mime.setText("not a signal")
+    with qtbot.assertNotEmitted(table.signals_dropped):
+        table.eventFilter(table._table.viewport(), _drop_event(mime))
+
+
+def test_drag_enter_accepted_for_signal_mime(table: ActiveSignalsTable) -> None:
+    mime = QMimeData()
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(b"[]"))
+    event = _drag_enter_event(mime)
+    table.eventFilter(table._table.viewport(), event)
+    event.acceptProposedAction.assert_called_once()
+
+
+def test_drag_enter_ignored_for_unknown_mime(table: ActiveSignalsTable) -> None:
+    mime = QMimeData()
+    mime.setText("irrelevant")
+    event = _drag_enter_event(mime)
+    table.eventFilter(table._table.viewport(), event)
+    event.ignore.assert_called_once()

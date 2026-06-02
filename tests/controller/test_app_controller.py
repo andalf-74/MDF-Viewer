@@ -256,6 +256,17 @@ def test_add_signal_stores_correct_metadata(ctrl: AppController, deps: dict) -> 
     assert ctrl.active_signals[0].metadata.name == "voltage"
 
 
+def test_add_signal_returns_true_when_added(ctrl: AppController) -> None:
+    result = ctrl.add_signal(0, 1)
+    assert result is True
+
+
+def test_add_signal_returns_false_for_duplicate(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    result = ctrl.add_signal(0, 1)
+    assert result is False
+
+
 def test_add_signal_propagates_mdf_load_error(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.side_effect = MdfLoadError("bad channel")
     with pytest.raises(MdfLoadError):
@@ -509,6 +520,17 @@ def test_toggle_step_mode_calls_plot(ctrl: AppController, deps: dict) -> None:
     active = ctrl.active_signals[0]
     ctrl.toggle_step_mode(active)
     deps["plot"].set_step_mode.assert_called_once_with(active, active.step_mode)
+
+
+# ---------------------------------------------------------------------------
+# is_file_loaded
+# ---------------------------------------------------------------------------
+
+def test_is_file_loaded_delegates_to_loader(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].is_open = True
+    assert ctrl.is_file_loaded is True
+    deps["loader"].is_open = False
+    assert ctrl.is_file_loaded is False
 
 
 def test_toggle_step_mode_noop_for_unknown_signal(ctrl: AppController, deps: dict) -> None:
