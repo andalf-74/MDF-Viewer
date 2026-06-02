@@ -9,7 +9,7 @@ Selection in this table drives the Signal Info Box via selection_changed.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QColor
+from PyQt6.QtGui import QAction, QColor, QKeyEvent
 from PyQt6.QtWidgets import (
     QColorDialog,
     QHBoxLayout,
@@ -134,10 +134,12 @@ class ActiveSignalsTable(QWidget):
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(_COL_COLOR, QHeaderView.ResizeMode.Fixed)
         self._table.setColumnWidth(_COL_COLOR, 28)
-        hdr.setSectionResizeMode(_COL_NAME, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(_COL_NAME, QHeaderView.ResizeMode.Interactive)
+        self._table.setColumnWidth(_COL_NAME, 120)
         for col in _CURSOR_COLS:
-            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Fixed)
+            hdr.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
             self._table.setColumnWidth(col, 80)
+        hdr.setStretchLastSection(False)
 
         # Cursor columns hidden until activated
         for col in _CURSOR_COLS:
@@ -193,6 +195,12 @@ class ActiveSignalsTable(QWidget):
                 swatch.set_color(new_color)
         self.color_change_requested.emit(active, new_color)
 
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            self._on_remove_clicked()
+        else:
+            super().keyPressEvent(event)
 
     def _on_context_menu(self, pos) -> None:
         index = self._table.indexAt(pos)

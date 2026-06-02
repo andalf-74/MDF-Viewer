@@ -274,3 +274,39 @@ def test_color_change_cancelled_does_not_emit(
     ):
         with qtbot.assertNotEmitted(t.color_change_requested):
             t._on_color_swatch_clicked(sigs[0])
+
+
+# ---------------------------------------------------------------------------
+# Issue #8 — Delete key removes selected signal
+# ---------------------------------------------------------------------------
+
+def test_delete_key_emits_remove_requested(populated: tuple, qtbot: QtBot) -> None:
+    from PyQt6.QtCore import Qt
+    t, sigs = populated
+    t._table.selectRow(0)
+    with qtbot.waitSignal(t.remove_requested) as blocker:
+        qtbot.keyClick(t, Qt.Key.Key_Delete)
+    assert blocker.args[0] is sigs[0]
+
+
+def test_delete_key_no_selection_does_not_emit(table: ActiveSignalsTable, qtbot: QtBot) -> None:
+    from PyQt6.QtCore import Qt
+    with qtbot.assertNotEmitted(table.remove_requested):
+        qtbot.keyClick(table, Qt.Key.Key_Delete)
+
+
+# ---------------------------------------------------------------------------
+# Issue #7 — Name and cursor columns are interactively resizable
+# ---------------------------------------------------------------------------
+
+def test_name_column_is_interactive(table: ActiveSignalsTable) -> None:
+    from PyQt6.QtWidgets import QHeaderView
+    mode = table._table.horizontalHeader().sectionResizeMode(1)  # _COL_NAME = 1
+    assert mode == QHeaderView.ResizeMode.Interactive
+
+
+def test_cursor_columns_are_interactive(table: ActiveSignalsTable) -> None:
+    from PyQt6.QtWidgets import QHeaderView
+    hdr = table._table.horizontalHeader()
+    for col in (2, 3, 4):  # _CURSOR_COLS
+        assert hdr.sectionResizeMode(col) == QHeaderView.ResizeMode.Interactive
