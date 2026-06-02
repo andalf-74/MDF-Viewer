@@ -91,6 +91,7 @@ class MainWindow(QMainWindow):
         self.active_signals_table.step_mode_toggle_requested.connect(
             controller.toggle_step_mode
         )
+        self.plot_area.y_grid_toggled.connect(controller.on_y_grid_toggled)
 
     def set_recent_files_provider(
         self, provider: Callable[[], list[Path]]

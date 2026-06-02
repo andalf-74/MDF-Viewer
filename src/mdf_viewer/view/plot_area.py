@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import pyqtgraph as pg
+from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from mdf_viewer.view_model.active_signal import ActiveSignal
@@ -74,6 +75,9 @@ class _SignalPlotData:
 class PlotArea(QWidget):
     """PyQtGraph plot with a shared X-axis and one ViewBox/Y-axis per signal."""
 
+    # Emitted when the user toggles the Y-grid checkbox in the plot context menu.
+    y_grid_toggled = pyqtSignal(bool)
+
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
@@ -90,6 +94,7 @@ class PlotArea(QWidget):
         self._data: dict[ActiveSignal, _SignalPlotData] = {}
 
         self._pi.vb.sigResized.connect(self._update_view_geometries)
+        self._pi.ctrl.yGridCheck.toggled.connect(self._on_y_grid_toggled)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -166,6 +171,12 @@ class PlotArea(QWidget):
         active.color = color
         spd.view_box.update()
 
+    def set_y_grid(self, active: ActiveSignal, enabled: bool) -> None:
+        """Enable or disable the Y-grid on a signal's axis. No-op if not present."""
+        if active not in self._data:
+            return
+        self._data[active].axis.setGrid(160 if enabled else False)
+
     def set_step_mode(self, active: ActiveSignal, enabled: bool) -> None:
         """Switch a signal curve between step and linear rendering. No-op if not present."""
         if active not in self._data:
@@ -195,6 +206,9 @@ class PlotArea(QWidget):
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _on_y_grid_toggled(self, checked: bool) -> None:
+        self.y_grid_toggled.emit(checked)
 
     def _update_view_geometries(self) -> None:
         """Keep extra ViewBoxes aligned with the main ViewBox after resize."""

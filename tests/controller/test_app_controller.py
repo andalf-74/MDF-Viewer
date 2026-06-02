@@ -392,6 +392,62 @@ def test_set_selected_signal_none_clears_property(ctrl: AppController) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Y-grid
+# ---------------------------------------------------------------------------
+
+def test_on_y_grid_toggled_enables_grid_on_selected(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    ctrl.on_y_grid_toggled(True)
+    deps["plot"].set_y_grid.assert_called_with(sig, True)
+
+
+def test_on_y_grid_toggled_no_selected_does_not_crash(ctrl: AppController, deps: dict) -> None:
+    ctrl.on_y_grid_toggled(True)  # nothing selected — must not raise
+    deps["plot"].set_y_grid.assert_not_called()
+
+
+def test_on_y_grid_toggled_disabled_removes_grid(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    ctrl.on_y_grid_toggled(True)
+    deps["plot"].reset_mock()
+    ctrl.on_y_grid_toggled(False)
+    deps["plot"].set_y_grid.assert_called_with(sig, False)
+
+
+def test_set_selected_signal_moves_grid(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata(name="a", gi=0, ci=1)),
+        (_make_signal_data(), _make_metadata(name="b", gi=0, ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    sig_a, sig_b = ctrl.active_signals
+
+    ctrl.set_selected_signal(sig_a)
+    ctrl.on_y_grid_toggled(True)
+    deps["plot"].reset_mock()
+
+    ctrl.set_selected_signal(sig_b)
+    calls = deps["plot"].set_y_grid.call_args_list
+    assert calls[0] == call(sig_a, False)
+    assert calls[1] == call(sig_b, True)
+
+
+def test_set_selected_signal_none_removes_grid(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    ctrl.on_y_grid_toggled(True)
+    deps["plot"].reset_mock()
+    ctrl.set_selected_signal(None)
+    deps["plot"].set_y_grid.assert_called_once_with(sig, False)
+
+
+# ---------------------------------------------------------------------------
 # recolor_signal
 # ---------------------------------------------------------------------------
 

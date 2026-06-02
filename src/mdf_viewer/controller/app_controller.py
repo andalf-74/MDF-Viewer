@@ -65,6 +65,7 @@ class AppController:
         self._selected: ActiveSignal | None = None
         self._color_index: int = 0
         self._cursor_ctrl = None  # set by set_cursor_controller()
+        self._y_grid_enabled: bool = False
 
     # ------------------------------------------------------------------
     # Public API
@@ -161,8 +162,19 @@ class AppController:
         self._table.clear()
         self.set_selected_signal(None)
 
+    def on_y_grid_toggled(self, enabled: bool) -> None:
+        """Called when the user toggles Y-grid in the plot context menu."""
+        self._y_grid_enabled = enabled
+        if self._selected is not None:
+            self._plot.set_y_grid(self._selected, enabled)
+
     def set_selected_signal(self, active_signal: ActiveSignal | None) -> None:
         """Update the selection and drive the Signal Info Box."""
+        if self._y_grid_enabled:
+            if self._selected is not None:
+                self._plot.set_y_grid(self._selected, False)
+            if active_signal is not None:
+                self._plot.set_y_grid(active_signal, True)
         self._selected = active_signal
         if active_signal is None:
             self._signal_info.clear()
