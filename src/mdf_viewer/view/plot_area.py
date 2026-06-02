@@ -131,6 +131,7 @@ class PlotArea(QWidget):
             active.data.timestamps,
             active.data.samples,
             pen=pen,
+            stepMode="left" if active.step_mode else False,
         )
         vb.addItem(curve)
 
@@ -164,6 +165,14 @@ class PlotArea(QWidget):
         spd.axis.setTextPen(pg.mkPen(color=color))
         active.color = color
         spd.view_box.update()
+
+    def set_step_mode(self, active: ActiveSignal, enabled: bool) -> None:
+        """Switch a signal curve between step and linear rendering. No-op if not present."""
+        if active not in self._data:
+            return
+        spd = self._data[active]
+        spd.curve.opts["stepMode"] = "left" if enabled else False
+        spd.curve.setData(active.data.timestamps, active.data.samples)
 
     def zoom_to_fit(self) -> None:
         """Reset viewport: full X range across all signals, auto Y per signal."""

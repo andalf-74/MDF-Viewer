@@ -9,11 +9,12 @@ Selection in this table drives the Signal Info Box via selection_changed.
 from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QAction, QColor
 from PyQt6.QtWidgets import (
     QColorDialog,
     QHBoxLayout,
     QHeaderView,
+    QMenu,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -45,6 +46,8 @@ class ActiveSignalsTable(QWidget):
     remove_all_requested = pyqtSignal()
     # active_signal, new QColor — emitted when user picks a new color
     color_change_requested = pyqtSignal(object, QColor)
+    # active_signal — emitted when user selects Toggle Step Mode from context menu
+    step_mode_toggle_requested = pyqtSignal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -151,6 +154,8 @@ class ActiveSignalsTable(QWidget):
         btn_layout.addWidget(self._remove_all_btn)
         layout.addLayout(btn_layout)
 
+        self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self._table.customContextMenuRequested.connect(self._on_context_menu)
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
         self._remove_btn.clicked.connect(self._on_remove_clicked)
         self._remove_all_btn.clicked.connect(self.remove_all_requested)
@@ -188,6 +193,18 @@ class ActiveSignalsTable(QWidget):
                 swatch.set_color(new_color)
         self.color_change_requested.emit(active, new_color)
 
+
+    def _on_context_menu(self, pos) -> None:
+        index = self._table.indexAt(pos)
+        if not index.isValid() or index.row() >= len(self._signals):
+            return
+        active = self._signals[index.row()]
+        menu = QMenu(self)
+        label = "Disable Step Mode" if active.step_mode else "Enable Step Mode"
+        action = QAction(label, self)
+        action.triggered.connect(lambda: self.step_mode_toggle_requested.emit(active))
+        menu.addAction(action)
+        menu.exec(self._table.viewport().mapToGlobal(pos))
 
     def _find_row(self, active: ActiveSignal) -> int | None:
         """Return the row index of *active* using identity, or None."""

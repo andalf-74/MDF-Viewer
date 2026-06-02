@@ -114,12 +114,19 @@ class AppController:
         data, meta = self._loader.load_signal(group_index, channel_index)
         rgb = _COLOR_PALETTE[self._color_index % len(_COLOR_PALETTE)]
         self._color_index += 1
-        active = ActiveSignal(data=data, metadata=meta, color=QColor(*rgb))
+        active = ActiveSignal(data=data, metadata=meta, color=QColor(*rgb), step_mode=meta.is_integer)
         self._active.append(active)
         self._plot.add_signal(active)
         self._table.add_row(active)
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.on_signal_added(active)
+
+    def toggle_step_mode(self, active_signal: ActiveSignal) -> None:
+        """Flip the step-mode flag for a signal and update the plot."""
+        if active_signal not in self._active:
+            return
+        active_signal.step_mode = not active_signal.step_mode
+        self._plot.set_step_mode(active_signal, active_signal.step_mode)
 
     def recolor_signal(self, active_signal: ActiveSignal, color: QColor) -> None:
         """Update the color of an active signal's curve, axis, and cursor labels."""

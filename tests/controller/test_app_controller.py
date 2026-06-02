@@ -417,3 +417,50 @@ def test_recolor_signal_without_cursor_ctrl_does_not_crash(ctrl: AppController, 
     ctrl.add_signal(0, 1)
     active = ctrl.active_signals[0]
     ctrl.recolor_signal(active, QColor(0, 200, 100))  # no cursor_ctrl set — must not raise
+
+
+# ---------------------------------------------------------------------------
+# toggle_step_mode
+# ---------------------------------------------------------------------------
+
+def test_add_signal_sets_step_mode_false_for_float_signal(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)  # _make_metadata() has is_integer=False
+    assert ctrl.active_signals[0].step_mode is False
+
+
+def test_add_signal_sets_step_mode_true_for_integer_signal(deps: dict) -> None:
+    meta = SignalMetadata(name="gear", unit="", group_index=0, channel_index=1, is_integer=True)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    ctrl = AppController(
+        loader=deps["loader"], signal_browser=deps["browser"], plot_area=deps["plot"],
+        active_signals_table=deps["table"], measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+    )
+    ctrl.add_signal(0, 1)
+    assert ctrl.active_signals[0].step_mode is True
+
+
+def test_toggle_step_mode_flips_flag(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    active = ctrl.active_signals[0]
+    original = active.step_mode
+    ctrl.toggle_step_mode(active)
+    assert active.step_mode is not original
+
+
+def test_toggle_step_mode_calls_plot(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    active = ctrl.active_signals[0]
+    ctrl.toggle_step_mode(active)
+    deps["plot"].set_step_mode.assert_called_once_with(active, active.step_mode)
+
+
+def test_toggle_step_mode_noop_for_unknown_signal(ctrl: AppController, deps: dict) -> None:
+    t = np.array([0.0, 1.0])
+    unknown = ActiveSignal(
+        data=SignalData(timestamps=t, samples=t),
+        metadata=_make_metadata(),
+        color=QColor(0, 0, 255),
+    )
+    ctrl.toggle_step_mode(unknown)  # must not raise
+    deps["plot"].set_step_mode.assert_not_called()

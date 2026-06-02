@@ -199,7 +199,10 @@ def _interpolate(active: ActiveSignal, x: float) -> float | None:
         return float(ys[0])
     if idx >= len(ts):
         return float(ys[-1])
+    y0 = float(ys[idx - 1])
+    if active.step_mode:
+        return y0
     t0, t1 = float(ts[idx - 1]), float(ts[idx])
-    y0, y1 = float(ys[idx - 1]), float(ys[idx])
+    y1 = float(ys[idx])
     alpha = (x - t0) / (t1 - t0) if t1 != t0 else 0.0
     return y0 + alpha * (y1 - y0)

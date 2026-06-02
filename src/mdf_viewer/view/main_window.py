@@ -88,6 +88,9 @@ class MainWindow(QMainWindow):
         self.active_signals_table.color_change_requested.connect(
             controller.recolor_signal
         )
+        self.active_signals_table.step_mode_toggle_requested.connect(
+            controller.toggle_step_mode
+        )
 
     def set_recent_files_provider(
         self, provider: Callable[[], list[Path]]

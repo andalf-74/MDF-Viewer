@@ -35,5 +35,6 @@ class ActiveSignal:
     data: SignalData
     metadata: SignalMetadata
     color: QColor
+    step_mode: bool = False
     curve: Any = field(default=None)     # pyqtgraph.PlotDataItem
     view_box: Any = field(default=None)  # pyqtgraph.ViewBox
