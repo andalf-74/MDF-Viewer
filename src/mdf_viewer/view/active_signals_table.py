@@ -190,6 +190,7 @@ class ActiveSignalsTable(QWidget):
             self.remove_requested.emit(self._signals[rows[0].row()])
 
     def _on_color_swatch_clicked(self, active: ActiveSignal) -> None:
+        QColorDialog.setCustomColor(0, active.color)
         new_color = QColorDialog.getColor(
             active.color, self, "Choose Signal Color"
         )
