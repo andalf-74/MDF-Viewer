@@ -133,8 +133,11 @@ class ActiveSignalsTable(QWidget):
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
         self._table.verticalHeader().setDefaultSectionSize(24)
-        self._table.setShowGrid(False)
-        self._table.setAlternatingRowColors(True)
+        self._table.setShowGrid(True)
+        self._table.setStyleSheet(
+            "QTableWidget { gridline-color: #d0d0d0; outline: 0; }"
+            "QTableWidget::item:selected { background-color: #e0e0e0; color: black; }"
+        )
 
         hdr = self._table.horizontalHeader()
         hdr.setSectionResizeMode(_COL_COLOR, QHeaderView.ResizeMode.Fixed)
