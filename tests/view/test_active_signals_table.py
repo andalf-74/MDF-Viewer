@@ -121,6 +121,12 @@ def test_remove_row_noop_for_unknown(table: ActiveSignalsTable) -> None:
     table.remove_row(stranger)  # must not raise
 
 
+def test_remove_selected_row_does_not_raise(populated: tuple) -> None:
+    t, sigs = populated
+    t._table.selectRow(1)
+    t.remove_row(sigs[1])  # must not raise IndexError from itemSelectionChanged
+
+
 def test_remove_first_row(populated: tuple) -> None:
     t, sigs = populated
     t.remove_row(sigs[0])
@@ -148,6 +154,12 @@ def test_clear_resets_internal_list(populated: tuple) -> None:
     t, _ = populated
     t.clear()
     assert t._signals == []
+
+
+def test_clear_with_selection_does_not_raise(populated: tuple) -> None:
+    t, _ = populated
+    t._table.selectRow(0)
+    t.clear()  # must not raise IndexError from itemSelectionChanged
 
 
 # ---------------------------------------------------------------------------

@@ -88,13 +88,17 @@ class ActiveSignalsTable(QWidget):
         row = self._find_row(active)
         if row is None:
             return
-        self._signals.pop(row)
+        # Remove from the table first: removeRow() can synchronously emit
+        # itemSelectionChanged, whose handler indexes into _signals.
         self._table.removeRow(row)
+        self._signals.pop(row)
 
     def clear(self) -> None:
         """Remove all rows."""
-        self._signals.clear()
+        # Clear the table first: setRowCount(0) can synchronously emit
+        # itemSelectionChanged, whose handler indexes into _signals.
         self._table.setRowCount(0)
+        self._signals.clear()
 
     def show_cursor_columns(self, visible: bool) -> None:
         """Show or hide the three cursor-value columns."""
@@ -179,7 +183,7 @@ class ActiveSignalsTable(QWidget):
 
     def _on_selection_changed(self) -> None:
         rows = self._table.selectionModel().selectedRows()
-        if rows:
+        if rows and rows[0].row() < len(self._signals):
             row = rows[0].row()
             self._remove_btn.setEnabled(True)
             self.selection_changed.emit(self._signals[row])
