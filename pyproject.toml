@@ -8,7 +8,7 @@ version = "1.3.0"
 description = "Desktop viewer for ASAM MDF (MDF3/MDF4) measurement data files."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Proprietary" }
+license = "GPL-3.0-only"
 authors = [{ name = "Andreas Maus", email = "andreas.maus.74@gmail.com" }]
 dependencies = [
     "PyQt6>=6.6",

@@ -298,7 +298,8 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - Constructor accepts an optional `path` override (used in tests via `tmp_path`)
 
 ### Decisions made
-- **Qt binding:** PyQt6 (LGPL-friendly path; PyQtGraph supports it).
+- **Qt binding:** PyQt6, licensed GPL-3.0-only by Riverbank (not LGPL — that was an earlier misconception); PyQtGraph supports it.
+- **Project license (1.x):** GPL-3.0-only (`LICENSE`, `pyproject.toml`), required by PyQt6's own GPL terms for the combined work and consistent with "free, open-source." Replaces the earlier `Proprietary` placeholder.
 - **`ActiveSignal` location:** `src/mdf_viewer/view_model/` (not `model/`), to keep the data layer free of Qt/PyQtGraph imports. Layer rules are documented in `docs/architecture.md`.
 - **Build:** `pyproject.toml` (src-layout, entry point `mdf-viewer`) + `requirements.txt` / `requirements-dev.txt`.
 - **MDF4 `header.author`** does not round-trip via asammdf (stored in XML comment block). The `MeasurementInfo.extra` dict is available for raw fields if needed later.

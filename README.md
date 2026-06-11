@@ -5,8 +5,8 @@ files. Built with PyQt6, PyQtGraph, and asammdf.
 
 ## Status
 
-Greenfield — project scaffold and architecture are in place; feature
-implementation is in progress.
+v1.3 released. See the [Releases](https://github.com/andalf-74/MDF-Viewer/releases)
+page for downloads.
 
 ## Requirements
 
@@ -50,3 +50,8 @@ src/mdf_viewer/
 ├── controller/   coordination + cross-widget state
 └── view/         PyQt6 / PyQtGraph UI
 ```
+
+## License
+
+MDF-Viewer is free, open-source software licensed under the
+[GNU General Public License v3.0](LICENSE).
