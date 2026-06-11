@@ -12,6 +12,7 @@ def run(argv: list[str]) -> int:
 
     Returns the application's exit code.
     """
+    import sys
     from pathlib import Path
 
     from PyQt6.QtWidgets import QApplication, QMessageBox
@@ -22,6 +23,15 @@ def run(argv: list[str]) -> int:
     from mdf_viewer.settings import Settings
     from mdf_viewer.view.cursors import CursorView
     from mdf_viewer.view.main_window import MainWindow
+
+    if sys.platform == "win32":
+        # Without an explicit AppUserModelID, Windows shows python.exe's icon
+        # in the taskbar (instead of the window icon) when run unfrozen.
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(
+            "mdf-viewer.mdf-viewer"
+        )
 
     app = QApplication(argv)
 

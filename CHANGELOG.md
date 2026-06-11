@@ -11,6 +11,11 @@ All notable changes to MDF-Viewer are documented in this file.
 - A custom application icon, used for the main window, the packaged EXE,
   and the installer.
 
+### Fixed
+- The taskbar showed `python.exe`'s icon instead of the application icon
+  when running unfrozen (e.g. from a debugger); fixed by setting an
+  explicit Windows AppUserModelID at startup.
+
 ## [1.2] - 2026-06-11
 
 ### Changed
