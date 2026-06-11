@@ -1,0 +1,9 @@
+# Normalize line endings to LF in the repo, regardless of OS checkout settings.
+* text=auto eol=lf
+
+# Binary files - never modify line endings.
+*.png binary
+*.ico binary
+*.mf4 binary
+*.mdf binary
+*.dat binary
