@@ -2,6 +2,17 @@
 
 All notable changes to MDF-Viewer are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- Installer: creating a desktop shortcut failed with "IPersistFile::Save
+  failed; code 0x80070005 / Access denied" on per-user installs (#31).
+  The shortcut now uses `{autodesktop}` instead of `{commondesktop}`,
+  which resolves to the current user's desktop for per-user installs.
+- Installer: file associations for `.mf4`/`.mdf` now notify Explorer via
+  `SHChangeNotify` so the application icon for those file types appears
+  immediately, without requiring a logoff/reboot.
+
 ## [1.3] - 2026-06-11
 
 ### Added
