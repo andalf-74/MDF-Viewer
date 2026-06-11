@@ -17,6 +17,7 @@ AppPublisher={#AppPublisher}
 DefaultDirName={localappdata}\Programs\{#AppName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
+SetupIconFile=..\src\mdf_viewer\resources\icons\app_icon.ico
 OutputDir=dist
 OutputBaseFilename=MDF-Viewer-1.2-Setup
 Compression=lzma

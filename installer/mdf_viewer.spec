@@ -47,6 +47,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
+    icon=os.path.join(ROOT, "src/mdf_viewer/resources/icons/app_icon.ico"),
 )
 
 coll = COLLECT(

@@ -2,6 +2,15 @@
 
 All notable changes to MDF-Viewer are documented in this file.
 
+## [Unreleased]
+
+### Added
+- Toolbar icons now adapt to the OS color scheme: a dark-gray "light mode"
+  variant is used unless the OS reports a dark theme, in which case the
+  existing light-gray icons are used.
+- A custom application icon, used for the main window, the packaged EXE,
+  and the installer.
+
 ## [1.2] - 2026-06-11
 
 ### Changed

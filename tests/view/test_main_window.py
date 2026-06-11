@@ -134,6 +134,37 @@ def test_toolbar_has_cursor_action(window: MainWindow) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Theme-aware icon selection
+# ---------------------------------------------------------------------------
+
+def test_icon_suffix_dark_scheme_uses_unsuffixed_icons(monkeypatch) -> None:
+    from PyQt6.QtCore import Qt
+    from mdf_viewer.view import main_window
+
+    style_hints = MagicMock()
+    style_hints.colorScheme.return_value = Qt.ColorScheme.Dark
+    monkeypatch.setattr(
+        main_window.QApplication, "styleHints", lambda: style_hints
+    )
+    assert main_window._icon_suffix() == ""
+
+
+@pytest.mark.parametrize("scheme_name", ["Light", "Unknown"])
+def test_icon_suffix_light_or_unknown_scheme_uses_light_icons(
+    monkeypatch, scheme_name: str
+) -> None:
+    from PyQt6.QtCore import Qt
+    from mdf_viewer.view import main_window
+
+    style_hints = MagicMock()
+    style_hints.colorScheme.return_value = getattr(Qt.ColorScheme, scheme_name)
+    monkeypatch.setattr(
+        main_window.QApplication, "styleHints", lambda: style_hints
+    )
+    assert main_window._icon_suffix() == "_light"
+
+
+# ---------------------------------------------------------------------------
 # Controller wiring
 # ---------------------------------------------------------------------------
 

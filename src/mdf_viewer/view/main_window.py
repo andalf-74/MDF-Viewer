@@ -40,6 +40,20 @@ def _load_icon(name: str) -> QIcon:
     icon.addFile(str(_ICONS_DIR / f"{name}@2x.png"), QSize(64, 64))
     return icon
 
+
+def _icon_suffix() -> str:
+    """Return "_light" unless the OS explicitly reports a dark color scheme.
+
+    The unsuffixed icons are light-gray and meant for dark backgrounds; the
+    "_light" variants are dark-gray and meant for light backgrounds. Detected
+    once at startup; an "Unknown" report (e.g. on platforms without theme
+    support) falls back to the light-mode icons, since light mode is the more
+    common default.
+    """
+    scheme = QApplication.styleHints().colorScheme()
+    return "" if scheme == Qt.ColorScheme.Dark else "_light"
+
+
 from mdf_viewer.model.mdf_loader import MdfLoadError
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
@@ -64,6 +78,7 @@ class MainWindow(QMainWindow):
         self._recent_actions: list[QAction] = []
         self._recent_sep: QAction | None = None
         self.setWindowTitle("MDF-Viewer")
+        self.setWindowIcon(QIcon(str(_ICONS_DIR / "app_icon.ico")))
         self.resize(1280, 800)
         self._build_actions()
         self._build_menu()
@@ -112,17 +127,21 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _build_actions(self) -> None:
-        self._load_action = QAction(_load_icon("folder"), "Load MDF…", self)
+        suffix = _icon_suffix()
+
+        self._load_action = QAction(_load_icon(f"folder{suffix}"), "Load MDF…", self)
         self._load_action.setShortcut(QKeySequence.StandardKey.Open)
         self._load_action.setToolTip("Load MDF File (Ctrl+O)")
         self._load_action.triggered.connect(self._on_load_file)
 
-        self._zoom_fit_action = QAction(_load_icon("zoom_to_fit"), "Zoom to Fit", self)
+        self._zoom_fit_action = QAction(
+            _load_icon(f"zoom_to_fit{suffix}"), "Zoom to Fit", self
+        )
         self._zoom_fit_action.setShortcut(QKeySequence("Ctrl+0"))
         self._zoom_fit_action.setToolTip("Zoom to fit all active signals")
         self._zoom_fit_action.triggered.connect(self._on_zoom_to_fit)
 
-        self._cursor_action = QAction(_load_icon("cursors"), "Cursors", self)
+        self._cursor_action = QAction(_load_icon(f"cursors{suffix}"), "Cursors", self)
         self._cursor_action.setToolTip("Toggle cursors (off → 1 → 2 → off)")
         self._cursor_action.triggered.connect(self._on_cursor_toggle)
 
