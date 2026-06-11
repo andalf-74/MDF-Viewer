@@ -2,7 +2,7 @@
 
 All notable changes to MDF-Viewer are documented in this file.
 
-## [Unreleased]
+## [1.3] - 2026-06-11
 
 ### Added
 - Toolbar icons now adapt to the OS color scheme: a dark-gray "light mode"
