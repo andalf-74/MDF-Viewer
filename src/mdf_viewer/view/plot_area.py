@@ -145,12 +145,13 @@ class PlotArea(QWidget):
         self._pi.layout.addItem(axis, 2, col)
 
         curve = pg.PlotDataItem(
-            active.data.timestamps,
-            active.data.samples,
             pen=pen,
             stepMode="left" if active.step_mode else False,
         )
+        curve.setClipToView(True)
+        curve.setDownsampling(auto=True, method="peak")
         vb.addItem(curve)
+        curve.setData(active.data.timestamps, active.data.samples)
 
         active.curve = curve
         active.view_box = vb
