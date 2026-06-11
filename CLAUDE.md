@@ -189,6 +189,17 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - All user-facing strings should be in English (internationalization not in scope for MVP)
 - Commit messages should be clear and descriptive
 
+### Branching & Release Policy (#20)
+
+**Lazy release-branch model** — chosen for low overhead given infrequent releases and a small team:
+
+- **`main`** is the trunk. All bugfixes and features land here (directly or via PR), and each release is tagged `vX.Y` on `main`.
+- A **`release/X.Y`** branch is created only when it's actually needed: you've started work on a feature for the *next* release on `main`, but still need to ship a bugfix to the *currently released* version (which must not receive that in-progress feature). Cut `release/X.Y` from the `vX.Y` tag at that point.
+- Bugfixes to a released version go to its `release/X.Y` branch, get tagged `vX.Y.Z`, and must be cherry-picked forward to `main` so the fix isn't lost in the next release.
+- If no feature work is in flight on `main` when a bugfix is needed, just commit the fix directly to `main` and re-tag/patch-release from there — no branch needed.
+
+`master` was renamed to `main` as part of adopting this policy.
+
 ---
 
 ## Current Status

@@ -4,6 +4,10 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased] - 1.2
 
+### Changed
+- Default branch renamed from `master` to `main`; adopted a lazy
+  release-branch policy (#20) — see `CLAUDE.md`.
+
 ### Fixed
 - Plot performance: pan/zoom and cursor dragging were dominated by PyQtGraph
   redrawing full-resolution curves on every frame (~13s for 60 pan/zoom
