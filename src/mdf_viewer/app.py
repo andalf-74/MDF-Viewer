@@ -15,8 +15,11 @@ def run(argv: list[str]) -> int:
     import sys
     from pathlib import Path
 
-    from PyQt6.QtWidgets import QApplication, QMessageBox
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QFont, QPainter, QPixmap
+    from PyQt6.QtWidgets import QApplication, QMessageBox, QSplashScreen
 
+    from mdf_viewer import __version__
     from mdf_viewer.controller.app_controller import AppController
     from mdf_viewer.controller.cursor_controller import CursorController
     from mdf_viewer.model.mdf_loader import MdfLoadError, MdfLoader
@@ -33,7 +36,35 @@ def run(argv: list[str]) -> int:
             "mdf-viewer.mdf-viewer"
         )
 
+    def _build_splash_pixmap() -> QPixmap:
+        icons_dir = Path(__file__).parent / "resources" / "icons"
+        icon = QPixmap(str(icons_dir / "app_icon.ico")).scaled(
+            96,
+            96,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+
+        pixmap = QPixmap(360, 140)
+        pixmap.fill(Qt.GlobalColor.white)
+
+        painter = QPainter(pixmap)
+        painter.drawPixmap(22, 22, icon)
+
+        text_x = 22 + icon.width() + 20
+        painter.setFont(QFont(painter.font().family(), 16, QFont.Weight.Bold))
+        painter.drawText(text_x, 60, "MDF-Viewer")
+        painter.setFont(QFont(painter.font().family(), 10))
+        painter.drawText(text_x, 82, f"Version {__version__}")
+        painter.end()
+
+        return pixmap
+
     app = QApplication(argv)
+
+    splash = QSplashScreen(_build_splash_pixmap())
+    splash.show()
+    app.processEvents()
 
     window = MainWindow()
     settings = Settings()
@@ -60,6 +91,7 @@ def run(argv: list[str]) -> int:
 
     window.set_controller(controller, cursor_ctrl)
     window.show()
+    splash.finish(window)
 
     # Load a file passed on the command line (e.g. via .mf4 file association).
     if len(argv) > 1:

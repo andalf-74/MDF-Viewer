@@ -10,6 +10,10 @@ All notable changes to MDF-Viewer are documented in this file.
   existing light-gray icons are used.
 - A custom application icon, used for the main window, the packaged EXE,
   and the installer.
+- A splash screen showing the application icon, name, and version while
+  the application starts up.
+- A Help > About dialog with the version, author, and a link to the
+  GitHub repository.
 
 ### Fixed
 - The taskbar showed `python.exe`'s icon instead of the application icon

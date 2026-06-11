@@ -134,6 +134,23 @@ def test_toolbar_has_cursor_action(window: MainWindow) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Help menu / About
+# ---------------------------------------------------------------------------
+
+def test_help_menu_has_about_action(window: MainWindow) -> None:
+    assert window._about_action in window._help_menu.actions()
+
+
+def test_about_action_shows_message_box(window: MainWindow) -> None:
+    with patch("mdf_viewer.view.main_window.QMessageBox.about") as mock_about:
+        window._about_action.trigger()
+    mock_about.assert_called_once()
+    args, _ = mock_about.call_args
+    assert args[0] is window
+    assert "MDF-Viewer" in args[2]
+
+
+# ---------------------------------------------------------------------------
 # Theme-aware icon selection
 # ---------------------------------------------------------------------------
 

@@ -54,6 +54,7 @@ def _icon_suffix() -> str:
     return "" if scheme == Qt.ColorScheme.Dark else "_light"
 
 
+from mdf_viewer import __version__
 from mdf_viewer.model.mdf_loader import MdfLoadError
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
@@ -65,6 +66,7 @@ if TYPE_CHECKING:
     from mdf_viewer.controller.app_controller import AppController
 
 _MDF_FILE_FILTER = "MDF Files (*.mf4 *.mdf *.dat);;All Files (*)"
+_GITHUB_URL = "https://github.com/andalf-74/MDF-Viewer"
 
 
 class MainWindow(QMainWindow):
@@ -145,6 +147,9 @@ class MainWindow(QMainWindow):
         self._cursor_action.setToolTip("Toggle cursors (off → 1 → 2 → off)")
         self._cursor_action.triggered.connect(self._on_cursor_toggle)
 
+        self._about_action = QAction("About MDF-Viewer", self)
+        self._about_action.triggered.connect(self._on_about)
+
     def _build_menu(self) -> None:
         self._file_menu = self.menuBar().addMenu("&File")
         self._file_menu.addAction(self._load_action)
@@ -154,6 +159,9 @@ class MainWindow(QMainWindow):
         self._exit_action.triggered.connect(self.close)
         self._file_menu.addAction(self._exit_action)
         self._file_menu.aboutToShow.connect(self._rebuild_recent_files)
+
+        self._help_menu = self.menuBar().addMenu("&Help")
+        self._help_menu.addAction(self._about_action)
 
     def _build_toolbar(self) -> None:
         toolbar = self.addToolBar("Main")
@@ -262,6 +270,17 @@ class MainWindow(QMainWindow):
     def _on_cursor_toggle(self) -> None:
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.toggle()
+
+    def _on_about(self) -> None:
+        QMessageBox.about(
+            self,
+            "About MDF-Viewer",
+            f"<h3>MDF-Viewer {__version__}</h3>"
+            "<p>A free, open-source viewer for ASAM MDF "
+            "(MDF3/MDF4) measurement data files.</p>"
+            "<p>By Andreas Maus</p>"
+            f'<p><a href="{_GITHUB_URL}">{_GITHUB_URL}</a></p>',
+        )
 
     def _rebuild_recent_files(self) -> None:
         for action in self._recent_actions:
