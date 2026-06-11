@@ -14,6 +14,7 @@ from PyQt6.QtCore import (
     QMimeData,
     QSortFilterProxyModel,
     Qt,
+    QTimer,
     pyqtSignal,
 )
 from PyQt6.QtGui import QDrag, QStandardItem, QStandardItemModel
@@ -31,6 +32,11 @@ from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
 
 # Stores (group_index, channel_index) tuple on channel items; None on group items.
 _LOCATION_ROLE = Qt.ItemDataRole.UserRole + 1
+
+# Delay before applying the filter after the user stops typing. Recursive
+# filtering over a large channel tree is expensive, so re-filtering on every
+# keystroke makes typing feel sluggish.
+_FILTER_DELAY_MS = 250
 
 
 class _DragTreeView(QTreeView):
@@ -94,7 +100,11 @@ class SignalBrowser(QWidget):
         self._proxy.setFilterKeyColumn(0)
         self._tree.setModel(self._proxy)
 
-        self._filter_edit.textChanged.connect(self._proxy.setFilterFixedString)
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(_FILTER_DELAY_MS)
+        self._filter_timer.timeout.connect(self._apply_filter)
+        self._filter_edit.textChanged.connect(lambda: self._filter_timer.start())
         self._tree.doubleClicked.connect(self._on_double_click)
         self._tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._add_btn.clicked.connect(self._on_add_clicked)
@@ -109,7 +119,7 @@ class SignalBrowser(QWidget):
         Clears the filter so all signals in the new file are immediately visible.
         Groups are expanded by default.
         """
-        self._filter_edit.clear()
+        self._clear_filter()
         self._model.clear()
         for group in groups:
             group_item = _make_group_item(group.name)
@@ -123,13 +133,22 @@ class SignalBrowser(QWidget):
 
     def clear(self) -> None:
         """Remove all tree items, clear the filter, and disable the Add Signal button."""
-        self._filter_edit.clear()
+        self._clear_filter()
         self._model.clear()
         self._add_btn.setEnabled(False)
 
     # ------------------------------------------------------------------
     # Slots (private)
     # ------------------------------------------------------------------
+
+    def _apply_filter(self) -> None:
+        self._proxy.setFilterFixedString(self._filter_edit.text())
+
+    def _clear_filter(self) -> None:
+        """Clear the filter field and apply the empty filter immediately."""
+        self._filter_timer.stop()
+        self._filter_edit.clear()
+        self._proxy.setFilterFixedString("")
 
     def _on_selection_changed(self) -> None:
         self._add_btn.setEnabled(bool(self._selected_locations()))

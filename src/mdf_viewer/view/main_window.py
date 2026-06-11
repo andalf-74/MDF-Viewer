@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Callable
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QAction, QIcon, QKeySequence
 from PyQt6.QtWidgets import (
+    QApplication,
     QFileDialog,
     QMainWindow,
     QMessageBox,
@@ -203,10 +204,7 @@ class MainWindow(QMainWindow):
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
-        try:
-            self._controller.load_file(path)
-        except MdfLoadError as exc:
-            QMessageBox.critical(self, "Load Error", str(exc))
+        self._load_file(path)
 
     def _on_load_file(self) -> None:
         if self._controller is None:
@@ -216,10 +214,27 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
+        self._load_file(path)
+
+    def _load_file(self, path: str | Path) -> None:
+        """Load *path* via the controller, showing busy feedback meanwhile.
+
+        Loading a large MDF file can take noticeable time; without this the
+        application appears to freeze. Show a wait cursor and a persistent
+        status message for the duration of the call.
+        """
+        if self._controller is None:
+            return
+        self.show_status(f"Loading {Path(path).name}…", timeout_ms=0)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
         try:
             self._controller.load_file(path)
         except MdfLoadError as exc:
             QMessageBox.critical(self, "Load Error", str(exc))
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.statusBar().clearMessage()
 
     def _on_zoom_to_fit(self) -> None:
         if hasattr(self.plot_area, "zoom_to_fit"):
@@ -252,9 +267,4 @@ class MainWindow(QMainWindow):
             self._recent_actions.append(action)
 
     def _on_open_recent(self, path: Path) -> None:
-        if self._controller is None:
-            return
-        try:
-            self._controller.load_file(path)
-        except MdfLoadError as exc:
-            QMessageBox.critical(self, "Load Error", str(exc))
+        self._load_file(path)

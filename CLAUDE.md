@@ -327,6 +327,8 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - **Curve downsampling:** each `PlotDataItem` in `PlotArea.add_signal` has `setClipToView(True)` and `setDownsampling(auto=True, method="peak")`. The curve is constructed without data, added to its `ViewBox` via `vb.addItem(curve)`, and only then given data via `curve.setData(...)` — calling `setData` before the curve has a parent `ViewBox` made pyqtgraph fall back to the `PlotWidget` for `getViewBox()`, which raised `AttributeError: autoRangeEnabled` once downsampling was enabled.
 - **`tools/profile_plot.py`:** permanent ad-hoc profiling script (loads `data/test.mf4`, adds 6 high-sample-count signals, simulates pan/zoom and cursor drag under `cProfile`). Run with `python tools/profile_plot.py` from the repo root.
 - **`ActiveSignalsTable.remove_row` / `clear` ordering:** the table widget is mutated first (`removeRow` / `setRowCount(0)`), then `_signals` — `removeRow`/`setRowCount(0)` can synchronously emit `itemSelectionChanged` before returning, and the handler indexes into `_signals`. Mutating `_signals` first left it shorter than the row indices Qt reported, raising `IndexError`. `_on_selection_changed` also has a bounds check as a defensive fallback.
+- **Signal Browser filter debounce (#9):** `_filter_edit.textChanged` no longer calls `setFilterFixedString` directly; it (re)starts a single-shot `QTimer` (`_FILTER_DELAY_MS = 250`), and `_apply_filter()` runs on timeout. Recursive filtering over a large channel tree is expensive, so re-filtering on every keystroke made typing feel sluggish. `populate()`/`clear()` use `_clear_filter()`, which stops the timer and applies the empty filter immediately so the new tree isn't shown through a stale filter.
+- **Load busy feedback (#9):** `MainWindow._load_file()` is the single entry point for all three load paths (Load MDF…, recent files, file drop). It sets a wait cursor and a persistent "Loading <file>…" status message for the duration of `controller.load_file()`, restoring both in a `finally` block.
 
 ### Release build
 
@@ -345,12 +347,12 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (334 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (335 passing) and `python -m mdf_viewer` both work.
 
 ### Changelog
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
 
 ### Next steps
-v1.1 shipped; v1.2 in progress. Currently working on #9 (filtering/loading sluggish on large measurements). Other open issues: #5 (wildcard filter), #10 (check for updates), #11 (cursor distinction), plus various v2.0-targeted UX issues (#14-#30).
+v1.1 shipped; v1.2 in progress. #9 (filtering/loading sluggish on large measurements) addressed via filter debounce + load busy feedback. Other open issues: #5 (wildcard filter), #10 (check for updates), #11 (cursor distinction), plus various v2.0-targeted UX issues (#14-#30).
 - Bug fixes and polish from real-world use
 - Future features from the Todo list (session persistence, etc.)

@@ -299,9 +299,19 @@ def test_selected_locations_returns_multiple(
 # Filter behaviour
 # ---------------------------------------------------------------------------
 
+def test_filter_is_debounced(populated_browser: SignalBrowser, qtbot) -> None:
+    # Typing does not filter immediately...
+    populated_browser._filter_edit.setText("sin")
+    assert populated_browser._proxy.rowCount() == 2
+    # ...but does after the debounce delay elapses.
+    qtbot.wait(populated_browser._filter_timer.interval() + 50)
+    assert populated_browser._proxy.rowCount() == 1
+
+
 def test_filter_hides_non_matching_groups(populated_browser: SignalBrowser) -> None:
     # "sin" only appears in Group 0 → Group 1 should be hidden
     populated_browser._filter_edit.setText("sin")
+    populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 1
 
 
@@ -315,29 +325,35 @@ def test_filter_shows_parent_group_when_child_matches(
 
 def test_filter_shows_only_matching_children(populated_browser: SignalBrowser) -> None:
     populated_browser._filter_edit.setText("sin")
+    populated_browser._apply_filter()
     group0_proxy = populated_browser._proxy.index(0, 0)
     assert populated_browser._proxy.rowCount(group0_proxy) == 1
 
 
 def test_filter_case_insensitive(populated_browser: SignalBrowser) -> None:
     populated_browser._filter_edit.setText("SIN")
+    populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 1
 
 
 def test_filter_empty_shows_all(populated_browser: SignalBrowser) -> None:
     populated_browser._filter_edit.setText("sin")
+    populated_browser._apply_filter()
     populated_browser._filter_edit.clear()
+    populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 2
 
 
 def test_filter_no_match_hides_all(populated_browser: SignalBrowser) -> None:
     populated_browser._filter_edit.setText("zzznomatch")
+    populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 0
 
 
 def test_filter_matches_partial_name(populated_browser: SignalBrowser) -> None:
     # "speed" is in Group 1; "spee" should match it
     populated_browser._filter_edit.setText("spee")
+    populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 1
     group1_proxy = populated_browser._proxy.index(0, 0)
     assert "Group 1" in populated_browser._proxy.data(group1_proxy)

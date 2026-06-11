@@ -13,6 +13,12 @@ All notable changes to MDF-Viewer are documented in this file.
 - Fixed a crash (`IndexError: list index out of range`) in the Active
   Signals Table when removing a signal (or "Remove All") while a row was
   selected.
+- Signal Browser filter (#9): typing in the filter field no longer triggers
+  an immediate recursive re-filter of the channel tree on every keystroke;
+  filtering is now debounced (250ms after the user stops typing).
+- Loading an MDF file (#9) now shows a wait cursor and a "Loading <file>…"
+  status bar message for the duration of the load, so the application no
+  longer appears to freeze on large measurements.
 
 ## [1.1]
 
