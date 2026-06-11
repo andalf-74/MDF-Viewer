@@ -2,7 +2,7 @@
 
 All notable changes to MDF-Viewer are documented in this file.
 
-## [Unreleased] - 1.2
+## [1.2] - 2026-06-11
 
 ### Changed
 - Default branch renamed from `master` to `main`; adopted a lazy
