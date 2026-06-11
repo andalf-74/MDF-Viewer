@@ -374,3 +374,9 @@ Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update i
 v1.1 shipped; v1.2 in progress. #9 (filtering/loading sluggish on large measurements) addressed via filter debounce + load busy feedback. Other open issues: #5 (wildcard filter), #10 (check for updates), #11 (cursor distinction), plus various v2.0-targeted UX issues (#14-#30).
 - Bug fixes and polish from real-world use
 - Future features from the Todo list (session persistence, etc.)
+
+### v2.0 planning (in discussion, not started)
+- **Direction:** v1.3 becomes the last free/GPL-3.0 feature release — bugfix-only maintenance going forward on a permanent `1.x`/`release/1.3` branch. v2.0 onward (on `main`) becomes a commercial product with an honor-based license-key system (Ed25519-signed keys, "Licensed to: ..." shown in About dialog, no hard enforcement). Tiers/pricing and a license-validation module design were discussed but nothing is implemented yet.
+- **Open blocker — Qt binding licensing:** PyQt6 is GPL-3.0-only (Riverbank), which is incompatible with closed/commercial redistribution. Before any v2 work starts, decide between (a) migrating v2 to PySide6 (LGPLv3, Qt Company — permits proprietary apps via dynamic linking, pyqtgraph supports both bindings) or (b) buying a commercial PyQt6 license from Riverbank. This decision shapes the entire v2 codebase and must be resolved first.
+- **Repo/secrets:** the Ed25519 private key and the `generate_license.py` signing script must never be committed to this repo (public or private branch) — they belong in a separate private location.
+- Nothing built yet; discussion paused pending the PySide6/PyQt6 decision.
