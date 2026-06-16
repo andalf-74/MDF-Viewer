@@ -4,7 +4,32 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-06-16
+
+### Added
+- Signal browser filter now supports `*` and `?` wildcards (#5). Plain
+  text still does a substring match; wildcards switch to full-pattern glob
+  matching. The filter placeholder hints at this.
+- Keyboard shortcuts: `f` zoom to fit, `y` zoom Y to current X span,
+  `.` toggle cursor 1, `,` toggle cursor 2 (#14). The `.` and `,` keys
+  each follow their own state machine rather than cycling the shared
+  toolbar state.
+- New toolbar button "Zoom Y to View" (shortcut `y`): rescales each
+  signal's Y-axis to fit the data visible in the current X span (#22).
+  Shows a status bar message when no signals are active.
+- Mouse controls (#21): left drag pans, right drag opens a zoom rectangle,
+  scroll wheel zooms the X axis only. The "Mouse Mode" item has been
+  removed from the plot context menu since the mode is now fixed.
+
 ### Fixed
+- Removing a signal left its Y-axis visible as an orphan in the plot.
+  `QGraphicsGridLayout.removeItem` only detaches the axis from layout
+  management; `axis.hide()` is now called explicitly to remove it from
+  view (#32).
+- Constant-zero signals jumped to the top edge of the plot when cursors
+  were activated. Cursor value labels were added to the signal's ViewBox
+  without `ignoreBounds=True`, corrupting the auto-range of the degenerate
+  `[0, 0]` Y range (#32).
 - Installer: creating a desktop shortcut failed with "IPersistFile::Save
   failed; code 0x80070005 / Access denied" on per-user installs (#31).
   The shortcut now uses `{autodesktop}` instead of `{commondesktop}`,

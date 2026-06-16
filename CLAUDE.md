@@ -371,7 +371,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
 
 ### Next steps
-v1.1 shipped; v1.2 in progress. #9 (filtering/loading sluggish on large measurements) addressed via filter debounce + load busy feedback. Other open issues: #5 (wildcard filter), #10 (check for updates), #11 (cursor distinction), plus various v2.0-targeted UX issues (#14-#30).
+v1.3.1 shipped; v1.4 in progress. Open v1.4 issues: #15 (swimlanes), #21 (view controls — done in 1.3.1), #31 (desktop icon — needs installer test), #33 (widget layout). Other open issues: #10 (check for updates), #11 (cursor distinction), plus v2.0-targeted issues.
 - Bug fixes and polish from real-world use
 - Future features from the Todo list (session persistence, etc.)
 
