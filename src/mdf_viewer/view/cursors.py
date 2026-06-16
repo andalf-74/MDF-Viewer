@@ -113,7 +113,7 @@ class CursorView(QObject):
                         color=active.color,
                         anchor=(0.0, 1.0),
                     )
-                    vb.addItem(lbl)
+                    vb.addItem(lbl, ignoreBounds=True)
                     self._labels[key] = (lbl, vb)
                 lbl, _ = self._labels[key]
                 lbl.setText(f"{y:.4g}")

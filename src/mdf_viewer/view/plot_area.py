@@ -167,6 +167,7 @@ class PlotArea(QWidget):
         spd = self._data.pop(active)
         spd.view_box.removeItem(spd.curve)
         self._pi.layout.removeItem(spd.axis)
+        spd.axis.hide()
         self._pi.scene().removeItem(spd.view_box)
         active.curve = None
         active.view_box = None
