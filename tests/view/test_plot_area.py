@@ -19,7 +19,7 @@ from pytestqt.qtbot import QtBot
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
 from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
-from mdf_viewer.view.plot_area import PlotArea, _SignalAxisItem
+from mdf_viewer.view.plot_area import PlotArea, _SignalAxisItem, _ViewBox
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
 
@@ -70,6 +70,40 @@ def test_plot_widget_present(plot: PlotArea) -> None:
 
 def test_initially_no_signals(plot: PlotArea) -> None:
     assert len(plot._data) == 0
+
+
+# ---------------------------------------------------------------------------
+# _ViewBox mouse behaviour
+# ---------------------------------------------------------------------------
+
+def test_main_viewbox_is_custom_type(plot: PlotArea) -> None:
+    assert isinstance(plot._pi.vb, _ViewBox)
+
+
+def test_main_viewbox_is_pan_mode(plot: PlotArea) -> None:
+    import pyqtgraph as pg
+    assert plot._pi.vb.state['mouseMode'] == pg.ViewBox.PanMode
+
+
+def test_signal_viewbox_is_custom_type(plot: PlotArea) -> None:
+    plot.add_signal(_make_active())
+    vb = list(plot._data.values())[0].view_box
+    assert isinstance(vb, _ViewBox)
+
+
+def test_signal_viewbox_is_pan_mode(plot: PlotArea) -> None:
+    import pyqtgraph as pg
+    plot.add_signal(_make_active())
+    vb = list(plot._data.values())[0].view_box
+    assert vb.state['mouseMode'] == pg.ViewBox.PanMode
+
+
+def test_mouse_mode_menu_item_removed(plot: PlotArea) -> None:
+    from unittest.mock import MagicMock
+    ev = MagicMock()
+    menu = plot._pi.vb.getMenu(ev)
+    titles = [a.text() for a in menu.actions()]
+    assert not any('mouse' in t.lower() for t in titles)
 
 
 # ---------------------------------------------------------------------------

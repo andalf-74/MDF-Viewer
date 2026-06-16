@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pyqtgraph as pg
-from PyQt6.QtCore import QEvent, pyqtSignal
+from PyQt6.QtCore import QEvent, QRectF, Qt, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
@@ -27,6 +27,45 @@ if TYPE_CHECKING:
     pass
 
 _MDF_SUFFIXES = {'.mf4', '.mdf', '.dat'}
+
+
+class _ViewBox(pg.ViewBox):
+    """ViewBox with fixed mouse behaviour for MDF-Viewer.
+
+    Left drag: pan. Right drag: rectangle zoom. Wheel: X-axis zoom only.
+    The 'Mouse Mode' context-menu item is removed since the mode is fixed.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setMouseMode(pg.ViewBox.PanMode)
+
+    def getMenu(self, ev=None):
+        menu = super().getMenu(ev)
+        if menu is not None:
+            for action in menu.actions():
+                if 'mouse' in action.text().lower():
+                    menu.removeAction(action)
+                    break
+        return menu
+
+    def mouseDragEvent(self, ev, axis=None):
+        if ev.button() == Qt.MouseButton.RightButton and axis is None:
+            if ev.isFinish():
+                self.rbScaleBox.hide()
+                rect = QRectF(pg.Point(ev.buttonDownPos()), pg.Point(ev.pos()))
+                rect = self.childGroup.mapRectFromParent(rect)
+                self.showAxRect(rect)
+                self.axHistoryPointer += 1
+                self.axHistory = self.axHistory[:self.axHistoryPointer] + [rect]
+            else:
+                self.updateScaleBox(ev.buttonDownPos(), ev.pos())
+            ev.accept()
+        else:
+            super().mouseDragEvent(ev, axis=axis)
+
+    def wheelEvent(self, ev, axis=None):
+        super().wheelEvent(ev, axis=0)  # X zoom only
 
 
 class _SignalAxisItem(pg.AxisItem):
@@ -90,7 +129,7 @@ class PlotArea(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        self._pw = pg.PlotWidget()
+        self._pw = pg.PlotWidget(viewBox=_ViewBox())
         self._pi: pg.PlotItem = self._pw.getPlotItem()
 
         # Hide default axes; each signal provides its own right-side axis.
@@ -128,7 +167,7 @@ class PlotArea(QWidget):
         color = active.color
         pen = pg.mkPen(color=color, width=2)
 
-        vb = pg.ViewBox()
+        vb = _ViewBox()
         self._pi.scene().addItem(vb)
         vb.setXLink(self._pi)
 
