@@ -357,3 +357,56 @@ def test_filter_matches_partial_name(populated_browser: SignalBrowser) -> None:
     assert populated_browser._proxy.rowCount() == 1
     group1_proxy = populated_browser._proxy.index(0, 0)
     assert "Group 1" in populated_browser._proxy.data(group1_proxy)
+
+
+# ---------------------------------------------------------------------------
+# Wildcard filter behaviour
+# ---------------------------------------------------------------------------
+
+def test_filter_wildcard_star_prefix(populated_browser: SignalBrowser) -> None:
+    # "*flag" should match "raw_flag" (ends with "flag")
+    populated_browser._filter_edit.setText("*flag")
+    populated_browser._apply_filter()
+    assert populated_browser._proxy.rowCount() == 1
+    assert "Group 1" in populated_browser._proxy.data(populated_browser._proxy.index(0, 0))
+
+
+def test_filter_wildcard_star_suffix(populated_browser: SignalBrowser) -> None:
+    # "raw*" should match "raw_flag" (starts with "raw")
+    populated_browser._filter_edit.setText("raw*")
+    populated_browser._apply_filter()
+    assert populated_browser._proxy.rowCount() == 1
+
+
+def test_filter_wildcard_star_matches_multiple_groups(populated_browser: SignalBrowser) -> None:
+    # "s*" matches "sin [V]" (Group 0) and "speed [km/h]" (Group 1)
+    populated_browser._filter_edit.setText("s*")
+    populated_browser._apply_filter()
+    assert populated_browser._proxy.rowCount() == 2
+
+
+def test_filter_wildcard_question_mark(populated_browser: SignalBrowser) -> None:
+    # "s?n*" matches "sin [V]" (s-i-n-…) but not "speed [km/h]" (third char is 'e', not 'n')
+    populated_browser._filter_edit.setText("s?n*")
+    populated_browser._apply_filter()
+    assert populated_browser._proxy.rowCount() == 1
+    assert "Group 0" in populated_browser._proxy.data(populated_browser._proxy.index(0, 0))
+
+
+def test_filter_wildcard_no_match(populated_browser: SignalBrowser) -> None:
+    populated_browser._filter_edit.setText("*zzz*")
+    populated_browser._apply_filter()
+    assert populated_browser._proxy.rowCount() == 0
+
+
+def test_filter_wildcard_case_insensitive(populated_browser: SignalBrowser) -> None:
+    populated_browser._filter_edit.setText("*FLAG")
+    populated_browser._apply_filter()
+    assert populated_browser._proxy.rowCount() == 1
+
+
+def test_filter_plain_text_still_does_substring_match(populated_browser: SignalBrowser) -> None:
+    # Without wildcards, "raw" still matches "raw_flag" as a substring
+    populated_browser._filter_edit.setText("raw")
+    populated_browser._apply_filter()
+    assert populated_browser._proxy.rowCount() == 1

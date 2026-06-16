@@ -74,7 +74,7 @@ class SignalBrowser(QWidget):
         layout.setSpacing(4)
 
         self._filter_edit = QLineEdit()
-        self._filter_edit.setPlaceholderText("Filter signals…")
+        self._filter_edit.setPlaceholderText("Filter signals… (* and ? wildcards)")
         self._filter_edit.setClearButtonEnabled(True)
         layout.addWidget(self._filter_edit)
 
@@ -142,7 +142,11 @@ class SignalBrowser(QWidget):
     # ------------------------------------------------------------------
 
     def _apply_filter(self) -> None:
-        self._proxy.setFilterFixedString(self._filter_edit.text())
+        text = self._filter_edit.text()
+        if '*' in text or '?' in text:
+            self._proxy.setFilterWildcard(text)
+        else:
+            self._proxy.setFilterFixedString(text)
 
     def _clear_filter(self) -> None:
         """Clear the filter field and apply the empty filter immediately."""
