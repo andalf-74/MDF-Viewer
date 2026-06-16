@@ -73,18 +73,35 @@ class CursorController:
     def toggle(self) -> None:
         """Advance: HIDDEN → ONE → TWO → HIDDEN."""
         if self._mode == CursorMode.HIDDEN:
-            if not self._initialized:
-                self._place_initial_positions()
-                self._initialized = True
+            self._ensure_initialized()
             self._mode = CursorMode.ONE
         elif self._mode == CursorMode.ONE:
             self._mode = CursorMode.TWO
         else:
             self._mode = CursorMode.HIDDEN
+        self._commit_mode()
 
-        self._view.apply_mode(self._mode, self._positions)
-        self._table.show_cursor_columns(self._mode != CursorMode.HIDDEN)
-        self._refresh(update_labels=True)
+    def press_cursor1(self) -> None:
+        """Dot key: HIDDEN→ONE, ONE→HIDDEN, TWO→ONE."""
+        if self._mode == CursorMode.HIDDEN:
+            self._ensure_initialized()
+            self._mode = CursorMode.ONE
+        elif self._mode == CursorMode.ONE:
+            self._mode = CursorMode.HIDDEN
+        else:  # TWO
+            self._mode = CursorMode.ONE
+        self._commit_mode()
+
+    def press_cursor2(self) -> None:
+        """Comma key: HIDDEN→TWO, ONE→TWO, TWO→HIDDEN."""
+        if self._mode == CursorMode.HIDDEN:
+            self._ensure_initialized()
+            self._mode = CursorMode.TWO
+        elif self._mode == CursorMode.ONE:
+            self._mode = CursorMode.TWO
+        else:  # TWO
+            self._mode = CursorMode.HIDDEN
+        self._commit_mode()
 
     def reset(self) -> None:
         """Called by AppController on file load — next toggle re-places cursors."""
@@ -123,6 +140,16 @@ class CursorController:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _ensure_initialized(self) -> None:
+        if not self._initialized:
+            self._place_initial_positions()
+            self._initialized = True
+
+    def _commit_mode(self) -> None:
+        self._view.apply_mode(self._mode, self._positions)
+        self._table.show_cursor_columns(self._mode != CursorMode.HIDDEN)
+        self._refresh(update_labels=True)
 
     def _place_initial_positions(self) -> None:
         if self._active_signals:

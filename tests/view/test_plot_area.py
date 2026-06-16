@@ -360,6 +360,35 @@ def test_drag_enter_ignored_for_unknown_mime(plot: PlotArea) -> None:
     event.ignore.assert_called_once()
 
 
+# ---------------------------------------------------------------------------
+# zoom_y_to_view
+# ---------------------------------------------------------------------------
+
+def test_zoom_y_to_view_returns_false_when_empty(plot: PlotArea) -> None:
+    assert plot.zoom_y_to_view() is False
+
+
+def test_zoom_y_to_view_returns_true_with_signals(plot: PlotArea) -> None:
+    plot.add_signal(_make_active())
+    assert plot.zoom_y_to_view() is True
+
+
+def test_zoom_y_to_view_constant_signal_expands_range(plot: PlotArea) -> None:
+    t = np.linspace(0.0, 1.0, 50)
+    data = SignalData(timestamps=t, samples=np.zeros(50))
+    meta = SignalMetadata(name="z", group_index=0, channel_index=0)
+    active = ActiveSignal(data=data, metadata=meta, color=QColor(100, 100, 200))
+    plot.add_signal(active)
+    plot.zoom_y_to_view()
+    y_range = plot._data[active].view_box.viewRange()[1]
+    assert y_range[0] < 0.0
+    assert y_range[1] > 0.0
+
+
+# ---------------------------------------------------------------------------
+# zoom_to_fit
+# ---------------------------------------------------------------------------
+
 def test_zoom_to_fit_sets_x_range(plot: PlotArea) -> None:
     t = np.linspace(0.5, 2.5, 50)
     data = SignalData(timestamps=t, samples=np.ones(50))

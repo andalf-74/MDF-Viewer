@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QAction, QIcon, QKeySequence
+from PyQt6.QtGui import QAction, QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -139,13 +139,27 @@ class MainWindow(QMainWindow):
         self._zoom_fit_action = QAction(
             _load_icon(f"zoom_to_fit{suffix}"), "Zoom to Fit", self
         )
-        self._zoom_fit_action.setShortcut(QKeySequence("Ctrl+0"))
-        self._zoom_fit_action.setToolTip("Zoom to fit all active signals")
+        self._zoom_fit_action.setShortcuts(
+            [QKeySequence("Ctrl+0"), QKeySequence("f")]
+        )
+        self._zoom_fit_action.setToolTip("Zoom to fit all active signals (Ctrl+0 / F)")
         self._zoom_fit_action.triggered.connect(self._on_zoom_to_fit)
+
+        self._zoom_y_action = QAction(
+            _load_icon(f"zoom_y_to_fit{suffix}"), "Zoom Y to View", self
+        )
+        self._zoom_y_action.setShortcut(QKeySequence("y"))
+        self._zoom_y_action.setToolTip("Zoom Y axes to current X span (Y)")
+        self._zoom_y_action.triggered.connect(self._on_zoom_y_to_view)
 
         self._cursor_action = QAction(_load_icon(f"cursors{suffix}"), "Cursors", self)
         self._cursor_action.setToolTip("Toggle cursors (off → 1 → 2 → off)")
         self._cursor_action.triggered.connect(self._on_cursor_toggle)
+
+        self._cursor1_shortcut = QShortcut(QKeySequence("."), self)
+        self._cursor1_shortcut.activated.connect(self._on_cursor1)
+        self._cursor2_shortcut = QShortcut(QKeySequence(","), self)
+        self._cursor2_shortcut.activated.connect(self._on_cursor2)
 
         self._about_action = QAction("About MDF-Viewer", self)
         self._about_action.triggered.connect(self._on_about)
@@ -169,6 +183,7 @@ class MainWindow(QMainWindow):
         toolbar.addAction(self._load_action)
         toolbar.addSeparator()
         toolbar.addAction(self._zoom_fit_action)
+        toolbar.addAction(self._zoom_y_action)
         toolbar.addAction(self._cursor_action)
 
     def _build_layout(self) -> None:
@@ -267,9 +282,21 @@ class MainWindow(QMainWindow):
         if hasattr(self.plot_area, "zoom_to_fit"):
             self.plot_area.zoom_to_fit()
 
+    def _on_zoom_y_to_view(self) -> None:
+        if not self.plot_area.zoom_y_to_view():
+            self.show_status("No active signals to zoom.")
+
     def _on_cursor_toggle(self) -> None:
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.toggle()
+
+    def _on_cursor1(self) -> None:
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.press_cursor1()
+
+    def _on_cursor2(self) -> None:
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.press_cursor2()
 
     def _on_about(self) -> None:
         QMessageBox.about(

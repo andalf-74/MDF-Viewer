@@ -213,6 +213,29 @@ class PlotArea(QWidget):
         for spd in self._data.values():
             spd.view_box.autoRange()
 
+    def zoom_y_to_view(self) -> bool:
+        """Rescale each signal's Y-axis to fit the currently visible X range.
+
+        Returns True if any signals are active, False if there is nothing to zoom.
+        """
+        if not self._data:
+            return False
+        x_min, x_max = self._pi.vb.viewRange()[0]
+        for active, spd in self._data.items():
+            ts = active.data.timestamps
+            ys = active.data.samples
+            mask = (ts >= x_min) & (ts <= x_max)
+            visible_ys = ys[mask]
+            if len(visible_ys) == 0:
+                continue
+            y_min = float(visible_ys.min())
+            y_max = float(visible_ys.max())
+            if y_min == y_max:
+                y_min -= 1.0
+                y_max += 1.0
+            spd.view_box.setYRange(y_min, y_max, padding=0.05)
+        return True
+
     @property
     def plot_item(self) -> pg.PlotItem:
         return self._pi

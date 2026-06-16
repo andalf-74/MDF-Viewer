@@ -339,3 +339,68 @@ def test_first_toggle_without_signals_uses_get_x_range(view: MagicMock, table: M
     positions = view.apply_mode.call_args[0][1]
     assert positions[0] == pytest.approx(2.0)
     assert positions[1] == pytest.approx(2.2)
+
+
+# ---------------------------------------------------------------------------
+# press_cursor1 (dot key)
+# ---------------------------------------------------------------------------
+
+def test_press_cursor1_from_hidden_goes_to_one(ctrl: CursorController) -> None:
+    ctrl.press_cursor1()
+    assert ctrl.mode == CursorMode.ONE
+
+
+def test_press_cursor1_from_one_goes_to_hidden(ctrl: CursorController) -> None:
+    ctrl.press_cursor1()
+    ctrl.press_cursor1()
+    assert ctrl.mode == CursorMode.HIDDEN
+
+
+def test_press_cursor1_from_two_goes_to_one(ctrl: CursorController) -> None:
+    ctrl.toggle()  # ONE
+    ctrl.toggle()  # TWO
+    ctrl.press_cursor1()
+    assert ctrl.mode == CursorMode.ONE
+
+
+def test_press_cursor1_initializes_positions(ctrl: CursorController) -> None:
+    ctrl.press_cursor1()
+    assert ctrl._initialized is True
+
+
+def test_press_cursor1_calls_view(ctrl: CursorController, view: MagicMock) -> None:
+    ctrl.press_cursor1()
+    view.apply_mode.assert_called_with(CursorMode.ONE, ctrl._positions)
+
+
+# ---------------------------------------------------------------------------
+# press_cursor2 (comma key)
+# ---------------------------------------------------------------------------
+
+def test_press_cursor2_from_hidden_goes_to_two(ctrl: CursorController) -> None:
+    ctrl.press_cursor2()
+    assert ctrl.mode == CursorMode.TWO
+
+
+def test_press_cursor2_from_one_goes_to_two(ctrl: CursorController) -> None:
+    ctrl.toggle()  # ONE
+    ctrl.press_cursor2()
+    assert ctrl.mode == CursorMode.TWO
+
+
+def test_press_cursor2_from_two_goes_to_hidden(ctrl: CursorController) -> None:
+    ctrl.press_cursor2()  # TWO
+    ctrl.press_cursor2()  # HIDDEN
+    assert ctrl.mode == CursorMode.HIDDEN
+
+
+def test_press_cursor2_initializes_positions(ctrl: CursorController) -> None:
+    ctrl.press_cursor2()
+    assert ctrl._initialized is True
+
+
+def test_press_cursor2_shows_cursor_columns(
+    ctrl: CursorController, table: MagicMock
+) -> None:
+    ctrl.press_cursor2()
+    table.show_cursor_columns.assert_called_with(True)
