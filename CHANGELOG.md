@@ -2,7 +2,7 @@
 
 All notable changes to MDF-Viewer are documented in this file.
 
-## [Unreleased]
+## [1.4] - 2026-06-18
 
 ### Added
 - New toolbar button "Swimlanes" (shortcut `B`): arranges active signals in
