@@ -267,6 +267,10 @@ class PlotArea(QWidget):
         for spd in self._data.values():
             spd.view_box.autoRange()
 
+    def zoom_to_x_range(self, x_min: float, x_max: float) -> None:
+        """Set the shared X range to [x_min, x_max] with standard padding."""
+        self._pi.vb.setXRange(x_min, x_max, padding=0.02)
+
     def zoom_y_to_view(self) -> bool:
         """Rescale each signal's Y-axis to fit the currently visible X range.
 

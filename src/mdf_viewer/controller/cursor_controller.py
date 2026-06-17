@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from mdf_viewer.view.cursors import CursorView
     from mdf_viewer.view_model.active_signal import ActiveSignal
 
+_ModeCallback = Callable[["CursorMode"], None]
+
 
 class CursorMode(Enum):
     """The three states cycled by the Cursor Toggle toolbar button."""
@@ -59,6 +61,7 @@ class CursorController:
         self._positions: list[float] = [0.0, 0.0]
         self._initialized = False  # False → place at view range on first toggle
         self._active_signals: list[ActiveSignal] = []
+        self._mode_changed_cb: _ModeCallback | None = None
 
         cursor_view.cursor_moved.connect(self._on_cursor_dragged)
 
@@ -69,6 +72,17 @@ class CursorController:
     @property
     def mode(self) -> CursorMode:
         return self._mode
+
+    def set_mode_changed_callback(self, cb: _ModeCallback) -> None:
+        """Register a callable invoked with the new CursorMode on every mode change."""
+        self._mode_changed_cb = cb
+
+    def zoom_to_cursors(self) -> tuple[float, float] | None:
+        """Return (x_min, x_max) spanning the two cursors, or None if not in TWO mode."""
+        if self._mode != CursorMode.TWO:
+            return None
+        x1, x2 = self._positions
+        return (min(x1, x2), max(x1, x2))
 
     def toggle(self) -> None:
         """Advance: HIDDEN → ONE → TWO → HIDDEN."""
@@ -110,6 +124,8 @@ class CursorController:
             self._mode = CursorMode.HIDDEN
             self._view.apply_mode(CursorMode.HIDDEN, self._positions)
             self._table.show_cursor_columns(False)
+            if self._mode_changed_cb is not None:
+                self._mode_changed_cb(self._mode)
 
     def recolor_signal(self, active: ActiveSignal, color) -> None:
         """Update cursor label colors when a signal's color changes."""
@@ -150,6 +166,8 @@ class CursorController:
         self._view.apply_mode(self._mode, self._positions)
         self._table.show_cursor_columns(self._mode != CursorMode.HIDDEN)
         self._refresh(update_labels=True)
+        if self._mode_changed_cb is not None:
+            self._mode_changed_cb(self._mode)
 
     def _place_initial_positions(self) -> None:
         if self._active_signals:

@@ -414,6 +414,52 @@ def test_file_dropped_error_shows_message_box(
     mock_crit.assert_called_once()
 
 
+# ---------------------------------------------------------------------------
+# Zoom to Cursors toolbar action
+# ---------------------------------------------------------------------------
+
+def test_zoom_cursors_action_initially_disabled(window: MainWindow) -> None:
+    assert not window._zoom_cursors_action.isEnabled()
+
+
+def test_zoom_cursors_action_enabled_when_mode_two(window: MainWindow) -> None:
+    from mdf_viewer.controller.cursor_controller import CursorMode
+    window._on_cursor_mode_changed(CursorMode.TWO)
+    assert window._zoom_cursors_action.isEnabled()
+
+
+def test_zoom_cursors_action_disabled_when_mode_one(window: MainWindow) -> None:
+    from mdf_viewer.controller.cursor_controller import CursorMode
+    window._on_cursor_mode_changed(CursorMode.TWO)
+    window._on_cursor_mode_changed(CursorMode.ONE)
+    assert not window._zoom_cursors_action.isEnabled()
+
+
+def test_zoom_cursors_action_disabled_when_hidden(window: MainWindow) -> None:
+    from mdf_viewer.controller.cursor_controller import CursorMode
+    window._on_cursor_mode_changed(CursorMode.TWO)
+    window._on_cursor_mode_changed(CursorMode.HIDDEN)
+    assert not window._zoom_cursors_action.isEnabled()
+
+
+def test_zoom_cursors_calls_zoom_to_x_range(window: MainWindow) -> None:
+    cursor_ctrl = MagicMock()
+    cursor_ctrl.zoom_to_cursors.return_value = (1.0, 5.0)
+    window._cursor_ctrl = cursor_ctrl
+    with patch.object(window.plot_area, "zoom_to_x_range") as mock_zoom:
+        window._on_zoom_to_cursors()
+    mock_zoom.assert_called_once_with(1.0, 5.0)
+
+
+def test_zoom_cursors_noop_when_zoom_to_cursors_returns_none(window: MainWindow) -> None:
+    cursor_ctrl = MagicMock()
+    cursor_ctrl.zoom_to_cursors.return_value = None
+    window._cursor_ctrl = cursor_ctrl
+    with patch.object(window.plot_area, "zoom_to_x_range") as mock_zoom:
+        window._on_zoom_to_cursors()
+    mock_zoom.assert_not_called()
+
+
 def test_color_change_calls_recolor_signal(
     wired: MainWindow, mock_controller: MagicMock, qtbot: QtBot
 ) -> None:

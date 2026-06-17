@@ -404,3 +404,70 @@ def test_press_cursor2_shows_cursor_columns(
 ) -> None:
     ctrl.press_cursor2()
     table.show_cursor_columns.assert_called_with(True)
+
+
+# ---------------------------------------------------------------------------
+# zoom_to_cursors
+# ---------------------------------------------------------------------------
+
+def test_zoom_to_cursors_returns_none_when_hidden(ctrl: CursorController) -> None:
+    assert ctrl.zoom_to_cursors() is None
+
+
+def test_zoom_to_cursors_returns_none_in_one_mode(ctrl: CursorController) -> None:
+    ctrl.toggle()  # ONE
+    assert ctrl.zoom_to_cursors() is None
+
+
+def test_zoom_to_cursors_returns_ordered_span_in_two_mode(ctrl: CursorController) -> None:
+    ctrl.toggle()   # ONE
+    ctrl.toggle()   # TWO — places cursors at x_min and x_min + 10% span
+    x_min, x_max = ctrl.zoom_to_cursors()
+    assert x_min < x_max
+
+
+def test_zoom_to_cursors_orders_positions(ctrl: CursorController) -> None:
+    ctrl.toggle()
+    ctrl.toggle()  # TWO
+    # Force positions so cursor 2 is left of cursor 1.
+    ctrl._positions = [0.8, 0.2]
+    x_min, x_max = ctrl.zoom_to_cursors()
+    assert x_min == 0.2
+    assert x_max == 0.8
+
+
+# ---------------------------------------------------------------------------
+# mode_changed callback
+# ---------------------------------------------------------------------------
+
+def test_mode_changed_callback_fired_on_toggle(ctrl: CursorController) -> None:
+    seen = []
+    ctrl.set_mode_changed_callback(seen.append)
+    ctrl.toggle()
+    assert seen == [CursorMode.ONE]
+
+
+def test_mode_changed_callback_fired_on_each_toggle(ctrl: CursorController) -> None:
+    seen = []
+    ctrl.set_mode_changed_callback(seen.append)
+    ctrl.toggle()   # ONE
+    ctrl.toggle()   # TWO
+    ctrl.toggle()   # HIDDEN
+    assert seen == [CursorMode.ONE, CursorMode.TWO, CursorMode.HIDDEN]
+
+
+def test_mode_changed_callback_fired_on_reset(ctrl: CursorController) -> None:
+    seen = []
+    ctrl.toggle()  # ONE — so reset has something to do
+    ctrl.set_mode_changed_callback(seen.append)
+    ctrl.reset()
+    assert seen == [CursorMode.HIDDEN]
+
+
+def test_mode_changed_callback_not_fired_on_reset_when_already_hidden(
+    ctrl: CursorController,
+) -> None:
+    seen = []
+    ctrl.set_mode_changed_callback(seen.append)
+    ctrl.reset()  # already HIDDEN — no state change, no callback
+    assert seen == []

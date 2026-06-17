@@ -97,6 +97,8 @@ class MainWindow(QMainWindow):
         """Wire the controller after it has been constructed with this window's views."""
         self._controller = controller
         self._cursor_ctrl = cursor_ctrl
+        if cursor_ctrl is not None:
+            cursor_ctrl.set_mode_changed_callback(self._on_cursor_mode_changed)
         self.signal_browser.add_signals_requested.connect(self._on_add_signals)
         self.plot_area.signals_dropped.connect(self._on_add_signals)
         self.plot_area.file_dropped.connect(self._on_file_dropped)
@@ -152,6 +154,14 @@ class MainWindow(QMainWindow):
         self._zoom_y_action.setToolTip("Zoom Y axes to current X span (Y)")
         self._zoom_y_action.triggered.connect(self._on_zoom_y_to_view)
 
+        self._zoom_cursors_action = QAction(
+            _load_icon(f"zoom_to_cursors{suffix}"), "Zoom to Cursors", self
+        )
+        self._zoom_cursors_action.setShortcut(QKeySequence("c"))
+        self._zoom_cursors_action.setToolTip("Zoom X to cursor range (C)")
+        self._zoom_cursors_action.setEnabled(False)
+        self._zoom_cursors_action.triggered.connect(self._on_zoom_to_cursors)
+
         self._cursor_action = QAction(_load_icon(f"cursors{suffix}"), "Cursors", self)
         self._cursor_action.setToolTip("Toggle cursors (off → 1 → 2 → off)")
         self._cursor_action.triggered.connect(self._on_cursor_toggle)
@@ -184,6 +194,7 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(self._zoom_fit_action)
         toolbar.addAction(self._zoom_y_action)
+        toolbar.addAction(self._zoom_cursors_action)
         toolbar.addAction(self._cursor_action)
 
     def _build_layout(self) -> None:
@@ -285,6 +296,17 @@ class MainWindow(QMainWindow):
     def _on_zoom_y_to_view(self) -> None:
         if not self.plot_area.zoom_y_to_view():
             self.show_status("No active signals to zoom.")
+
+    def _on_zoom_to_cursors(self) -> None:
+        if self._cursor_ctrl is None:
+            return
+        span = self._cursor_ctrl.zoom_to_cursors()
+        if span is not None:
+            self.plot_area.zoom_to_x_range(*span)
+
+    def _on_cursor_mode_changed(self, mode) -> None:
+        from mdf_viewer.controller.cursor_controller import CursorMode
+        self._zoom_cursors_action.setEnabled(mode == CursorMode.TWO)
 
     def _on_cursor_toggle(self) -> None:
         if self._cursor_ctrl is not None:

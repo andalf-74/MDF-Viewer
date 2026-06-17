@@ -4,6 +4,11 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- New toolbar button "Zoom to Cursors" (shortcut `C`): sets the X range to
+  span exactly between the two active cursors. Enabled only when both cursors
+  are visible; disabled otherwise (#28).
+
 ### Fixed
 - Scroll wheel over a signal's Y-axis no longer zooms X; it now zooms that
   signal's Y-axis as expected. The regression was introduced in v1.3.1 when
