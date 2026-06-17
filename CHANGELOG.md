@@ -5,6 +5,15 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Measurement Info Box moved below the Signal Browser; Signal Info Box moved
+  below the Active Signals Table. Both panels have a vertical splitter so the
+  user can resize the two halves. The plot area now fills the full center
+  height (#33).
+- Left panel (Signal Browser + Measurement Info) is now collapsible. A `‹`
+  button near the top collapses it into a drawer; in drawer mode the panel
+  slides out when the mouse is within 10 px of the left window edge and
+  slides back when the mouse moves away. Clicking `›` re-pins the panel into
+  the layout. The slide animation uses `QPropertyAnimation` (#33).
 - New toolbar button "Zoom to Cursors" (shortcut `C`): sets the X range to
   span exactly between the two active cursors. Enabled only when both cursors
   are visible; disabled otherwise (#28).

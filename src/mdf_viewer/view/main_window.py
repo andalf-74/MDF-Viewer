@@ -21,14 +21,26 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QAction, QIcon, QKeySequence, QShortcut
+from PyQt6.QtCore import (
+    QAbstractAnimation,
+    QEasingCurve,
+    QEvent,
+    QPoint,
+    QPropertyAnimation,
+    QSize,
+    Qt,
+    QTimer,
+)
+from PyQt6.QtGui import QAction, QCursor, QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
     QMainWindow,
     QMessageBox,
+    QPushButton,
     QSplitter,
+    QVBoxLayout,
+    QWidget,
 )
 
 _ICONS_DIR = Path(__file__).parent.parent / "resources" / "icons"
@@ -65,6 +77,18 @@ from mdf_viewer.view.signal_info_box import SignalInfoBox
 if TYPE_CHECKING:
     from mdf_viewer.controller.app_controller import AppController
 
+_PANEL_W = 260       # left panel width in pixels
+_HOVER_PX = 10       # distance from left edge that triggers drawer slide-out
+_ANIM_MS = 200       # slide animation duration in ms
+
+
+def _make_splitter(orientation: Qt.Orientation) -> QSplitter:
+    """Splitter with a thin visible handle line."""
+    s = QSplitter(orientation)
+    s.setHandleWidth(3)
+    s.setStyleSheet("QSplitter::handle { background: palette(mid); }")
+    return s
+
 _MDF_FILE_FILTER = "MDF Files (*.mf4 *.mdf *.dat);;All Files (*)"
 _GITHUB_URL = "https://github.com/andalf-74/MDF-Viewer"
 
@@ -86,6 +110,7 @@ class MainWindow(QMainWindow):
         self._build_menu()
         self._build_toolbar()
         self._build_layout()
+        self.statusBar()  # pre-create so its height is always reserved
 
     # ------------------------------------------------------------------
     # Public API
@@ -204,28 +229,162 @@ class MainWindow(QMainWindow):
         self.measurement_info_box = MeasurementInfoBox()
         self.signal_info_box = SignalInfoBox()
 
-        bottom_splitter = QSplitter(Qt.Orientation.Horizontal)
-        bottom_splitter.addWidget(self.measurement_info_box)
-        bottom_splitter.addWidget(self.signal_info_box)
-        bottom_splitter.setStretchFactor(0, 1)
-        bottom_splitter.setStretchFactor(1, 1)
+        # ── Left panel (collapsible / drawer) ────────────────────────────
+        self._left_panel = QWidget()
+        self._left_panel.setAutoFillBackground(True)  # opaque over content
 
-        center_splitter = QSplitter(Qt.Orientation.Vertical)
-        center_splitter.addWidget(self.plot_area)
-        center_splitter.addWidget(bottom_splitter)
-        center_splitter.setStretchFactor(0, 3)
-        center_splitter.setStretchFactor(1, 1)
+        self._pin_button = QPushButton("‹")
+        self._pin_button.setMaximumHeight(24)
+        self._pin_button.setFlat(True)
+        self._pin_button.setToolTip("Collapse panel")
+        self._pin_button.clicked.connect(self._toggle_pin)
 
-        outer_splitter = QSplitter(Qt.Orientation.Horizontal)
-        outer_splitter.addWidget(self.signal_browser)
-        outer_splitter.addWidget(center_splitter)
-        outer_splitter.addWidget(self.active_signals_table)
-        outer_splitter.setStretchFactor(0, 0)
-        outer_splitter.setStretchFactor(1, 1)
-        outer_splitter.setStretchFactor(2, 0)
-        outer_splitter.setSizes([260, 760, 260])
+        left_splitter = _make_splitter(Qt.Orientation.Vertical)
+        left_splitter.addWidget(self.signal_browser)
+        left_splitter.addWidget(self.measurement_info_box)
+        left_splitter.setStretchFactor(0, 3)
+        left_splitter.setStretchFactor(1, 1)
 
-        self.setCentralWidget(outer_splitter)
+        left_vbox = QVBoxLayout(self._left_panel)
+        left_vbox.setContentsMargins(0, 0, 0, 0)
+        left_vbox.setSpacing(0)
+        left_vbox.addWidget(self._pin_button)
+        left_vbox.addWidget(left_splitter)
+
+        # ── Right panel ───────────────────────────────────────────────────
+        right_panel = QWidget()
+        right_splitter = _make_splitter(Qt.Orientation.Vertical)
+        right_splitter.addWidget(self.active_signals_table)
+        right_splitter.addWidget(self.signal_info_box)
+        right_splitter.setStretchFactor(0, 3)
+        right_splitter.setStretchFactor(1, 1)
+        right_vbox = QVBoxLayout(right_panel)
+        right_vbox.setContentsMargins(0, 0, 0, 0)
+        right_vbox.addWidget(right_splitter)
+
+        # ── Content splitter (plot area + right panel) ────────────────────
+        self._content_splitter = _make_splitter(Qt.Orientation.Horizontal)
+        self._content_splitter.addWidget(self.plot_area)
+        self._content_splitter.addWidget(right_panel)
+        self._content_splitter.setStretchFactor(0, 1)
+        self._content_splitter.setStretchFactor(1, 0)
+        self._content_splitter.setSizes([760, 260])
+
+        # ── Outer splitter (pinned mode: left panel + content) ───────────
+        # _panel_w tracks the current panel width so it's preserved across
+        # pin/drawer transitions even after the user has resized the panel.
+        self._panel_w = _PANEL_W
+        self._outer_splitter = _make_splitter(Qt.Orientation.Horizontal)
+        self._outer_splitter.addWidget(self._left_panel)
+        self._outer_splitter.addWidget(self._content_splitter)
+        self._outer_splitter.setStretchFactor(0, 0)
+        self._outer_splitter.setStretchFactor(1, 1)
+        self._outer_splitter.setSizes([_PANEL_W, 760])
+
+        # ── Central container ─────────────────────────────────────────────
+        # In pinned mode the outer splitter fills it.  In drawer mode the
+        # left panel is re-parented here as a floating overlay.
+        self._central = QWidget()
+        self.setCentralWidget(self._central)
+        self._central.installEventFilter(self)
+        self._outer_splitter.setParent(self._central)
+
+        # ── Collapse/drawer state ─────────────────────────────────────────
+        self._pinned = True
+        self._drawer_shown = False
+
+        self._hover_timer = QTimer(self)
+        self._hover_timer.setInterval(50)
+        self._hover_timer.timeout.connect(self._check_hover)
+
+        self._panel_anim = QPropertyAnimation(self._left_panel, b"pos", self)
+        self._panel_anim.setDuration(_ANIM_MS)
+        self._panel_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
+
+        self._content_splitter.show()
+        self._left_panel.show()
+
+    # ------------------------------------------------------------------
+    # Geometry management
+    # ------------------------------------------------------------------
+
+    def eventFilter(self, obj, event) -> bool:
+        if obj is self._central and event.type() == QEvent.Type.Resize:
+            self._update_child_geometries()
+        return super().eventFilter(obj, event)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if hasattr(self, '_central'):
+            self._update_child_geometries()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if hasattr(self, '_central'):
+            self._update_child_geometries()
+
+    def _update_child_geometries(self) -> None:
+        w = self._central.width()
+        h = self._central.height()
+        if w == 0 or h == 0:
+            return
+        self._outer_splitter.setGeometry(0, 0, w, h)
+        if not self._pinned:
+            # In drawer mode the left panel floats as an overlay child of _central
+            self._left_panel.resize(self._panel_w, h)
+            if self._panel_anim.state() != QAbstractAnimation.State.Running:
+                x = 0 if self._drawer_shown else -self._panel_w
+                self._left_panel.move(x, 0)
+
+    # ------------------------------------------------------------------
+    # Collapse / drawer
+    # ------------------------------------------------------------------
+
+    def _toggle_pin(self) -> None:
+        if self._pinned:
+            # Record current width before removing from splitter
+            self._panel_w = self._left_panel.width()
+            self._pinned = False
+            self._pin_button.setText("›")
+            self._pin_button.setToolTip("Pin panel")
+            # Re-parent to _central as a floating overlay
+            self._left_panel.setParent(self._central)
+            self._left_panel.resize(self._panel_w, self._central.height())
+            self._left_panel.move(0, 0)
+            self._left_panel.show()
+            self._left_panel.raise_()
+            self._hover_timer.start()
+            self._slide_panel(show=False)
+        else:
+            self._panel_anim.stop()
+            self._hover_timer.stop()
+            self._pinned = True
+            self._drawer_shown = False
+            self._pin_button.setText("‹")
+            self._pin_button.setToolTip("Collapse panel")
+            # Re-insert into the outer splitter at position 0
+            self._outer_splitter.insertWidget(0, self._left_panel)
+            w = self._central.width()
+            self._outer_splitter.setSizes([self._panel_w, max(0, w - self._panel_w)])
+
+    def _slide_panel(self, show: bool) -> None:
+        self._panel_anim.stop()
+        self._drawer_shown = show
+        end = QPoint(0, 0) if show else QPoint(-self._panel_w, 0)
+        if self._left_panel.pos() == end:
+            return
+        self._panel_anim.setStartValue(self._left_panel.pos())
+        self._panel_anim.setEndValue(end)
+        self._panel_anim.start()
+
+    def _check_hover(self) -> None:
+        if self._pinned:
+            return
+        x = self._central.mapFromGlobal(QCursor.pos()).x()
+        if not self._drawer_shown and x < _HOVER_PX:
+            self._slide_panel(show=True)
+        elif self._drawer_shown and x > self._panel_w + 20:
+            self._slide_panel(show=False)
 
     # ------------------------------------------------------------------
     # Slots
