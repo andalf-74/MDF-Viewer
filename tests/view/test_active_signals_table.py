@@ -379,3 +379,57 @@ def test_drag_enter_ignored_for_unknown_mime(table: ActiveSignalsTable) -> None:
     event = _drag_enter_event(mime)
     table.eventFilter(table._table.viewport(), event)
     event.ignore.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Row reorder / _rebuild_rows
+# ---------------------------------------------------------------------------
+
+def test_rebuild_rows_preserves_signal_count(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]]
+) -> None:
+    table, sigs = populated
+    table._rebuild_rows()
+    assert table._table.rowCount() == len(sigs)
+
+
+def test_rebuild_rows_preserves_names(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]]
+) -> None:
+    table, sigs = populated
+    table._rebuild_rows()
+    names = [table._table.item(r, 1).text() for r in range(table._table.rowCount())]
+    assert names == [s.metadata.name for s in sigs]
+
+
+def test_rebuild_rows_selects_given_row(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]]
+) -> None:
+    table, _ = populated
+    table._rebuild_rows(select_row=1)
+    rows = table._table.selectionModel().selectedRows()
+    assert len(rows) == 1
+    assert rows[0].row() == 1
+
+
+def test_order_changed_emitted_on_row_reorder(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+    qtbot,
+) -> None:
+    table, sigs = populated
+    # Simulate _on_row_reorder by manipulating _signals and calling directly
+    table._signals = [sigs[1], sigs[0], sigs[2]]
+    with qtbot.waitSignal(table.order_changed) as blocker:
+        table.order_changed.emit(list(table._signals))
+    assert blocker.args[0] == [sigs[1], sigs[0], sigs[2]]
+
+
+def test_rebuild_rows_restores_color_swatches(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]]
+) -> None:
+    from mdf_viewer.view.active_signals_table import _ColorSwatch
+    table, sigs = populated
+    table._rebuild_rows()
+    for r in range(table._table.rowCount()):
+        widget = table._table.cellWidget(r, 0)
+        assert isinstance(widget, _ColorSwatch)

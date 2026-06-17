@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import json
 
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QKeyEvent
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QColorDialog,
     QHBoxLayout,
     QHeaderView,
@@ -53,10 +54,14 @@ class ActiveSignalsTable(QWidget):
     step_mode_toggle_requested = pyqtSignal(object)
     # list of (group_index, channel_index) — emitted when signals are dropped onto the table
     signals_dropped = pyqtSignal(list)
+    # list[ActiveSignal] in new order — emitted after a row drag-and-drop reorder
+    order_changed = pyqtSignal(list)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._signals: list[ActiveSignal] = []
+        self._drag_src_row: int = -1
+        self._pending_reorder: tuple[int, int] | None = None
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -168,6 +173,12 @@ class ActiveSignalsTable(QWidget):
         btn_layout.addWidget(self._remove_all_btn)
         layout.addLayout(btn_layout)
 
+        self._table.setDragEnabled(True)
+        self._table.setAcceptDrops(True)
+        self._table.setDropIndicatorShown(True)
+        self._table.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
+        self._table.setDefaultDropAction(Qt.DropAction.MoveAction)
+
         self._table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._table.customContextMenuRequested.connect(self._on_context_menu)
         self._table.itemSelectionChanged.connect(self._on_selection_changed)
@@ -234,25 +245,91 @@ class ActiveSignalsTable(QWidget):
         if watched is self._table.viewport():
             t = event.type()
             if t == QEvent.Type.DragEnter:
-                if event.mimeData().hasFormat(SIGNAL_MIME_TYPE):
+                mime = event.mimeData()
+                if mime.hasFormat(SIGNAL_MIME_TYPE):
                     event.acceptProposedAction()
-                else:
-                    event.ignore()
+                    return True
+                if mime.hasFormat("application/x-qabstractitemmodeldatalist"):
+                    # Capture source row now — currentRow() changes during drag.
+                    # Accept with MoveAction so the cursor shows a move icon.
+                    self._drag_src_row = self._table.currentRow()
+                    event.setDropAction(Qt.DropAction.MoveAction)
+                    event.accept()
+                    return True
+                event.ignore()
                 return True
             elif t == QEvent.Type.DragMove:
-                if event.mimeData().hasFormat(SIGNAL_MIME_TYPE):
+                mime = event.mimeData()
+                if mime.hasFormat(SIGNAL_MIME_TYPE):
                     event.acceptProposedAction()
-                else:
-                    event.ignore()
+                    return True
+                if mime.hasFormat("application/x-qabstractitemmodeldatalist"):
+                    event.setDropAction(Qt.DropAction.MoveAction)
+                    event.accept()
+                    return True
+                event.ignore()
                 return True
             elif t == QEvent.Type.Drop:
-                if event.mimeData().hasFormat(SIGNAL_MIME_TYPE):
-                    data = bytes(event.mimeData().data(SIGNAL_MIME_TYPE))
+                mime = event.mimeData()
+                if mime.hasFormat(SIGNAL_MIME_TYPE):
+                    data = bytes(mime.data(SIGNAL_MIME_TYPE))
                     locs = [tuple(item) for item in json.loads(data)]
                     self.signals_dropped.emit(locs)
                     event.acceptProposedAction()
-                return True
+                    return True
+                if mime.hasFormat("application/x-qabstractitemmodeldatalist"):
+                    self._on_row_reorder(event)
+                    return True
+                return True  # consume unknown drops without acting
         return super().eventFilter(watched, event)
+
+    def _on_row_reorder(self, event) -> None:
+        src_row = self._drag_src_row
+        target = self._table.indexAt(event.position().toPoint())
+        dst_row = target.row() if target.isValid() else self._table.rowCount() - 1
+        if src_row < 0 or dst_row < 0 or src_row == dst_row:
+            event.ignore()
+            return
+        self._pending_reorder = (src_row, dst_row)
+        # IgnoreAction: startDrag() only removes the source row when the
+        # returned action is MoveAction — IgnoreAction skips that deletion.
+        # The actual reorder is deferred until after startDrag() fully returns,
+        # so _rebuild_rows runs on a clean table with no Qt post-drop side-effects.
+        event.setDropAction(Qt.DropAction.IgnoreAction)
+        event.accept()
+        QTimer.singleShot(0, self._apply_reorder)
+
+    def _apply_reorder(self) -> None:
+        if self._pending_reorder is None:
+            return
+        src_row, dst_row = self._pending_reorder
+        self._pending_reorder = None
+        if src_row >= len(self._signals) or dst_row >= len(self._signals):
+            return
+        active = self._signals.pop(src_row)
+        self._signals.insert(dst_row, active)
+        self._rebuild_rows(select_row=dst_row)
+        self.order_changed.emit(list(self._signals))
+
+    def _rebuild_rows(self, select_row: int | None = None) -> None:
+        """Rebuild the entire table from _signals (used after row reorder)."""
+        self._table.blockSignals(True)
+        self._table.setRowCount(0)
+        for active in self._signals:
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+            swatch = _ColorSwatch(active.color)
+            swatch.clicked.connect(
+                lambda checked=False, a=active: self._on_color_swatch_clicked(a)
+            )
+            self._table.setCellWidget(row, _COL_COLOR, swatch)
+            self._table.setItem(row, _COL_NAME, _ro_item(active.metadata.name))
+            for col in _CURSOR_COLS:
+                self._table.setItem(row, col, _ro_item(""))
+        self._table.blockSignals(False)
+        if select_row is not None:
+            self._table.selectRow(select_row)
+        self._table.viewport().update()
 
     def _find_row(self, active: ActiveSignal) -> int | None:
         """Return the row index of *active* using identity, or None."""

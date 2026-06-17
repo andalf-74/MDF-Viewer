@@ -139,6 +139,7 @@ class MainWindow(QMainWindow):
         self.active_signals_table.step_mode_toggle_requested.connect(
             controller.toggle_step_mode
         )
+        self.active_signals_table.order_changed.connect(controller.reorder_signals)
         self.plot_area.y_grid_toggled.connect(controller.on_y_grid_toggled)
 
     def show_status(self, message: str, timeout_ms: int = 3000) -> None:
@@ -178,6 +179,13 @@ class MainWindow(QMainWindow):
         self._zoom_y_action.setShortcut(QKeySequence("y"))
         self._zoom_y_action.setToolTip("Zoom Y axes to current X span (Y)")
         self._zoom_y_action.triggered.connect(self._on_zoom_y_to_view)
+
+        self._swimlanes_action = QAction(
+            _load_icon(f"swimlanes{suffix}"), "Swimlanes", self
+        )
+        self._swimlanes_action.setShortcut(QKeySequence("b"))
+        self._swimlanes_action.setToolTip("Arrange signals in swimlanes (B)")
+        self._swimlanes_action.triggered.connect(self._on_swimlanes)
 
         self._zoom_cursors_action = QAction(
             _load_icon(f"zoom_to_cursors{suffix}"), "Zoom to Cursors", self
@@ -219,6 +227,7 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(self._zoom_fit_action)
         toolbar.addAction(self._zoom_y_action)
+        toolbar.addAction(self._swimlanes_action)
         toolbar.addAction(self._zoom_cursors_action)
         toolbar.addAction(self._cursor_action)
 
@@ -455,6 +464,12 @@ class MainWindow(QMainWindow):
     def _on_zoom_y_to_view(self) -> None:
         if not self.plot_area.zoom_y_to_view():
             self.show_status("No active signals to zoom.")
+
+    def _on_swimlanes(self) -> None:
+        if self._controller is None:
+            return
+        if not self._controller.swimlanes():
+            self.show_status("No active signals to arrange.")
 
     def _on_zoom_to_cursors(self) -> None:
         if self._cursor_ctrl is None:

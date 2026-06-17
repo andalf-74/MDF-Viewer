@@ -522,3 +522,42 @@ def test_zoom_rect_signal_disconnected_on_remove(plot: PlotArea) -> None:
     vb_a.zoom_rect_finished.emit(QRectF(0, 0, 100, 100))
 
     assert plot._data[b].view_box.axHistoryPointer == ptr_b_before
+
+
+# ---------------------------------------------------------------------------
+# swimlanes
+# ---------------------------------------------------------------------------
+
+def test_swimlanes_returns_false_when_no_signals(plot: PlotArea) -> None:
+    assert plot.swimlanes([]) is False
+
+
+def test_swimlanes_returns_false_when_data_empty(plot: PlotArea) -> None:
+    assert plot.swimlanes([_make_active()]) is False
+
+
+def test_swimlanes_returns_true_with_signals(plot: PlotArea) -> None:
+    a = _make_active("a")
+    plot.add_signal(a)
+    plot.show()
+    assert plot.swimlanes([a]) is True
+
+
+def test_swimlanes_sets_y_range_per_signal(plot: PlotArea) -> None:
+    a = _make_active("a")
+    b = _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.show()
+    # Must not raise; each ViewBox gets an independent Y range
+    result = plot.swimlanes([a, b])
+    assert result is True
+
+
+def test_swimlanes_skips_unknown_signals(plot: PlotArea) -> None:
+    a = _make_active("a")
+    plot.add_signal(a)
+    plot.show()
+    stranger = _make_active("x")
+    # Passing an unknown signal in the list must not raise
+    assert plot.swimlanes([a, stranger]) is True

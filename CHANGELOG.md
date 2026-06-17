@@ -5,6 +5,14 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- New toolbar button "Swimlanes" (shortcut `B`): arranges active signals in
+  equal horizontal lanes, each zoomed to the data visible in the current X
+  span (5 % top + 5 % bottom padding). Lane order matches the Active Signals
+  Table top-to-bottom. One-shot action — interact freely after; press `B`
+  again to re-apply after reordering (#15).
+- Rows in the Active Signals Table can now be reordered by drag-and-drop.
+  The new order is applied to the controller's signal list immediately and is
+  picked up by the next Swimlanes action (#15).
 - Measurement Info Box moved below the Signal Browser; Signal Info Box moved
   below the Active Signals Table. Both panels have a vertical splitter so the
   user can resize the two halves. The plot area now fills the full center

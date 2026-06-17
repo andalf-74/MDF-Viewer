@@ -164,6 +164,19 @@ class AppController:
         self._table.clear()
         self.set_selected_signal(None)
 
+    def swimlanes(self) -> bool:
+        """Arrange active signals in horizontal swimlanes.
+
+        Returns True if applied, False when no signals are active.
+        """
+        return self._plot.swimlanes(self._active)
+
+    def reorder_signals(self, ordered: list) -> None:
+        """Update the active signal order to match the table's new row order."""
+        self._active = list(ordered)
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.refresh()
+
     def on_y_grid_toggled(self, enabled: bool) -> None:
         """Called when the user toggles Y-grid in the plot context menu."""
         self._y_grid_enabled = enabled

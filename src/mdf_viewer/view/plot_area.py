@@ -271,6 +271,58 @@ class PlotArea(QWidget):
         """Set the shared X range to [x_min, x_max] with standard padding."""
         self._pi.vb.setXRange(x_min, x_max, padding=0.02)
 
+    def swimlanes(self, ordered_signals: list) -> bool:
+        """Arrange signals in equal horizontal lanes by adjusting each Y range.
+
+        Each signal's Y-axis is panned and zoomed so the signal occupies its
+        1/N horizontal band, top-to-bottom matching *ordered_signals*.  Only
+        setYRange is used — ViewBox geometries are unchanged — so the result
+        participates in the normal Y-axis view history and is reversible.
+
+        Returns True if applied, False if there are no active signals.
+        """
+        if not self._data or not ordered_signals:
+            return False
+
+        n = len(ordered_signals)
+        x_min, x_max = self._pi.vb.viewRange()[0]
+
+        for i, active in enumerate(ordered_signals):
+            if active not in self._data:
+                continue
+            spd = self._data[active]
+
+            ts = active.data.timestamps
+            ys = active.data.samples
+            mask = (ts >= x_min) & (ts <= x_max)
+            visible_ys = ys[mask]
+
+            if len(visible_ys) == 0:
+                y_min = float(ys.min()) if len(ys) else -1.0
+                y_max = float(ys.max()) if len(ys) else 1.0
+            else:
+                y_min = float(visible_ys.min())
+                y_max = float(visible_ys.max())
+
+            data_span = y_max - y_min
+            if data_span == 0:
+                data_span = 2.0
+                y_min -= 1.0
+                y_max += 1.0
+
+            # Add 5 % padding within each lane, then compute the ViewBox Y range
+            # that maps this signal's padded data band to lane i (i=0 → top).
+            # In PyQtGraph Y increases upward, so band 0 (top screen) = high Y.
+            pad = 0.05 * data_span
+            adj_min = y_min - pad
+            adj_span = data_span + 2 * pad   # padded lane height in data units
+
+            vb_y_min = adj_min - (n - 1 - i) * adj_span
+            vb_y_max = adj_min + (i + 1) * adj_span
+
+            spd.view_box.setYRange(vb_y_min, vb_y_max, padding=0)
+        return True
+
     def zoom_y_to_view(self) -> bool:
         """Rescale each signal's Y-axis to fit the currently visible X range.
 

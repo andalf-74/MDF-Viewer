@@ -542,3 +542,52 @@ def test_toggle_step_mode_noop_for_unknown_signal(ctrl: AppController, deps: dic
     )
     ctrl.toggle_step_mode(unknown)  # must not raise
     deps["plot"].set_step_mode.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# swimlanes
+# ---------------------------------------------------------------------------
+
+def test_swimlanes_calls_plot_with_active_list(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=0)),
+        (_make_signal_data(), _make_metadata("b", ci=1)),
+    ]
+    ctrl.add_signal(0, 0)
+    ctrl.add_signal(0, 1)
+    deps["plot"].swimlanes.return_value = True
+    result = ctrl.swimlanes()
+    assert result is True
+    deps["plot"].swimlanes.assert_called_once_with(ctrl._active)
+
+
+def test_swimlanes_returns_false_when_no_signals(ctrl: AppController, deps: dict) -> None:
+    deps["plot"].swimlanes.return_value = False
+    assert ctrl.swimlanes() is False
+
+
+# ---------------------------------------------------------------------------
+# reorder_signals
+# ---------------------------------------------------------------------------
+
+def test_reorder_signals_updates_active_order(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=0)),
+        (_make_signal_data(), _make_metadata("b", ci=1)),
+        (_make_signal_data(), _make_metadata("c", ci=2)),
+    ]
+    ctrl.add_signal(0, 0)
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    a, b, c = ctrl._active
+    ctrl.reorder_signals([c, a, b])
+    assert ctrl._active == [c, a, b]
+
+
+def test_reorder_signals_preserves_identity(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.return_value = (_make_signal_data(), _make_metadata())
+    ctrl.add_signal(0, 0)
+    original = ctrl._active[0]
+    ctrl.reorder_signals([original])
+    assert ctrl._active[0] is original
+

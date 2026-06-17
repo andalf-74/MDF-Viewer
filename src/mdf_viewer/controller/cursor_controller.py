@@ -186,6 +186,10 @@ class CursorController:
         self._positions[0] = x_min
         self._positions[1] = x_min + span * 0.1
 
+    def refresh(self) -> None:
+        """Re-populate cursor value columns in the table (e.g. after row reorder)."""
+        self._refresh(update_labels=False)
+
     def _refresh(self, *, update_labels: bool) -> None:
         """Update table values and (optionally) plot labels."""
         if self._mode == CursorMode.HIDDEN:
