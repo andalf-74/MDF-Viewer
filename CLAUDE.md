@@ -356,12 +356,14 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `installer/mdf_viewer.iss` | Inno Setup 6 script — per-user installer with optional file associations |
 
 **To build:**
-1. `pyinstaller installer/mdf_viewer.spec --distpath dist --workpath dist/_build` → produces `dist/MDF-Viewer/`
-2. `"C:/Program Files (x86)/Inno Setup 6/ISCC.exe" installer/mdf_viewer.iss` → produces `installer/dist/MDF-Viewer-1.0-Setup.exe`
+1. `pyinstaller installer/mdf_viewer.spec --distpath dist --workpath dist/_build -y` → produces `dist/MDF-Viewer/`
+2. `"C:/Program Files (x86)/Inno Setup 6/ISCC.exe" installer/mdf_viewer.iss` → produces `installer/dist/MDF-Viewer-X.Y-Setup.exe`
+3. `Compress-Archive -Path dist\MDF-Viewer -DestinationPath dist\MDF-Viewer-X.Y-Windows.zip -Force` → portable zip
+4. Upload both to the GitHub release: `gh release upload vX.Y installer/dist/MDF-Viewer-X.Y-Setup.exe dist/MDF-Viewer-X.Y-Windows.zip`
 
 `dist/` is in `.gitignore`; build artifacts are never committed. The `.spec` and `.iss` files are committed under `installer/`.
 
-**v1.0 release:** https://github.com/andalf-74/MDF-Viewer/releases/tag/v1.0 — ships both `MDF-Viewer-1.0-Setup.exe` (installer) and `MDF-Viewer-1.0-Windows.zip` (portable).
+**Latest release — v1.4:** https://github.com/andalf-74/MDF-Viewer/releases/tag/v1.4 — ships `MDF-Viewer-1.4-Setup.exe` (installer) and `MDF-Viewer-1.4-Windows.zip` (portable).
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
