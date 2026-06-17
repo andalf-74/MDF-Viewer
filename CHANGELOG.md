@@ -4,6 +4,15 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Scroll wheel over a signal's Y-axis no longer zooms X; it now zooms that
+  signal's Y-axis as expected. The regression was introduced in v1.3.1 when
+  `_ViewBox.wheelEvent` began forcing `axis=0` unconditionally (#34).
+- Right-drag zoom rectangle now zooms every signal's Y-axis to match the
+  rectangle's Y extent, not just the signal whose ViewBox received the drag
+  event. Each signal's undo history is also updated so the zoom participates
+  in PyQtGraph's view-history stack (#35).
+
 ## [1.3.1] - 2026-06-16
 
 ### Added

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pyqtgraph as pg
-from PyQt6.QtCore import QEvent, QRectF, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
@@ -32,9 +32,13 @@ _MDF_SUFFIXES = {'.mf4', '.mdf', '.dat'}
 class _ViewBox(pg.ViewBox):
     """ViewBox with fixed mouse behaviour for MDF-Viewer.
 
-    Left drag: pan. Right drag: rectangle zoom. Wheel: X-axis zoom only.
+    Left drag: pan. Right drag: rectangle zoom. Wheel: X-axis zoom only,
+    except when the mouse is over a Y-axis (axis=1), which zooms Y.
     The 'Mouse Mode' context-menu item is removed since the mode is fixed.
     """
+
+    # Emitted with the scene-space QRectF when a right-drag zoom rect finishes.
+    zoom_rect_finished = pyqtSignal(object)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -53,11 +57,17 @@ class _ViewBox(pg.ViewBox):
         if ev.button() == Qt.MouseButton.RightButton and axis is None:
             if ev.isFinish():
                 self.rbScaleBox.hide()
-                rect = QRectF(pg.Point(ev.buttonDownPos()), pg.Point(ev.pos()))
-                rect = self.childGroup.mapRectFromParent(rect)
-                self.showAxRect(rect)
+                local_rect = QRectF(pg.Point(ev.buttonDownPos()), pg.Point(ev.pos()))
+                data_rect = self.childGroup.mapRectFromParent(local_rect)
+                self.showAxRect(data_rect)
                 self.axHistoryPointer += 1
-                self.axHistory = self.axHistory[:self.axHistoryPointer] + [rect]
+                self.axHistory = self.axHistory[:self.axHistoryPointer] + [data_rect]
+                # Emit scene-space rect so other ViewBoxes can map it correctly.
+                scene_rect = QRectF(
+                    self.mapToScene(QPointF(ev.buttonDownPos())),
+                    self.mapToScene(QPointF(ev.pos())),
+                )
+                self.zoom_rect_finished.emit(scene_rect)
             else:
                 self.updateScaleBox(ev.buttonDownPos(), ev.pos())
             ev.accept()
@@ -65,7 +75,9 @@ class _ViewBox(pg.ViewBox):
             super().mouseDragEvent(ev, axis=axis)
 
     def wheelEvent(self, ev, axis=None):
-        super().wheelEvent(ev, axis=0)  # X zoom only
+        # axis=1 means the wheel is over a linked Y-axis — let it zoom Y.
+        # All other cases (interior, X-axis, None) zoom X only.
+        super().wheelEvent(ev, axis=1 if axis == 1 else 0)
 
 
 class _SignalAxisItem(pg.AxisItem):
@@ -143,6 +155,7 @@ class PlotArea(QWidget):
 
         self._pi.vb.sigResized.connect(self._update_view_geometries)
         self._pi.ctrl.yGridCheck.toggled.connect(self._on_y_grid_toggled)
+        self._pi.vb.zoom_rect_finished.connect(self._on_zoom_rect_finished)
 
         self._pw.viewport().setAcceptDrops(True)
         self._pw.viewport().installEventFilter(self)
@@ -170,6 +183,7 @@ class PlotArea(QWidget):
         vb = _ViewBox()
         self._pi.scene().addItem(vb)
         vb.setXLink(self._pi)
+        vb.zoom_rect_finished.connect(self._on_zoom_rect_finished)
 
         # Place a new right axis in the next available layout column.
         col = self._pi.layout.columnCount()
@@ -204,6 +218,7 @@ class PlotArea(QWidget):
         if active not in self._data:
             return
         spd = self._data.pop(active)
+        spd.view_box.zoom_rect_finished.disconnect(self._on_zoom_rect_finished)
         spd.view_box.removeItem(spd.curve)
         self._pi.layout.removeItem(spd.axis)
         spd.axis.hide()
@@ -332,6 +347,18 @@ class PlotArea(QWidget):
             event.ignore()
         else:
             event.ignore()
+
+    def _on_zoom_rect_finished(self, scene_rect: QRectF) -> None:
+        """Apply zoom rect Y extent to every signal ViewBox and update their undo history."""
+        for spd in self._data.values():
+            mapped = spd.view_box.childGroup.mapRectFromScene(scene_rect)
+            y_min = min(mapped.top(), mapped.bottom())
+            y_max = max(mapped.top(), mapped.bottom())
+            spd.view_box.setYRange(y_min, y_max, padding=0)
+            spd.view_box.axHistoryPointer += 1
+            spd.view_box.axHistory = (
+                spd.view_box.axHistory[:spd.view_box.axHistoryPointer] + [mapped]
+            )
 
     def _on_y_grid_toggled(self, checked: bool) -> None:
         self.y_grid_toggled.emit(checked)

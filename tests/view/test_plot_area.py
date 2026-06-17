@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from PyQt6.QtCore import QByteArray, QEvent, QMimeData, QUrl
+from PyQt6.QtCore import QByteArray, QEvent, QMimeData, QRectF, QUrl
 from PyQt6.QtGui import QColor
 from pytestqt.qtbot import QtBot
 
@@ -434,3 +434,91 @@ def test_zoom_to_fit_sets_x_range(plot: PlotArea) -> None:
     # Range should encompass [0.5, 2.5] with some padding
     assert x_range[0] <= 0.5
     assert x_range[1] >= 2.5
+
+
+# ---------------------------------------------------------------------------
+# _ViewBox wheel event — axis routing (bug #34)
+# ---------------------------------------------------------------------------
+
+def test_wheel_axis_none_forces_x_zoom(plot: PlotArea) -> None:
+    """Wheel over plot interior (axis=None) must zoom X only."""
+    import pyqtgraph as pg
+    from unittest.mock import MagicMock, patch
+    ev = MagicMock()
+    with patch.object(pg.ViewBox, 'wheelEvent') as mock_wheel:
+        plot._pi.vb.wheelEvent(ev, axis=None)
+        mock_wheel.assert_called_once_with(ev, axis=0)
+
+
+def test_wheel_axis_0_forces_x_zoom(plot: PlotArea) -> None:
+    """Wheel with explicit axis=0 must also zoom X only."""
+    import pyqtgraph as pg
+    from unittest.mock import MagicMock, patch
+    ev = MagicMock()
+    with patch.object(pg.ViewBox, 'wheelEvent') as mock_wheel:
+        plot._pi.vb.wheelEvent(ev, axis=0)
+        mock_wheel.assert_called_once_with(ev, axis=0)
+
+
+def test_wheel_axis_1_allows_y_zoom(plot: PlotArea) -> None:
+    """Wheel over a Y-axis (axis=1) must zoom Y, not X."""
+    import pyqtgraph as pg
+    from unittest.mock import MagicMock, patch
+    ev = MagicMock()
+    with patch.object(pg.ViewBox, 'wheelEvent') as mock_wheel:
+        plot._pi.vb.wheelEvent(ev, axis=1)
+        mock_wheel.assert_called_once_with(ev, axis=1)
+
+
+# ---------------------------------------------------------------------------
+# Zoom rect Y propagation (bug #35)
+# ---------------------------------------------------------------------------
+
+def test_zoom_rect_updates_all_signal_viewboxes(plot: PlotArea) -> None:
+    """_on_zoom_rect_finished increments axHistoryPointer on every signal ViewBox."""
+    a = _make_active("a")
+    b = _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    ptr_a = plot._data[a].view_box.axHistoryPointer
+    ptr_b = plot._data[b].view_box.axHistoryPointer
+
+    plot._on_zoom_rect_finished(QRectF(0, 0, 100, 100))
+
+    assert plot._data[a].view_box.axHistoryPointer == ptr_a + 1
+    assert plot._data[b].view_box.axHistoryPointer == ptr_b + 1
+
+
+def test_zoom_rect_noop_when_no_signals(plot: PlotArea) -> None:
+    """_on_zoom_rect_finished with no signals must not raise."""
+    plot._on_zoom_rect_finished(QRectF(0, 0, 100, 100))  # must not raise
+
+
+def test_zoom_rect_signal_connected_on_add(plot: PlotArea) -> None:
+    """zoom_rect_finished on a signal ViewBox must trigger _on_zoom_rect_finished."""
+    active = _make_active()
+    plot.add_signal(active)
+    vb = plot._data[active].view_box
+    ptr_before = vb.axHistoryPointer
+
+    # Emit from the ViewBox itself — should loop back and update its own history.
+    vb.zoom_rect_finished.emit(QRectF(0, 0, 100, 100))
+
+    assert vb.axHistoryPointer == ptr_before + 1
+
+
+def test_zoom_rect_signal_disconnected_on_remove(plot: PlotArea) -> None:
+    """After remove_signal, the removed ViewBox's zoom_rect_finished must not fire the handler."""
+    a = _make_active("a")
+    b = _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    vb_a = plot._data[a].view_box
+    plot.remove_signal(a)
+
+    ptr_b_before = plot._data[b].view_box.axHistoryPointer
+
+    # Emit from the removed ViewBox — b's history must stay unchanged.
+    vb_a.zoom_rect_finished.emit(QRectF(0, 0, 100, 100))
+
+    assert plot._data[b].view_box.axHistoryPointer == ptr_b_before
