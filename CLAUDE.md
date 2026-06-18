@@ -204,7 +204,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-18:** v1.4 released — 400 tests passing.
+**As of 2026-06-18:** v1.5 released — 400 tests passing.
 
 ### Implemented
 
@@ -363,22 +363,20 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 `dist/` is in `.gitignore`; build artifacts are never committed. The `.spec` and `.iss` files are committed under `installer/`.
 
-**Latest release — v1.4:** https://github.com/andalf-74/MDF-Viewer/releases/tag/v1.4 — ships `MDF-Viewer-1.4-Setup.exe` (installer) and `MDF-Viewer-1.4-Windows.zip` (portable).
+**Latest release — v1.5:** https://github.com/andalf-74/MDF-Viewer/releases/tag/v1.5 — ships `MDF-Viewer-1.5-Setup.exe` (installer) and `MDF-Viewer-1.5-Windows.zip` (portable).
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (335 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (400 passing) and `python -m mdf_viewer` both work.
 
 ### Changelog
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
 
 ### Next steps
-v1.4 shipped. Open issues: #10 (check for updates), #11 (cursor distinction), plus v2.0-targeted issues.
-- Bug fixes and polish from real-world use
-- Future features from the Todo list (session persistence, etc.)
+v1.5 shipped. Next: v2.0 milestone (due 2026-07-31) — #10 (check for updates), #19 (license management). Then v2.1 "Cursor Stuff" (#11, #25, #26, #29, #39).
 
 ### v2.0 planning (in discussion, not started)
-- **Direction:** v1.3 becomes the last free/GPL-3.0 feature release — bugfix-only maintenance going forward on a permanent `1.x`/`release/1.3` branch. v2.0 onward (on `main`) stays GPL-3.0 and adds an honor-based license-key system: a cosmetic "Licensed to: ..." display (vs. a polite "unregistered/freeloader" notice) for users who pay, with no hard enforcement.
+- **Direction:** v1.5 is the last free/GPL-3.0 feature release — bugfix-only maintenance going forward on a permanent `release/1.x` branch if needed. v2.0 onward (on `main`) stays GPL-3.0 and adds an honor-based license-key system: a cosmetic "Licensed to: ..." display (vs. a polite "unregistered/freeloader" notice) for users who pay, with no hard enforcement.
 - **Qt binding decision: resolved — staying on PyQt6/GPL-3.0, no migration to PySide6 needed.** GPL-3.0 does *not* prohibit charging money for software — it only guarantees recipients the freedom to redistribute and modify it (including for free). Since the license-key feature is purely cosmetic and the gating mechanism's source stays public (Option A below), there is no closed-source component that would trigger GPL's linking restrictions, so PyQt6 remains fine for v2.
 - **Feature-gating model (Option A — open code, removable gate):** any "paid" feature (e.g. a future multi-file comparison view) ships as ordinary GPL-licensed code in the public repo, gated by a license-key check. Anyone can read the gating code, build a copy with the check removed, and redistribute it for free — GPL guarantees that right and it's not technically prevented. This is consistent with the honor-based philosophy: paying unlocks the feature for convenience, not because it's otherwise unobtainable. The code around the gate should make clear (via comments/docs) that bypassing it without supporting the project is discouraged.
 - Tiers/pricing and a license-validation module design were discussed but nothing is implemented yet.
