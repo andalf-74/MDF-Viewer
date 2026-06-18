@@ -2,6 +2,23 @@
 
 All notable changes to MDF-Viewer are documented in this file.
 
+## [Unreleased — 2.0]
+
+### Added
+- License management system (#19): Ed25519-signed `.lic` files, three tiers
+  (Personal, Team 5 seats, Enterprise unlimited), perpetual license with a
+  2-year update coverage window. Purely offline verification; license file
+  copied to app data on import.
+- `Help > Enter License Key…` / `Help > View/Change License Key…` menu action
+  opens a dialog to browse for or drag-and-drop a `.lic` file (import mode)
+  or view current license details including an expiry notice (view mode).
+- Title bar shows "MDF-Viewer — unregistered" when no valid license is present;
+  clean "MDF-Viewer" when licensed.
+- About dialog shows license status (licensee name, tier, updates-until date,
+  or "Unregistered").
+- `Help > About MDF-Viewer` moved to last position in the Help menu, with the
+  license action first.
+
 ## [1.5] - 2026-06-18
 
 ### Changed

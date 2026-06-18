@@ -224,6 +224,9 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `controller/app_controller.py` | `AppController` — coordinates all layers | 39 |
 | `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation | 28 |
 | `settings.py` | `Settings` — JSON persistence for recent files | 12 |
+| `license/license_info.py` | `LicenseInfo` dataclass, `Tier` enum, `FORMAT_VERSION`, embedded public key | — |
+| `license/license_manager.py` | `LicenseManager` — verify, import, load_stored; `LicenseError` | 26 |
+| `view/license_dialog.py` | `LicenseDialog` — import mode (browse/drop) + view mode (details + expiry notice) | — |
 | `app.py` | MVC assembly point | — |
 
 **`MdfLoader`** is the sole importer of `asammdf`. Public API:
@@ -367,18 +370,25 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (400 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (426 passing) and `python -m mdf_viewer` both work.
 
 ### Changelog
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
 
 ### Next steps
-v1.5 shipped. Next: v2.0 milestone (due 2026-07-31) — #10 (check for updates), #19 (license management). Then v2.1 "Cursor Stuff" (#11, #25, #26, #29, #39).
+v2.0 in progress. #19 (license management) done. Remaining: #10 (check for updates). Then v2.1 "Cursor Stuff" (#11, #25, #26, #29, #39).
 
-### v2.0 planning (in discussion, not started)
-- **Direction:** v1.5 is the last free/GPL-3.0 feature release — bugfix-only maintenance going forward on a permanent `release/1.x` branch if needed. v2.0 onward (on `main`) stays GPL-3.0 and adds an honor-based license-key system: a cosmetic "Licensed to: ..." display (vs. a polite "unregistered/freeloader" notice) for users who pay, with no hard enforcement.
-- **Qt binding decision: resolved — staying on PyQt6/GPL-3.0, no migration to PySide6 needed.** GPL-3.0 does *not* prohibit charging money for software — it only guarantees recipients the freedom to redistribute and modify it (including for free). Since the license-key feature is purely cosmetic and the gating mechanism's source stays public (Option A below), there is no closed-source component that would trigger GPL's linking restrictions, so PyQt6 remains fine for v2.
-- **Feature-gating model (Option A — open code, removable gate):** any "paid" feature (e.g. a future multi-file comparison view) ships as ordinary GPL-licensed code in the public repo, gated by a license-key check. Anyone can read the gating code, build a copy with the check removed, and redistribute it for free — GPL guarantees that right and it's not technically prevented. This is consistent with the honor-based philosophy: paying unlocks the feature for convenience, not because it's otherwise unobtainable. The code around the gate should make clear (via comments/docs) that bypassing it without supporting the project is discouraged.
-- Tiers/pricing and a license-validation module design were discussed but nothing is implemented yet.
-- **Repo/secrets:** the Ed25519 private key and the `generate_license.py` signing script must never be committed to this repo (public or private branch) — they belong in a separate private location.
-- Nothing built yet.
+### v2.0 planning
+- **Direction:** v1.5 is the last free/GPL-3.0 feature release. v2.0 onward stays GPL-3.0 and adds an honor-based license-key system: a cosmetic "Licensed to: ..." display (vs. "unregistered") with no hard enforcement.
+- **Qt binding:** staying on PyQt6/GPL-3.0 — GPL does not prohibit charging money, only requires distributing source.
+- **Feature-gating model (Option A):** paid features ship as normal GPL code gated by a license-key check; the gate can be removed by anyone building from source — acceptable under the honor model.
+- **Repo/secrets:** the Ed25519 private key and `generate_license.py` are saved at `C:\Users\andal\Documents\mdf-viewer-private\` — never commit either to any repo. `.gitignore` blocks `generate_license.py`, `*.lic`, and `*.pem`.
+
+**License system decisions:**
+- **File format:** JSON with a `payload` block (fields inside are signed) and a `signature` field (base64 Ed25519). `format_version` lives inside the payload so it cannot be tampered with post-signing.
+- **Canonical signing:** `json.dumps(payload, sort_keys=True, separators=(',', ':'))` — deterministic, no whitespace.
+- **Tiers:** Personal (1 seat), Team (5 seats fixed, `TEAM_SEATS = 5`), Enterprise (0 = unlimited).
+- **Perpetual + 2-year updates:** license never expires; `updates_until` date is signed into payload. After expiry the app keeps working but shows a notice in the About dialog and update checker.
+- **Backwards compatibility:** new payload fields must always be optional with defaults — old licenses remain valid. Only key rotation invalidates old licenses (avoid rotating the key pair).
+- **`load_stored()` never raises** — returns `None` on missing or corrupt file so a bad license file never prevents the app from starting.
+- **Help menu order:** License Key action first, separator, About last.
