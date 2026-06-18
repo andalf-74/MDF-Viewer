@@ -4,3 +4,4 @@ PyQt6>=6.6
 pyqtgraph>=0.13
 asammdf>=7.4
 numpy>=1.24
+cryptography>=41

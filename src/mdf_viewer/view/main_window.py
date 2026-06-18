@@ -69,8 +69,11 @@ def _icon_suffix() -> str:
 
 
 from mdf_viewer import __version__
+from mdf_viewer.license.license_info import LicenseInfo
+from mdf_viewer.license.license_manager import LicenseManager
 from mdf_viewer.model.mdf_loader import MdfLoadError
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
+from mdf_viewer.view.license_dialog import LicenseDialog
 from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
 from mdf_viewer.view.plot_area import PlotArea
 from mdf_viewer.view.signal_browser import SignalBrowser
@@ -105,7 +108,9 @@ class MainWindow(QMainWindow):
         self._recent_provider: Callable[[], list[Path]] | None = None
         self._recent_actions: list[QAction] = []
         self._recent_sep: QAction | None = None
-        self.setWindowTitle("MDF-Viewer")
+        self._license_info: LicenseInfo | None = None
+        self._license_manager: LicenseManager | None = None
+        self.setWindowTitle("MDF-Viewer — unregistered")
         self.setWindowIcon(QIcon(str(_ICONS_DIR / "app_icon.ico")))
         self.resize(1280, 800)
         self._build_actions()
@@ -153,6 +158,19 @@ class MainWindow(QMainWindow):
     ) -> None:
         """Supply a callable that returns the current recent files list."""
         self._recent_provider = provider
+
+    def set_license(
+        self, info: LicenseInfo | None, manager: LicenseManager | None = None
+    ) -> None:
+        """Apply license state to title bar and Help menu."""
+        self._license_info = info
+        self._license_manager = manager
+        if info is not None:
+            self.setWindowTitle("MDF-Viewer")
+            self._license_action.setText("View/Change License Key…")
+        else:
+            self.setWindowTitle("MDF-Viewer — unregistered")
+            self._license_action.setText("Enter License Key…")
 
     # ------------------------------------------------------------------
     # UI construction
@@ -209,6 +227,9 @@ class MainWindow(QMainWindow):
         self._about_action = QAction("About MDF-Viewer", self)
         self._about_action.triggered.connect(self._on_about)
 
+        self._license_action = QAction("Enter License Key…", self)
+        self._license_action.triggered.connect(self._on_license)
+
     def _build_menu(self) -> None:
         self._file_menu = self.menuBar().addMenu("&File")
         self._file_menu.addAction(self._load_action)
@@ -221,6 +242,7 @@ class MainWindow(QMainWindow):
 
         self._help_menu = self.menuBar().addMenu("&Help")
         self._help_menu.addAction(self._about_action)
+        self._help_menu.addAction(self._license_action)
 
     def _build_toolbar(self) -> None:
         toolbar = self.addToolBar("Main")
@@ -506,6 +528,20 @@ class MainWindow(QMainWindow):
             self._cursor_ctrl.press_cursor2()
 
     def _on_about(self) -> None:
+        info = self._license_info
+        if info is not None:
+            expired_note = (
+                f"<br><i>Update coverage expired {info.updates_until.isoformat()}</i>"
+                if info.updates_expired
+                else ""
+            )
+            license_line = (
+                f"<p><b>Licensed to:</b> {info.licensee_name} "
+                f"({info.tier_display}){expired_note}</p>"
+            )
+        else:
+            license_line = "<p><i>Unregistered</i></p>"
+
         QMessageBox.about(
             self,
             "About MDF-Viewer",
@@ -513,8 +549,17 @@ class MainWindow(QMainWindow):
             "<p>A free, open-source viewer for ASAM MDF "
             "(MDF3/MDF4) measurement data files.</p>"
             "<p>By Andreas Maus</p>"
-            f'<p><a href="{_GITHUB_URL}">{_GITHUB_URL}</a></p>',
+            f'<p><a href="{_GITHUB_URL}">{_GITHUB_URL}</a></p>'
+            f"{license_line}",
         )
+
+    def _on_license(self) -> None:
+        if self._license_manager is None:
+            return
+        dlg = LicenseDialog(self._license_manager, self._license_info, self)
+        if dlg.exec() == LicenseDialog.DialogCode.Accepted:
+            new_info = self._license_manager.load_stored()
+            self.set_license(new_info, self._license_manager)
 
     def _rebuild_recent_files(self) -> None:
         for action in self._recent_actions:

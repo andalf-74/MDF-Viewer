@@ -22,6 +22,7 @@ def run(argv: list[str]) -> int:
     from mdf_viewer import __version__
     from mdf_viewer.controller.app_controller import AppController
     from mdf_viewer.controller.cursor_controller import CursorController
+    from mdf_viewer.license.license_manager import LicenseManager
     from mdf_viewer.model.mdf_loader import MdfLoadError, MdfLoader
     from mdf_viewer.settings import Settings
     from mdf_viewer.view.cursors import CursorView
@@ -68,6 +69,10 @@ def run(argv: list[str]) -> int:
 
     window = MainWindow()
     settings = Settings()
+
+    license_manager = LicenseManager()
+    license_info = license_manager.load_stored()
+    window.set_license(license_info, license_manager)
 
     loader = MdfLoader()
     controller = AppController(

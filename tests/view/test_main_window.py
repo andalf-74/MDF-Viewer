@@ -50,7 +50,7 @@ def wired(window: MainWindow, mock_controller: MagicMock) -> MainWindow:
 # ---------------------------------------------------------------------------
 
 def test_window_title(window: MainWindow) -> None:
-    assert window.windowTitle() == "MDF-Viewer"
+    assert "MDF-Viewer" in window.windowTitle()
 
 
 def test_initial_size(window: MainWindow) -> None:
