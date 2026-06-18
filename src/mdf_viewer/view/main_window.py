@@ -241,8 +241,9 @@ class MainWindow(QMainWindow):
         self._file_menu.aboutToShow.connect(self._rebuild_recent_files)
 
         self._help_menu = self.menuBar().addMenu("&Help")
-        self._help_menu.addAction(self._about_action)
         self._help_menu.addAction(self._license_action)
+        self._help_menu.addSeparator()
+        self._help_menu.addAction(self._about_action)
 
     def _build_toolbar(self) -> None:
         toolbar = self.addToolBar("Main")
