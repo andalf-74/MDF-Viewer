@@ -51,3 +51,8 @@ $RECYCLE.BIN/
 *.dat
 !tests/fixtures/*.mf4
 !tests/fixtures/*.mdf
+
+# License generator and private keys — must never be committed.
+generate_license.py
+*.lic
+*.pem
