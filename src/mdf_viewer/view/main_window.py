@@ -31,14 +31,16 @@ from PyQt6.QtCore import (
     Qt,
     QTimer,
 )
-from PyQt6.QtGui import QAction, QCursor, QIcon, QKeySequence, QShortcut
+from PyQt6.QtGui import QAction, QCursor, QFont, QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QHBoxLayout,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QSplitter,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -242,11 +244,15 @@ class MainWindow(QMainWindow):
         self._left_panel = QWidget()
         self._left_panel.setAutoFillBackground(True)  # opaque over content
 
-        self._pin_button = QPushButton("‹")
-        self._pin_button.setMaximumHeight(24)
-        self._pin_button.setFlat(True)
+        self._pin_button = QToolButton()
+        self._pin_button.setText("‹")
+        self._pin_button.setFixedHeight(32)
+        self._pin_button.setAutoRaise(True)
         self._pin_button.setToolTip("Collapse panel")
         self._pin_button.clicked.connect(self._toggle_pin)
+        _pin_font = QFont()
+        _pin_font.setPointSize(16)
+        self._pin_button.setFont(_pin_font)
 
         left_splitter = _make_splitter(Qt.Orientation.Vertical)
         left_splitter.addWidget(self.signal_browser)
@@ -254,10 +260,15 @@ class MainWindow(QMainWindow):
         left_splitter.setStretchFactor(0, 3)
         left_splitter.setStretchFactor(1, 1)
 
+        pin_row = QHBoxLayout()
+        pin_row.setContentsMargins(0, 0, 0, 0)
+        pin_row.addStretch()
+        pin_row.addWidget(self._pin_button)
+
         left_vbox = QVBoxLayout(self._left_panel)
         left_vbox.setContentsMargins(0, 0, 0, 0)
         left_vbox.setSpacing(0)
-        left_vbox.addWidget(self._pin_button)
+        left_vbox.addLayout(pin_row)
         left_vbox.addWidget(left_splitter)
 
         # ── Right panel ───────────────────────────────────────────────────
