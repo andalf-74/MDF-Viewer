@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mdf-viewer"
-version = "1.4"
+version = "1.5"
 description = "Desktop viewer for ASAM MDF (MDF3/MDF4) measurement data files."
 readme = "README.md"
 requires-python = ">=3.10"

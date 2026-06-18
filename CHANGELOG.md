@@ -2,6 +2,15 @@
 
 All notable changes to MDF-Viewer are documented in this file.
 
+## [1.5] - 2026-06-18
+
+### Changed
+- Replaced the Swimlanes toolbar icon with a cleaner, purpose-built icon (#42).
+- Collapsible left panel: the pin/unpin chevron button is now smaller and
+  positioned in the top-right corner of the panel, making it less intrusive
+  while remaining easy to click; font size of the `‹`/`›` glyph increased for
+  readability (#41).
+
 ## [1.4] - 2026-06-18
 
 ### Added
