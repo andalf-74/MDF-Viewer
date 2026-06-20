@@ -63,18 +63,34 @@ requirements.txt / requirements-dev.txt
   - Exit
 
 ### Toolbar
-- **Load File** – folder icon, opens file dialog
-- **Zoom to Fit** – resets viewport to show all active signals fully (X: full time range, Y: auto-scaled per signal)
+- **Load File** – folder icon, opens file dialog (Ctrl+O)
+- **Zoom to Fit** – resets viewport to show all active signals fully (X: full time range, Y: auto-scaled per signal) (Ctrl+0 / F)
+- **Zoom Y to View** – auto-scales Y axes for all signals within the current X span (Y)
+- **Swimlanes** – arranges signals in non-overlapping horizontal swimlanes (B)
+- **Zoom to Cursors** – zooms X axis to the span between the two cursors; enabled only in two-cursor mode (C)
 - **Cursor Toggle** – cycles through: 1 cursor → 2 cursors → cursors hidden → (repeat)
 
-### Main Layout (horizontal splitter)
-- **Left panel** – Signal Browser (TreeView showing full MDF channel hierarchy)
-- **Center panel** (vertical splitter)
-  - **Top** – Plot Area
-  - **Bottom** (horizontal splitter)
-    - **Left** – Measurement Info Box
-    - **Right** – Selected Signal Info Box
-- **Right panel** – Active Signals Table
+Keyboard shortcuts for cursors: `.` toggles Cursor 1 (HIDDEN↔ONE, TWO→ONE), `,` toggles Cursor 2 (HIDDEN/ONE→TWO, TWO→HIDDEN).
+
+### Main Layout
+
+```
++-------------------------------+--------------------+------------------+
+| ‹ (pin/collapse button)       |                    |                  |
+| Signal Browser (TreeView)     |   Plot Area        | Active Signals   |
+|                               |                    | Table            |
+| Measurement Info Box          |                    | Signal Info Box  |
++-------------------------------+--------------------+------------------+
+```
+
+- **Left panel** (collapsible drawer) – vertical splitter:
+  - **Top** – Signal Browser (TreeView showing full MDF channel hierarchy)
+  - **Bottom** – Measurement Info Box
+  - Pin button (‹/›) in the top-right corner collapses the panel to a hidden drawer that slides out on hover
+- **Center** – Plot Area
+- **Right panel** – vertical splitter:
+  - **Top** – Active Signals Table
+  - **Bottom** – Signal Info Box
 
 ---
 
@@ -127,7 +143,7 @@ Selection in this table drives the Signal Info Box content.
 
 ---
 
-## Info Boxes (Bottom Center)
+## Info Boxes
 
 ### Measurement Info Box
 Displays all available MDF file metadata:
