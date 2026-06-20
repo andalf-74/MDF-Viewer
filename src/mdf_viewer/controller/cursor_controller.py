@@ -5,6 +5,10 @@ Cursor behaviour is self-contained enough to isolate from AppController:
   * remembers each cursor's last position across hide/show
   * computes per-signal interpolated values and delta
   * drives ActiveSignalsTable cursor columns and CursorView labels
+
+The active signal list is *not* stored here — it is read on demand via
+the ``get_active_signals`` callable injected at construction, so there is
+a single authoritative list (owned by AppController).
 """
 
 from __future__ import annotations
@@ -41,6 +45,7 @@ class CursorController:
         cursor_view: CursorView,
         get_x_range: Callable[[], tuple[float, float]],
         active_signals_table,
+        get_active_signals: Callable[[], list] | None = None,
     ) -> None:
         """
         Parameters
@@ -49,18 +54,25 @@ class CursorController:
             The CursorView that owns the InfiniteLines in the plot.
         get_x_range:
             Callable returning the current plot X range as (x_min, x_max).
-            Used to place cursors sensibly on first activation.
+            Used to place cursors on first activation.
         active_signals_table:
             ActiveSignalsTable — receives update_cursor_values calls.
+        get_active_signals:
+            Callable returning the current list of ActiveSignal objects.
+            AppController passes ``lambda: controller.active_signals``.
+            Defaults to an empty-list callable when omitted (useful in tests
+            that only exercise toggle/mode behaviour).
         """
         self._view = cursor_view
         self._get_x_range = get_x_range
         self._table = active_signals_table
+        self._get_active_signals: Callable[[], list] = (
+            get_active_signals if get_active_signals is not None else (lambda: [])
+        )
 
         self._mode = CursorMode.HIDDEN
         self._positions: list[float] = [0.0, 0.0]
-        self._initialized = False  # False → place at view range on first toggle
-        self._active_signals: list[ActiveSignal] = []
+        self._initialized = False
         self._mode_changed_cb: _ModeCallback | None = None
 
         cursor_view.cursor_moved.connect(self._on_cursor_dragged)
@@ -131,19 +143,25 @@ class CursorController:
         """Update cursor label colors when a signal's color changes."""
         self._view.recolor_labels(active, color)
 
-    def on_signal_added(self, active: ActiveSignal) -> None:
-        self._active_signals.append(active)
-        self._refresh(update_labels=True)
-
     def on_signal_removed(self, active: ActiveSignal) -> None:
-        if active in self._active_signals:
-            self._active_signals.remove(active)
+        """Remove cursor labels before the signal's ViewBox is destroyed.
+
+        Must be called *before* PlotArea.remove_signal() so the ViewBox
+        is still in the scene when the label is removed.
+        """
         self._view.remove_labels_for(active)
-        self._refresh(update_labels=False)
 
     def on_all_signals_cleared(self) -> None:
-        self._active_signals.clear()
+        """Clear all cursor labels before ViewBoxes are destroyed."""
         self._view.clear_labels()
+
+    def refresh(self) -> None:
+        """Re-compute cursor values and labels for the current active signals.
+
+        Called by AppController after any change to the active signal list
+        (add, remove, reorder).
+        """
+        self._refresh(update_labels=True)
 
     # ------------------------------------------------------------------
     # Slots (private)
@@ -170,35 +188,24 @@ class CursorController:
             self._mode_changed_cb(self._mode)
 
     def _place_initial_positions(self) -> None:
-        if self._active_signals:
-            ts_all = [s.data.timestamps for s in self._active_signals if len(s.data.timestamps)]
-            if ts_all:
-                x_min = float(min(t[0] for t in ts_all))
-                x_max = float(max(t[-1] for t in ts_all))
-            else:
-                x_min, x_max = 0.0, 1.0
-        else:
-            try:
-                x_min, x_max = self._get_x_range()
-            except Exception:
-                x_min, x_max = 0.0, 1.0
+        try:
+            x_min, x_max = self._get_x_range()
+        except Exception:
+            x_min, x_max = 0.0, 1.0
         span = max(x_max - x_min, 0.0)
         self._positions[0] = x_min
         self._positions[1] = x_min + span * 0.1
-
-    def refresh(self) -> None:
-        """Re-populate cursor value columns in the table (e.g. after row reorder)."""
-        self._refresh(update_labels=False)
 
     def _refresh(self, *, update_labels: bool) -> None:
         """Update table values and (optionally) plot labels."""
         if self._mode == CursorMode.HIDDEN:
             return
 
+        active_signals = self._get_active_signals()
         c1_x = self._positions[0]
         c2_x = self._positions[1] if self._mode == CursorMode.TWO else None
 
-        for active in self._active_signals:
+        for active in active_signals:
             c1_val = _interpolate(active, c1_x)
             c2_val = _interpolate(active, c2_x) if c2_x is not None else None
 
@@ -215,7 +222,7 @@ class CursorController:
 
         if update_labels:
             self._view.update_labels(
-                self._active_signals, self._positions, self._mode
+                active_signals, self._positions, self._mode
             )
 
 

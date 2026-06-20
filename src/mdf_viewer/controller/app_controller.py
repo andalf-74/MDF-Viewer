@@ -146,7 +146,7 @@ class AppController:
         self._plot.add_signal(active)
         self._table.add_row(active)
         if self._cursor_ctrl is not None:
-            self._cursor_ctrl.on_signal_added(active)
+            self._cursor_ctrl.refresh()
         return True
 
     def toggle_step_mode(self, active_signal: ActiveSignal) -> None:
@@ -175,6 +175,8 @@ class AppController:
         self._plot.remove_signal(active_signal)
         self._active.remove(active_signal)
         self._table.remove_row(active_signal)
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.refresh()
         if self._selected is active_signal:
             self.set_selected_signal(None)
 

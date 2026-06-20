@@ -50,6 +50,22 @@ def ctrl(view: MagicMock, table: MagicMock) -> CursorController:
         cursor_view=view,
         get_x_range=lambda: (0.0, 1.0),
         active_signals_table=table,
+        get_active_signals=lambda: [],
+    )
+
+
+def _make_ctrl(
+    view: MagicMock,
+    table: MagicMock,
+    signals: list | None = None,
+    x_range: tuple[float, float] = (0.0, 1.0),
+) -> CursorController:
+    sigs = signals or []
+    return CursorController(
+        cursor_view=view,
+        get_x_range=lambda: x_range,
+        active_signals_table=table,
+        get_active_signals=lambda: sigs,
     )
 
 
@@ -122,7 +138,7 @@ def test_first_toggle_places_cursor_at_x_min() -> None:
     view = MagicMock()
     view.cursor_moved = MagicMock()
     view.cursor_moved.connect = MagicMock()
-    ctrl = CursorController(view, lambda: (2.5, 7.5), MagicMock())
+    ctrl = CursorController(view, lambda: (2.5, 7.5), MagicMock(), lambda: [])
     ctrl.toggle()
     assert ctrl._positions[0] == pytest.approx(2.5)
 
@@ -131,7 +147,7 @@ def test_first_toggle_places_second_cursor_at_10_percent_span() -> None:
     view = MagicMock()
     view.cursor_moved = MagicMock()
     view.cursor_moved.connect = MagicMock()
-    ctrl = CursorController(view, lambda: (0.0, 10.0), MagicMock())
+    ctrl = CursorController(view, lambda: (0.0, 10.0), MagicMock(), lambda: [])
     ctrl.toggle()
     assert ctrl._positions[1] == pytest.approx(1.0)  # 10% of span
 
@@ -163,6 +179,7 @@ def test_reset_causes_reinitialisation_on_next_toggle(ctrl: CursorController) ->
         MagicMock(**{"cursor_moved.connect": MagicMock()}),
         lambda: new_range,
         MagicMock(),
+        lambda: [],
     )
     ctrl2.toggle()
     ctrl2._positions[0] = 0.99
@@ -194,9 +211,9 @@ def test_dragging_updates_position(ctrl: CursorController) -> None:
     assert ctrl._positions[0] == pytest.approx(0.75)
 
 
-def test_dragging_updates_table(ctrl: CursorController, table: MagicMock) -> None:
+def test_dragging_updates_table(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
-    ctrl.on_signal_added(active)
+    ctrl = _make_ctrl(view, table, signals=[active])
     ctrl.toggle()
     ctrl._on_cursor_dragged(0, 0.5)
     table.update_cursor_values.assert_called()
@@ -206,23 +223,22 @@ def test_dragging_updates_table(ctrl: CursorController, table: MagicMock) -> Non
 # Signal list management
 # ---------------------------------------------------------------------------
 
-def test_on_signal_added_refreshes_labels(ctrl: CursorController, view: MagicMock) -> None:
-    ctrl.toggle()
+def test_refresh_updates_labels(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
-    ctrl.on_signal_added(active)
+    ctrl = _make_ctrl(view, table, signals=[active])
+    ctrl.toggle()
+    view.update_labels.reset_mock()
+    ctrl.refresh()
     view.update_labels.assert_called()
 
 
 def test_on_signal_removed_calls_view(ctrl: CursorController, view: MagicMock) -> None:
     active = _make_active()
-    ctrl.on_signal_added(active)
     ctrl.on_signal_removed(active)
     view.remove_labels_for.assert_called_with(active)
 
 
 def test_on_all_signals_cleared(ctrl: CursorController, view: MagicMock) -> None:
-    ctrl.on_signal_added(_make_active("a"))
-    ctrl.on_signal_added(_make_active("b"))
     ctrl.on_all_signals_cleared()
     view.clear_labels.assert_called_once()
 
@@ -231,9 +247,9 @@ def test_on_all_signals_cleared(ctrl: CursorController, view: MagicMock) -> None
 # Table value computation
 # ---------------------------------------------------------------------------
 
-def test_table_values_updated_on_drag(ctrl: CursorController, table: MagicMock) -> None:
+def test_table_values_updated_on_drag(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
-    ctrl.on_signal_added(active)
+    ctrl = _make_ctrl(view, table, signals=[active])
     ctrl.toggle()  # ONE
     ctrl._on_cursor_dragged(0, 0.25)  # sin(2π·0.25) = 1.0
     table.update_cursor_values.assert_called()
@@ -243,18 +259,18 @@ def test_table_values_updated_on_drag(ctrl: CursorController, table: MagicMock) 
     assert float(args[1]) == pytest.approx(1.0, abs=0.01)
 
 
-def test_delta_is_empty_in_one_mode(ctrl: CursorController, table: MagicMock) -> None:
+def test_delta_is_empty_in_one_mode(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
-    ctrl.on_signal_added(active)
+    ctrl = _make_ctrl(view, table, signals=[active])
     ctrl.toggle()  # ONE
     ctrl._on_cursor_dragged(0, 0.25)
     args = table.update_cursor_values.call_args[0]
     assert args[3] == ""  # delta is empty with one cursor
 
 
-def test_delta_computed_in_two_mode(ctrl: CursorController, table: MagicMock) -> None:
+def test_delta_computed_in_two_mode(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
-    ctrl.on_signal_added(active)
+    ctrl = _make_ctrl(view, table, signals=[active])
     ctrl.toggle()  # ONE
     ctrl.toggle()  # TWO
     ctrl._positions[0] = 0.0   # sin(0) = 0
@@ -304,31 +320,10 @@ def test_fmt_zero() -> None:
 
 
 # ---------------------------------------------------------------------------
-# _place_initial_positions — cursor placed at data range, not view range
+# _place_initial_positions — always uses get_x_range (the current view span)
 # ---------------------------------------------------------------------------
 
-def test_first_toggle_places_cursor_at_data_start(view: MagicMock, table: MagicMock) -> None:
-    # get_x_range returns a padded view range that starts before the data.
-    t = np.linspace(5.0, 10.0, 50)
-    active = ActiveSignal(
-        data=SignalData(timestamps=t, samples=np.zeros(50)),
-        metadata=SignalMetadata(name="s", unit="", group_index=0, channel_index=0),
-        color=QColor(255, 0, 0),
-    )
-    ctrl = CursorController(
-        cursor_view=view,
-        get_x_range=lambda: (-1.0, 11.0),  # padded view range
-        active_signals_table=table,
-    )
-    ctrl.on_signal_added(active)
-    ctrl.toggle()
-
-    positions = view.apply_mode.call_args[0][1]
-    assert positions[0] == pytest.approx(5.0), "cursor 1 should start at data t_min"
-    assert positions[1] == pytest.approx(5.5), "cursor 2 should be 10 % into data span"
-
-
-def test_first_toggle_without_signals_uses_get_x_range(view: MagicMock, table: MagicMock) -> None:
+def test_first_toggle_uses_get_x_range(view: MagicMock, table: MagicMock) -> None:
     ctrl = CursorController(
         cursor_view=view,
         get_x_range=lambda: (2.0, 4.0),
@@ -339,6 +334,24 @@ def test_first_toggle_without_signals_uses_get_x_range(view: MagicMock, table: M
     positions = view.apply_mode.call_args[0][1]
     assert positions[0] == pytest.approx(2.0)
     assert positions[1] == pytest.approx(2.2)
+
+
+def test_first_toggle_uses_get_x_range_even_with_signals(
+    view: MagicMock, table: MagicMock
+) -> None:
+    # Signal timestamps span 5–10; view range is 0–1. Cursors should use view range.
+    t = np.linspace(5.0, 10.0, 50)
+    active = ActiveSignal(
+        data=SignalData(timestamps=t, samples=np.zeros(50)),
+        metadata=SignalMetadata(name="s", unit="", group_index=0, channel_index=0),
+        color=QColor(255, 0, 0),
+    )
+    ctrl = _make_ctrl(view, table, signals=[active], x_range=(0.0, 1.0))
+    ctrl.toggle()
+
+    positions = view.apply_mode.call_args[0][1]
+    assert positions[0] == pytest.approx(0.0)
+    assert positions[1] == pytest.approx(0.1)
 
 
 # ---------------------------------------------------------------------------
