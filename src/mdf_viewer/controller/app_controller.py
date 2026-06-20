@@ -14,12 +14,11 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-from PyQt6.QtGui import QColor
-
 from mdf_viewer.model.mdf_loader import MdfLoader
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
 if TYPE_CHECKING:
+    from PyQt6.QtGui import QColor
     from mdf_viewer.settings import Settings
     from mdf_viewer.view.active_signals_table import ActiveSignalsTable
     from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
@@ -116,7 +115,7 @@ class AppController:
         data, meta = self._loader.load_signal(group_index, channel_index)
         rgb = _COLOR_PALETTE[self._color_index % len(_COLOR_PALETTE)]
         self._color_index += 1
-        active = ActiveSignal(data=data, metadata=meta, color=QColor(*rgb), step_mode=meta.is_integer)
+        active = ActiveSignal(data=data, metadata=meta, color=rgb, step_mode=meta.is_integer)
         self._active.append(active)
         self._plot.add_signal(active)
         self._table.add_row(active)

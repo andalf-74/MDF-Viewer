@@ -30,11 +30,19 @@ class ActiveSignal:
     ``data`` and ``metadata`` are set at construction. ``curve`` and
     ``view_box`` are filled in by PlotArea.add_signal() once a rendering
     context exists.
+
+    ``color`` accepts either a ``QColor`` or a plain ``(r, g, b)`` tuple;
+    ``__post_init__`` normalises tuples to ``QColor`` so all consumers always
+    see a ``QColor``.
     """
 
     data: SignalData
     metadata: SignalMetadata
-    color: QColor
+    color: QColor | tuple[int, int, int]
     step_mode: bool = False
     curve: Any = field(default=None)     # pyqtgraph.PlotDataItem
     view_box: Any = field(default=None)  # pyqtgraph.ViewBox
+
+    def __post_init__(self) -> None:
+        if isinstance(self.color, tuple):
+            self.color = QColor(*self.color)
