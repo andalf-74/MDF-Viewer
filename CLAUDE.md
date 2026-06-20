@@ -231,13 +231,14 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-18:** v1.5 released — 400 tests passing.
+**As of 2026-06-20:** v1.5 released — 426 tests passing. Arch cleanup for v2.0 complete (issues #46–#52).
 
 ### Implemented
 
 | Module | Description | Tests |
 |--------|-------------|-------|
-| `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` + `MdfLoadError` | 31 |
+| `errors.py` | `MdfLoadError` — shared error type imported by model and view | — |
+| `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` | 31 |
 | `model/signal_data.py` | `SignalData` dataclass | 2 |
 | `view/_mime.py` | Shared MIME type constant for signal drag-and-drop | — |
 | `view/signal_browser.py` | `SignalBrowser` — TreeView, multi-select, Add Signal button, drag | 21 |
@@ -248,12 +249,13 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target | 35 |
 | `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic | 18 |
 | `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
+| `controller/interfaces.py` | Protocol contracts for all controller-view dependencies | — |
 | `controller/app_controller.py` | `AppController` — coordinates all layers | 39 |
 | `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation | 28 |
 | `settings.py` | `Settings` — JSON persistence for recent files | 12 |
 | `license/license_info.py` | `LicenseInfo` dataclass, `Tier` enum, `FORMAT_VERSION`, embedded public key | — |
 | `license/license_manager.py` | `LicenseManager` — verify, import, load_stored; `LicenseError` | 26 |
-| `view/license_dialog.py` | `LicenseDialog` — import mode (browse/drop) + view mode (details + expiry notice) | — |
+| `view/license_dialog.py` | `LicenseDialog` — import mode (browse/drop) + view mode (details + expiry notice); on successful import shows a "restart required" message and closes | — |
 | `app.py` | MVC assembly point | — |
 
 **`MdfLoader`** is the sole importer of `asammdf`. Public API:
@@ -274,18 +276,25 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 **`AppController`** public API:
 - `load_file(path)` — clears all state, opens file, populates browser + info box; resets color counter and cursor system; calls `settings.add_recent(path)` on success only; UI cleared before `open()` so state is clean on failure
-- `add_signal(gi, ci) -> bool` — loads channel, assigns next palette color, notifies plot + table + cursor system; returns `True` if added, `False` if already active (duplicate)
-- `remove_signal(active)` — removes from plot/table/list; notifies cursor system; clears selection if that signal was selected
-- `remove_all()` — removes all signals, clears table, notifies cursor system, clears selection
+- `add_signal(gi, ci) -> bool` — loads channel, assigns next palette color, notifies plot + table; calls `cursor_ctrl.refresh()` to recompute values for the new signal; returns `True` if added, `False` if already active (duplicate)
+- `remove_signal(active)` — removes from plot/table/list; calls `cursor_ctrl.on_signal_removed` (label cleanup) then `cursor_ctrl.refresh()`; clears selection if that signal was selected
+- `remove_all()` — calls `cursor_ctrl.on_all_signals_cleared()` (label cleanup), then removes all signals, clears table, clears selection
 - `set_selected_signal(active | None)` — drives the Signal Info Box
 - `set_cursor_controller(cc)` — optional; wired from `app.py` after construction
+- Cursor proxy methods (so `MainWindow` has a single controller contact point): `toggle_cursor()`, `press_cursor1()`, `press_cursor2()`, `zoom_to_cursors() -> tuple[float,float] | None`, `set_cursor_mode_callback(cb)` — all delegate to `_cursor_ctrl`, guarded by `None` check
 - Constructor accepts optional `settings: Settings` — omitting it disables recent-file tracking without any other effect
 - `active_signals` / `selected_signal` / `is_file_loaded` — read-only state accessors
 
 **`CursorController`** public API:
+- Constructor: `(cursor_view, get_x_range, active_signals_table, get_active_signals=None)` — active signal list is read on demand via `get_active_signals` callable (avoids a second authoritative list); `app.py` passes `lambda: controller.active_signals`
 - `toggle()` — HIDDEN → ONE → TWO → HIDDEN; on first activation places cursors at plot X range start + 10% span; subsequent toggles use remembered positions
+- `press_cursor1()` / `press_cursor2()` — direct single-cursor activation (dot / comma keys)
+- `zoom_to_cursors() -> tuple[float,float] | None` — returns the span between the two cursors in TWO mode; None otherwise
 - `reset()` — called by `AppController.load_file()`; hides cursors and marks positions for re-initialisation on next activation
-- `on_signal_added(active)` / `on_signal_removed(active)` / `on_all_signals_cleared()` — keep label state in sync
+- `refresh()` — called by `AppController` after any change to the active signal list; re-computes values and updates labels
+- `on_signal_removed(active)` / `on_all_signals_cleared()` — label cleanup only; must be called before `PlotArea.remove_signal()` so the ViewBox is still in the scene
+- `set_mode_changed_callback(cb)` — registers a callable invoked with the new `CursorMode` on every toggle
+- `recolor_signal(active, color)` — delegates to `CursorView.recolor_labels()`
 - Drives `ActiveSignalsTable.update_cursor_values()` and `CursorView.update_labels()` on every drag and toggle
 
 **`CursorView`** (`QObject`, lives inside `PlotArea.plot_item`):
@@ -297,7 +306,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 **`MainWindow`** public API:
 - Constructor creates all five view widgets as public attrs: `signal_browser`, `plot_area`, `active_signals_table`, `measurement_info_box`, `signal_info_box`
-- `set_controller(ctrl, cursor_ctrl=None)` — wires browser, table remove/selection signals to controller, drop signals from plot_area and active_signals_table, and cursor toggle to `cursor_ctrl.toggle()`
+- `set_controller(ctrl)` — wires browser, table remove/selection signals to controller, drop signals from plot_area and active_signals_table; all cursor actions (toggle, cursor1, cursor2, zoom_to_cursors) call through `ctrl` proxy methods; calls `ctrl.set_cursor_mode_callback(self._on_cursor_mode_changed)` so the toolbar button reflects the active mode
 - `set_recent_files_provider(callable)` — supplies a `() -> list[Path]` called on every `File` menu open; results are inserted between Load MDF and Exit (section hidden when list is empty)
 - `show_status(message, timeout_ms=3000)` — displays a transient message in the `QStatusBar`
 - Layout: outer H-splitter → [SignalBrowser (260px) | center V-splitter | ActiveSignalsTable (260px)]; center → [PlotArea (3×) | bottom H-splitter → [MeasurementInfoBox | SignalInfoBox]]
@@ -307,7 +316,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `_on_add_signals(locations)` — called by browser `add_signals_requested`, plot `signals_dropped`, and table `signals_dropped`; loops over locations, counts duplicates (skipped silently), shows status bar message if any were skipped
 - `_on_file_dropped(path)` — called by `plot_area.file_dropped`; shows `QMessageBox.question` if a file is already loaded, then calls `controller.load_file`
 
-**`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `Settings` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController`, wires all together; calls `set_controller` and `set_recent_files_provider(settings.get_and_prune)`. If `sys.argv[1]` is a file path (e.g. via `.mf4` file association), loads it immediately after `window.show()`.
+**`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `Settings` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController` (with `get_active_signals=lambda: controller.active_signals`), wires all together via `controller.set_cursor_controller(cursor_ctrl)` and `window.set_controller(controller)`; calls `set_recent_files_provider(settings.get_and_prune)`. License is loaded once here via `license_manager.load_stored()` and applied via `window.set_license(license_info, license_manager)`. If `sys.argv[1]` is a file path (e.g. via `.mf4` file association), loads it immediately after `window.show()`.
 
 **`MeasurementInfoBox`** / **`SignalInfoBox`**: both use a `QStackedWidget` — page 0 is a centred placeholder label, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` / `set_metadata` populates the form and switches to page 1; `clear()` switches back. Optional fields (empty string / `None`) are omitted. MDF4 XML tags in comment fields are stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`. `SignalInfoBox` shows a "Data type" row (e.g. `uint8`, `float64`) when `SignalMetadata.data_type` is populated.
 
@@ -377,6 +386,11 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - **`ActiveSignalsTable.remove_row` / `clear` ordering:** the table widget is mutated first (`removeRow` / `setRowCount(0)`), then `_signals` — `removeRow`/`setRowCount(0)` can synchronously emit `itemSelectionChanged` before returning, and the handler indexes into `_signals`. Mutating `_signals` first left it shorter than the row indices Qt reported, raising `IndexError`. `_on_selection_changed` also has a bounds check as a defensive fallback.
 - **Signal Browser filter debounce (#9):** `_filter_edit.textChanged` no longer calls `setFilterFixedString` directly; it (re)starts a single-shot `QTimer` (`_FILTER_DELAY_MS = 250`), and `_apply_filter()` runs on timeout. Recursive filtering over a large channel tree is expensive, so re-filtering on every keystroke made typing feel sluggish. `populate()`/`clear()` use `_clear_filter()`, which stops the timer and applies the empty filter immediately so the new tree isn't shown through a stale filter.
 - **Load busy feedback (#9):** `MainWindow._load_file()` is the single entry point for all three load paths (Load MDF…, recent files, file drop). It sets a wait cursor and a persistent "Loading <file>…" status message for the duration of `controller.load_file()`, restoring both in a `finally` block.
+- **`MdfLoadError` in `errors.py` (#46):** moved from `model/mdf_loader.py` so that `view/main_window.py` can import it without creating a view→model dependency. Both `mdf_loader.py` and `main_window.py` now import from `mdf_viewer.errors`.
+- **Single controller contact point for `MainWindow` (#48):** `MainWindow` no longer holds a reference to `CursorController`. All cursor actions (`toggle_cursor`, `press_cursor1`, `press_cursor2`, `zoom_to_cursors`, `set_cursor_mode_callback`) are proxy methods on `AppController`, which delegates to `_cursor_ctrl`. `set_controller(ctrl)` lost its `cursor_ctrl` parameter.
+- **`CursorController` reads signals on demand (#49):** the controller no longer owns a `list[ActiveSignal]` or responds to `on_signal_added`. Instead it receives a `get_active_signals: Callable[[], list]` at construction (`app.py` passes `lambda: controller.active_signals`). This eliminates a second authoritative list and removes the need for a matching add-notification. `AppController.add_signal` calls `cursor_ctrl.refresh()` after appending; `remove_signal` calls `on_signal_removed` (label cleanup only, before ViewBox destruction) then `refresh()`.
+- **License state read once at startup; restart required after import (#51):** `app.py` calls `license_manager.load_stored()` once at startup; `window.set_license(info, manager)` is called once and never again. `MainWindow._on_license()` opens the dialog and does nothing on accept — the dialog's own "restart required" message is the canonical flow. `LicenseDialog.accepted_license()` was removed as dead code.
+- **Protocol contracts in `controller/interfaces.py` (#50):** seven `typing.Protocol` classes declare every method each controller calls on its view dependencies. Interface segregation applied to `ActiveSignalsTable`: `SignalTableProtocol` (add/remove/clear rows — `AppController`) and `CursorValueSinkProtocol` (cursor value columns — `CursorController`) are separate. All protocols live under `TYPE_CHECKING` — no runtime cost.
 
 ### Release build
 
@@ -403,7 +417,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
 
 ### Next steps
-v2.0 in progress. #19 (license management) done. Remaining: #10 (check for updates). Then v2.1 "Cursor Stuff" (#11, #25, #26, #29, #39).
+v2.0 in progress. Arch cleanup done (#46–#52). Remaining for v2.0: #10 (check for updates). Then v2.1 "Cursor Stuff" (#11, #25, #26, #29, #39).
 
 ### v2.0 planning
 - **Direction:** v1.5 is the last free/GPL-3.0 feature release. v2.0 onward stays GPL-3.0 and adds an honor-based license-key system: a cosmetic "Licensed to: ..." display (vs. "unregistered") with no hard enforcement.
