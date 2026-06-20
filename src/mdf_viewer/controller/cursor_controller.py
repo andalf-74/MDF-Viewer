@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Callable
 import numpy as np
 
 if TYPE_CHECKING:
-    from mdf_viewer.view.cursors import CursorView
+    from mdf_viewer.controller.interfaces import CursorValueSinkProtocol, CursorViewProtocol
     from mdf_viewer.view_model.active_signal import ActiveSignal
 
 _ModeCallback = Callable[["CursorMode"], None]
@@ -42,9 +42,9 @@ class CursorController:
 
     def __init__(
         self,
-        cursor_view: CursorView,
+        cursor_view: CursorViewProtocol,
         get_x_range: Callable[[], tuple[float, float]],
-        active_signals_table,
+        active_signals_table: CursorValueSinkProtocol,
         get_active_signals: Callable[[], list] | None = None,
     ) -> None:
         """

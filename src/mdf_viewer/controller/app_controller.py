@@ -19,12 +19,14 @@ from mdf_viewer.view_model.active_signal import ActiveSignal
 
 if TYPE_CHECKING:
     from PyQt6.QtGui import QColor
+    from mdf_viewer.controller.interfaces import (
+        MeasurementInfoProtocol,
+        PlotAreaProtocol,
+        SignalBrowserProtocol,
+        SignalInfoProtocol,
+        SignalTableProtocol,
+    )
     from mdf_viewer.settings import Settings
-    from mdf_viewer.view.active_signals_table import ActiveSignalsTable
-    from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
-    from mdf_viewer.view.plot_area import PlotArea
-    from mdf_viewer.view.signal_browser import SignalBrowser
-    from mdf_viewer.view.signal_info_box import SignalInfoBox
 
 # Ordered color palette for new signals; cycles on overflow.
 _COLOR_PALETTE: tuple[tuple[int, int, int], ...] = (
@@ -45,11 +47,11 @@ class AppController:
     def __init__(
         self,
         loader: MdfLoader,
-        signal_browser: SignalBrowser,
-        plot_area: PlotArea,
-        active_signals_table: ActiveSignalsTable,
-        measurement_info_box: MeasurementInfoBox,
-        signal_info_box: SignalInfoBox,
+        signal_browser: SignalBrowserProtocol,
+        plot_area: PlotAreaProtocol,
+        active_signals_table: SignalTableProtocol,
+        measurement_info_box: MeasurementInfoProtocol,
+        signal_info_box: SignalInfoProtocol,
         settings: Settings | None = None,
     ) -> None:
         self._loader = loader
