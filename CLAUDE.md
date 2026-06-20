@@ -181,6 +181,17 @@ Displays metadata for the currently selected signal in the Active Signals Table:
 - MDF3 and MDF4 via the `asammdf` library
 - All available channel groups and signals must be represented in the Signal Browser TreeView
 
+### Known asammdf bug — `__del__` on corrupt files
+
+When `asammdf.MDF(path)` fails to open a corrupt file, it raises an exception midway through `MDF4.__init__` before assigning `self._file`. Python's GC later calls `MDF4.__del__`, which calls `close()`, which unconditionally accesses `self._file` — triggering:
+
+```
+Exception ignored while calling deallocator <function MDF4.__del__ ...>:
+AttributeError: 'MDF4' object has no attribute '_file'
+```
+
+This is printed to stderr but does **not** affect app behaviour — `MdfLoader.open()` correctly raises `MdfLoadError` and the error dialog is shown. **Do not chase this as our bug.** The fix belongs in asammdf's `close()` method (guard with `getattr(self, '_file', None)`). We have no clean way to suppress it from our side without redirecting stderr.
+
 ---
 
 ## Todo / Future Features (not MVP)
