@@ -74,6 +74,32 @@ class AppController:
         """Wire in the CursorController after construction."""
         self._cursor_ctrl = cursor_ctrl
 
+    # ------------------------------------------------------------------
+    # Cursor proxy — MainWindow calls these instead of CursorController
+    # directly, so the view has a single controller contact point.
+    # ------------------------------------------------------------------
+
+    def toggle_cursor(self) -> None:
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.toggle()
+
+    def press_cursor1(self) -> None:
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.press_cursor1()
+
+    def press_cursor2(self) -> None:
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.press_cursor2()
+
+    def zoom_to_cursors(self) -> tuple[float, float] | None:
+        if self._cursor_ctrl is not None:
+            return self._cursor_ctrl.zoom_to_cursors()
+        return None
+
+    def set_cursor_mode_callback(self, cb) -> None:
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.set_mode_changed_callback(cb)
+
     def load_file(self, path: str | os.PathLike) -> None:
         """Open an MDF file and populate the Signal Browser.
 

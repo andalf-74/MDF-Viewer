@@ -442,19 +442,21 @@ def test_zoom_cursors_action_disabled_when_hidden(window: MainWindow) -> None:
     assert not window._zoom_cursors_action.isEnabled()
 
 
-def test_zoom_cursors_calls_zoom_to_x_range(window: MainWindow) -> None:
-    cursor_ctrl = MagicMock()
-    cursor_ctrl.zoom_to_cursors.return_value = (1.0, 5.0)
-    window._cursor_ctrl = cursor_ctrl
+def test_zoom_cursors_calls_zoom_to_x_range(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.zoom_to_cursors.return_value = (1.0, 5.0)
+    window.set_controller(mock_controller)
     with patch.object(window.plot_area, "zoom_to_x_range") as mock_zoom:
         window._on_zoom_to_cursors()
     mock_zoom.assert_called_once_with(1.0, 5.0)
 
 
-def test_zoom_cursors_noop_when_zoom_to_cursors_returns_none(window: MainWindow) -> None:
-    cursor_ctrl = MagicMock()
-    cursor_ctrl.zoom_to_cursors.return_value = None
-    window._cursor_ctrl = cursor_ctrl
+def test_zoom_cursors_noop_when_zoom_to_cursors_returns_none(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.zoom_to_cursors.return_value = None
+    window.set_controller(mock_controller)
     with patch.object(window.plot_area, "zoom_to_x_range") as mock_zoom:
         window._on_zoom_to_cursors()
     mock_zoom.assert_not_called()

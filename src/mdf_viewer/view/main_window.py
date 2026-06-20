@@ -104,7 +104,6 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._controller: AppController | None = None
-        self._cursor_ctrl = None
         self._recent_provider: Callable[[], list[Path]] | None = None
         self._recent_actions: list[QAction] = []
         self._recent_sep: QAction | None = None
@@ -123,14 +122,10 @@ class MainWindow(QMainWindow):
     # Public API
     # ------------------------------------------------------------------
 
-    def set_controller(
-        self, controller: AppController, cursor_ctrl=None
-    ) -> None:
+    def set_controller(self, controller: AppController) -> None:
         """Wire the controller after it has been constructed with this window's views."""
         self._controller = controller
-        self._cursor_ctrl = cursor_ctrl
-        if cursor_ctrl is not None:
-            cursor_ctrl.set_mode_changed_callback(self._on_cursor_mode_changed)
+        controller.set_cursor_mode_callback(self._on_cursor_mode_changed)
         self.signal_browser.add_signals_requested.connect(self._on_add_signals)
         self.plot_area.signals_dropped.connect(self._on_add_signals)
         self.plot_area.file_dropped.connect(self._on_file_dropped)
@@ -506,9 +501,9 @@ class MainWindow(QMainWindow):
             self.show_status("No active signals to arrange.")
 
     def _on_zoom_to_cursors(self) -> None:
-        if self._cursor_ctrl is None:
+        if self._controller is None:
             return
-        span = self._cursor_ctrl.zoom_to_cursors()
+        span = self._controller.zoom_to_cursors()
         if span is not None:
             self.plot_area.zoom_to_x_range(*span)
 
@@ -517,16 +512,16 @@ class MainWindow(QMainWindow):
         self._zoom_cursors_action.setEnabled(mode == CursorMode.TWO)
 
     def _on_cursor_toggle(self) -> None:
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.toggle()
+        if self._controller is not None:
+            self._controller.toggle_cursor()
 
     def _on_cursor1(self) -> None:
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.press_cursor1()
+        if self._controller is not None:
+            self._controller.press_cursor1()
 
     def _on_cursor2(self) -> None:
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.press_cursor2()
+        if self._controller is not None:
+            self._controller.press_cursor2()
 
     def _on_about(self) -> None:
         info = self._license_info

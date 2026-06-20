@@ -95,7 +95,7 @@ def run(argv: list[str]) -> int:
     )
     controller.set_cursor_controller(cursor_ctrl)
 
-    window.set_controller(controller, cursor_ctrl)
+    window.set_controller(controller)
     window.show()
     splash.finish(window)
 
