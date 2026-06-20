@@ -553,9 +553,7 @@ class MainWindow(QMainWindow):
         if self._license_manager is None:
             return
         dlg = LicenseDialog(self._license_manager, self._license_info, self)
-        if dlg.exec() == LicenseDialog.DialogCode.Accepted:
-            new_info = self._license_manager.load_stored()
-            self.set_license(new_info, self._license_manager)
+        dlg.exec()  # dialog shows "restart required" on success; no state update needed here
 
     def _rebuild_recent_files(self) -> None:
         for action in self._recent_actions:

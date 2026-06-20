@@ -159,11 +159,6 @@ class LicenseDialog(QDialog):
         QWidget().setLayout(old_layout)  # detach and discard
         self._build_ui()
 
-    def accepted_license(self) -> LicenseInfo | None:
-        """Returns the newly imported LicenseInfo if the dialog was accepted."""
-        if self.result() == QDialog.DialogCode.Accepted:
-            return self._manager.load_stored()
-        return None
 
 
 class _DropArea(QFrame):
