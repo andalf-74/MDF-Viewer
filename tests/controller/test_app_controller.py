@@ -14,8 +14,8 @@ import pytest
 from PyQt6.QtGui import QColor
 
 from mdf_viewer.controller.app_controller import AppController, _COLOR_PALETTE
+from mdf_viewer.errors import MdfLoadError
 from mdf_viewer.model.measurement import MeasurementInfo
-from mdf_viewer.model.mdf_loader import MdfLoadError
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
 from mdf_viewer.view_model.active_signal import ActiveSignal

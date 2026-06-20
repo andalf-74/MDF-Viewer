@@ -69,9 +69,9 @@ def _icon_suffix() -> str:
 
 
 from mdf_viewer import __version__
+from mdf_viewer.errors import MdfLoadError
 from mdf_viewer.license.license_info import LicenseInfo
 from mdf_viewer.license.license_manager import LicenseManager
-from mdf_viewer.model.mdf_loader import MdfLoadError
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.license_dialog import LicenseDialog
 from mdf_viewer.view.measurement_info_box import MeasurementInfoBox

@@ -22,8 +22,9 @@ def run(argv: list[str]) -> int:
     from mdf_viewer import __version__
     from mdf_viewer.controller.app_controller import AppController
     from mdf_viewer.controller.cursor_controller import CursorController
+    from mdf_viewer.errors import MdfLoadError
     from mdf_viewer.license.license_manager import LicenseManager
-    from mdf_viewer.model.mdf_loader import MdfLoadError, MdfLoader
+    from mdf_viewer.model.mdf_loader import MdfLoader
     from mdf_viewer.settings import Settings
     from mdf_viewer.view.cursors import CursorView
     from mdf_viewer.view.main_window import MainWindow

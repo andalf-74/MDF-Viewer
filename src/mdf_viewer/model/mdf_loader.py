@@ -14,17 +14,10 @@ from pathlib import Path
 
 import numpy as np
 
+from mdf_viewer.errors import MdfLoadError
 from mdf_viewer.model.measurement import MeasurementInfo
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
-
-
-class MdfLoadError(Exception):
-    """Raised when an MDF file cannot be opened or read.
-
-    The controller/view should catch this and present the message to the user;
-    the application must never crash on malformed or incomplete MDF content.
-    """
 
 
 @dataclass(frozen=True, slots=True)

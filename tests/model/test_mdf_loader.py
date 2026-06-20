@@ -8,7 +8,8 @@ import asammdf
 import numpy as np
 import pytest
 
-from mdf_viewer.model.mdf_loader import ChannelGroupInfo, MdfLoadError, MdfLoader
+from mdf_viewer.errors import MdfLoadError
+from mdf_viewer.model.mdf_loader import ChannelGroupInfo, MdfLoader
 from mdf_viewer.model.measurement import MeasurementInfo
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
