@@ -375,7 +375,7 @@ See [`docs/architecture.md`](docs/architecture.md) — decision log is maintaine
 
 `dist/` is in `.gitignore`; build artifacts are never committed. The `.spec` and `.iss` files are committed under `installer/`.
 
-**Latest release — v1.5:** https://github.com/andalf-74/MDF-Viewer/releases/tag/v1.5 — ships `MDF-Viewer-1.5-Setup.exe` (installer) and `MDF-Viewer-1.5-Windows.zip` (portable).
+**Latest release — v2.0:** https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.0 — ships `MDF-Viewer-2.0-Setup.exe` (installer) and `MDF-Viewer-2.0-Windows.zip` (portable).
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.

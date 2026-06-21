@@ -2,7 +2,7 @@
 
 All notable changes to MDF-Viewer are documented in this file.
 
-## [Unreleased — 2.0]
+## [2.0] - 2026-06-21
 
 ### Added
 - License management system (#19): Ed25519-signed `.lic` files, three tiers
