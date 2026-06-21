@@ -29,6 +29,7 @@ class Settings:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path if path is not None else _default_config_path()
         self._recent: list[Path] = []
+        self._check_for_updates: bool = True
         self._load()
 
     # ------------------------------------------------------------------
@@ -46,6 +47,15 @@ class Settings:
         """Return the current recent files list (may include missing paths)."""
         return list(self._recent)
 
+    @property
+    def check_for_updates(self) -> bool:
+        return self._check_for_updates
+
+    @check_for_updates.setter
+    def check_for_updates(self, value: bool) -> None:
+        self._check_for_updates = value
+        self._save()
+
     def get_and_prune(self) -> list[Path]:
         """Return only paths that exist on disk; save if any were removed."""
         existing = [p for p in self._recent if p.exists()]
@@ -62,12 +72,20 @@ class Settings:
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
             self._recent = [Path(p) for p in data.get("recent_files", [])]
+            self._check_for_updates = bool(data.get("check_for_updates", True))
         except (FileNotFoundError, json.JSONDecodeError, TypeError, KeyError):
             self._recent = []
+            self._check_for_updates = True
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._path.write_text(
-            json.dumps({"recent_files": [str(p) for p in self._recent]}, indent=2),
+            json.dumps(
+                {
+                    "recent_files": [str(p) for p in self._recent],
+                    "check_for_updates": self._check_for_updates,
+                },
+                indent=2,
+            ),
             encoding="utf-8",
         )

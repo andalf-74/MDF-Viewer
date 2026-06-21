@@ -12,12 +12,24 @@ All notable changes to MDF-Viewer are documented in this file.
 - `Help > Enter License Key…` / `Help > View/Change License Key…` menu action
   opens a dialog to browse for or drag-and-drop a `.lic` file (import mode)
   or view current license details including an expiry notice (view mode).
+- "Retrieve License…" button in the license view dialog: opens a Save As dialog
+  to export a copy of the stored `.lic` file; default filename derived from the
+  licensee name (`First_Last.lic`) (#54).
 - Title bar shows "MDF-Viewer — unregistered" when no valid license is present;
   clean "MDF-Viewer" when licensed.
 - About dialog shows license status (licensee name, tier, updates-until date,
   or "Unregistered").
 - `Help > About MDF-Viewer` moved to last position in the Help menu, with the
   license action first.
+- `Help > Check for Update…`: checks the GitHub releases API and shows an
+  update-available dialog (with an "Open Release Page" button) or an "up to
+  date" dialog. Network errors shown as a warning dialog (#10).
+- Automatic update check on startup: runs in a background thread, silent if
+  up to date or on network error; shows the update-available dialog if a newer
+  version is found. Can be disabled in Preferences (#10).
+- `File > Preferences…`: opens the Preferences dialog. Currently contains one
+  setting — "Check for updates on startup" — on the General tab. The dialog
+  uses a tab layout to accommodate future preference groups (#10).
 
 ## [1.5] - 2026-06-18
 

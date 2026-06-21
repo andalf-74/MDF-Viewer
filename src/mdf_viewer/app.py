@@ -96,9 +96,13 @@ def run(argv: list[str]) -> int:
     )
     controller.set_cursor_controller(cursor_ctrl)
 
+    window.set_settings(settings)
     window.set_controller(controller)
     window.show()
     splash.finish(window)
+
+    if settings.check_for_updates:
+        window.trigger_startup_update_check()
 
     # Load a file passed on the command line (e.g. via .mf4 file association).
     if len(argv) > 1:

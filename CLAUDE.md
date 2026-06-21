@@ -59,8 +59,13 @@ requirements.txt / requirements-dev.txt
 ### Menu Bar
 - **File**
   - Load MDF (opens file dialog)
-  - Recently opened files (up to 4; shown between Load MDF and Exit when non-empty)
+  - Recently opened files (up to 4; shown between Load MDF and Preferences when non-empty)
+  - Preferences… (opens Preferences dialog)
   - Exit
+- **Help**
+  - Check for Update… (fetches GitHub releases API; shows update dialog or "up to date" dialog)
+  - License (Enter / View/Change)
+  - About MDF-Viewer
 
 ### Toolbar
 - **Load File** – folder icon, opens file dialog (Ctrl+O)
@@ -231,7 +236,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-20:** v1.5 released — 426 tests passing. Arch cleanup for v2.0 complete (issues #46–#52).
+**As of 2026-06-21:** v1.5 released — 446 tests passing. v2.0 feature work complete (#10, #19, #54 + arch cleanup #46–#52).
 
 ### Implemented
 
@@ -252,10 +257,12 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `controller/interfaces.py` | Protocol contracts for all controller-view dependencies | — |
 | `controller/app_controller.py` | `AppController` — coordinates all layers | 39 |
 | `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation | 28 |
-| `settings.py` | `Settings` — JSON persistence for recent files | 12 |
+| `settings.py` | `Settings` — JSON persistence for recent files + preferences | 16 |
+| `update_checker.py` | `fetch_latest_release()`, `is_newer()`, `ReleaseInfo`, `UpdateCheckError` — GitHub releases API, no Qt | 13 |
 | `license/license_info.py` | `LicenseInfo` dataclass, `Tier` enum, `FORMAT_VERSION`, embedded public key | — |
-| `license/license_manager.py` | `LicenseManager` — verify, import, load_stored; `LicenseError` | 26 |
-| `view/license_dialog.py` | `LicenseDialog` — import mode (browse/drop) + view mode (details + expiry notice); on successful import shows a "restart required" message and closes | — |
+| `license/license_manager.py` | `LicenseManager` — verify, import, load_stored, export_license; `LicenseError` | 29 |
+| `view/license_dialog.py` | `LicenseDialog` — import mode (browse/drop) + view mode (details + expiry notice + Retrieve License button); on successful import shows a "restart required" message and closes | — |
+| `view/preferences_dialog.py` | `PreferencesDialog` — tabbed `QDialog`; General tab with "Check for updates on startup" checkbox | — |
 | `app.py` | MVC assembly point | — |
 
 **`MdfLoader`** is the sole importer of `asammdf`. Public API:
@@ -307,16 +314,20 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 **`MainWindow`** public API:
 - Constructor creates all five view widgets as public attrs: `signal_browser`, `plot_area`, `active_signals_table`, `measurement_info_box`, `signal_info_box`
 - `set_controller(ctrl)` — wires browser, table remove/selection signals to controller, drop signals from plot_area and active_signals_table; all cursor actions (toggle, cursor1, cursor2, zoom_to_cursors) call through `ctrl` proxy methods; calls `ctrl.set_cursor_mode_callback(self._on_cursor_mode_changed)` so the toolbar button reflects the active mode
-- `set_recent_files_provider(callable)` — supplies a `() -> list[Path]` called on every `File` menu open; results are inserted between Load MDF and Exit (section hidden when list is empty)
+- `set_recent_files_provider(callable)` — supplies a `() -> list[Path]` called on every `File` menu open; results are inserted between Load MDF separator and Preferences (section hidden when list is empty)
+- `set_settings(settings)` — stores the `Settings` instance; required before Preferences dialog can open
+- `trigger_startup_update_check()` — launches `_UpdateCheckThread` in the background; silently shows the update-available dialog if a newer version is found, silent on error or up-to-date
 - `show_status(message, timeout_ms=3000)` — displays a transient message in the `QStatusBar`
 - Layout: outer H-splitter → [SignalBrowser (260px) | center V-splitter | ActiveSignalsTable (260px)]; center → [PlotArea (3×) | bottom H-splitter → [MeasurementInfoBox | SignalInfoBox]]
-- Menu: File → Load MDF… (Ctrl+O) / [recent files] / Exit (Ctrl+Q)
+- Menu: File → Load MDF… (Ctrl+O) / [recent files] / Preferences… / Exit (Ctrl+Q); Help → Check for Update… / License / About
 - Toolbar: Load File | Zoom to Fit (Ctrl+0) | Cursors (toggle) — all three use custom PNG icons from `resources/icons/`
 - All load paths (dialog, recent files, file drop) catch `MdfLoadError` and show `QMessageBox.critical`
 - `_on_add_signals(locations)` — called by browser `add_signals_requested`, plot `signals_dropped`, and table `signals_dropped`; loops over locations, counts duplicates (skipped silently), shows status bar message if any were skipped
 - `_on_file_dropped(path)` — called by `plot_area.file_dropped`; shows `QMessageBox.question` if a file is already loaded, then calls `controller.load_file`
+- `_on_check_for_update()` — manual update check: synchronous with wait cursor; shows update-available dialog or "up to date" dialog; error dialog on network failure
+- `_UpdateCheckThread` — module-level `QThread` subclass; emits `update_available(tag, url)` signal if a newer version is found; exceptions are swallowed (startup-check use case)
 
-**`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `Settings` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController` (with `get_active_signals=lambda: controller.active_signals`), wires all together via `controller.set_cursor_controller(cursor_ctrl)` and `window.set_controller(controller)`; calls `set_recent_files_provider(settings.get_and_prune)`. License is loaded once here via `license_manager.load_stored()` and applied via `window.set_license(license_info, license_manager)`. If `sys.argv[1]` is a file path (e.g. via `.mf4` file association), loads it immediately after `window.show()`.
+**`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `Settings` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController` (with `get_active_signals=lambda: controller.active_signals`), wires all together via `controller.set_cursor_controller(cursor_ctrl)` and `window.set_controller(controller)`; calls `set_recent_files_provider(settings.get_and_prune)` and `window.set_settings(settings)`. License is loaded once here via `license_manager.load_stored()` and applied via `window.set_license(license_info, license_manager)`. After `window.show()`: calls `window.trigger_startup_update_check()` if `settings.check_for_updates` is `True`. If `sys.argv[1]` is a file path (e.g. via `.mf4` file association), loads it immediately after `window.show()`.
 
 **`MeasurementInfoBox`** / **`SignalInfoBox`**: both use a `QStackedWidget` — page 0 is a centred placeholder label, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` / `set_metadata` populates the form and switches to page 1; `clear()` switches back. Optional fields (empty string / `None`) are omitted. MDF4 XML tags in comment fields are stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`. `SignalInfoBox` shows a "Data type" row (e.g. `uint8`, `float64`) when `SignalMetadata.data_type` is populated.
 
@@ -333,6 +344,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `add_recent(path)` — resolves to absolute path, prepends, deduplicates, trims to `MAX_RECENT=4`, saves immediately
 - `recent_files() -> list[Path]` — raw list (may include missing paths)
 - `get_and_prune() -> list[Path]` — filters to existing paths, saves if anything was removed; used as the `MainWindow` recent-files provider
+- `check_for_updates: bool` — property (default `True`); setting it saves immediately
 - Config path: `%APPDATA%\mdf-viewer\settings.json` (Windows) / `~/.config/mdf-viewer/settings.json` (Linux); detected via `sys.platform`; parent dirs created on first save
 - Constructor accepts an optional `path` override (used in tests via `tmp_path`)
 
@@ -373,7 +385,7 @@ See [`docs/architecture.md`](docs/architecture.md) — decision log is maintaine
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
 
 ### Next steps
-v2.0 in progress. Arch cleanup done (#46–#52). Remaining for v2.0: #10 (check for updates). Then v2.1 "Cursor Stuff" (#11, #25, #26, #29, #39).
+v2.0 feature-complete — ready to tag and release. Next milestone: v2.1 "Cursor Stuff" (#11, #25, #26, #29, #39).
 
 ### Security — secrets that must never be committed
 

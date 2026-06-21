@@ -133,3 +133,28 @@ def test_get_and_prune_noop_when_all_exist(
 
 def test_get_and_prune_empty_list(settings: Settings) -> None:
     assert settings.get_and_prune() == []
+
+
+# ---------------------------------------------------------------------------
+# check_for_updates
+# ---------------------------------------------------------------------------
+
+def test_check_for_updates_default_true(settings: Settings) -> None:
+    assert settings.check_for_updates is True
+
+
+def test_check_for_updates_can_be_disabled(settings: Settings) -> None:
+    settings.check_for_updates = False
+    assert settings.check_for_updates is False
+
+
+def test_check_for_updates_persists(settings: Settings) -> None:
+    settings.check_for_updates = False
+    reloaded = Settings(path=settings._path)
+    assert reloaded.check_for_updates is False
+
+
+def test_check_for_updates_defaults_to_true_on_missing_key(tmp_path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    assert Settings(path=path).check_for_updates is True

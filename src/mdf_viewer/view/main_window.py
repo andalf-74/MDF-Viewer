@@ -29,9 +29,12 @@ from PyQt6.QtCore import (
     QPropertyAnimation,
     QSize,
     Qt,
+    QThread,
     QTimer,
+    QUrl,
+    pyqtSignal,
 )
-from PyQt6.QtGui import QAction, QCursor, QFont, QIcon, QKeySequence, QShortcut
+from PyQt6.QtGui import QAction, QCursor, QDesktopServices, QFont, QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -72,6 +75,7 @@ from mdf_viewer import __version__
 from mdf_viewer.errors import MdfLoadError
 from mdf_viewer.license.license_info import LicenseInfo
 from mdf_viewer.license.license_manager import LicenseManager
+from mdf_viewer.settings import Settings
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.license_dialog import LicenseDialog
 from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
@@ -109,6 +113,8 @@ class MainWindow(QMainWindow):
         self._recent_sep: QAction | None = None
         self._license_info: LicenseInfo | None = None
         self._license_manager: LicenseManager | None = None
+        self._settings: Settings | None = None
+        self._update_thread: _UpdateCheckThread | None = None
         self.setWindowTitle("MDF-Viewer — unregistered")
         self.setWindowIcon(QIcon(str(_ICONS_DIR / "app_icon.ico")))
         self.resize(1280, 800)
@@ -167,6 +173,16 @@ class MainWindow(QMainWindow):
             self.setWindowTitle("MDF-Viewer — unregistered")
             self._license_action.setText("Enter License Key…")
 
+    def set_settings(self, settings: Settings) -> None:
+        """Store the Settings instance (needed by Preferences dialog)."""
+        self._settings = settings
+
+    def trigger_startup_update_check(self) -> None:
+        """Run an update check in the background; silently show a dialog if newer."""
+        self._update_thread = _UpdateCheckThread(__version__, self)
+        self._update_thread.update_available.connect(self._on_update_available)
+        self._update_thread.start()
+
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
@@ -219,6 +235,12 @@ class MainWindow(QMainWindow):
         self._cursor2_shortcut = QShortcut(QKeySequence(","), self)
         self._cursor2_shortcut.activated.connect(self._on_cursor2)
 
+        self._preferences_action = QAction("Preferences…", self)
+        self._preferences_action.triggered.connect(self._on_preferences)
+
+        self._check_update_action = QAction("Check for Update…", self)
+        self._check_update_action.triggered.connect(self._on_check_for_update)
+
         self._about_action = QAction("About MDF-Viewer", self)
         self._about_action.triggered.connect(self._on_about)
 
@@ -232,10 +254,14 @@ class MainWindow(QMainWindow):
         self._exit_action = QAction("Exit", self)
         self._exit_action.setShortcut(QKeySequence("Ctrl+Q"))
         self._exit_action.triggered.connect(self.close)
+        self._file_menu.addAction(self._preferences_action)
+        self._file_menu.addSeparator()
         self._file_menu.addAction(self._exit_action)
         self._file_menu.aboutToShow.connect(self._rebuild_recent_files)
 
         self._help_menu = self.menuBar().addMenu("&Help")
+        self._help_menu.addAction(self._check_update_action)
+        self._help_menu.addSeparator()
         self._help_menu.addAction(self._license_action)
         self._help_menu.addSeparator()
         self._help_menu.addAction(self._about_action)
@@ -523,6 +549,45 @@ class MainWindow(QMainWindow):
         if self._controller is not None:
             self._controller.press_cursor2()
 
+    def _on_preferences(self) -> None:
+        if self._settings is None:
+            return
+        from mdf_viewer.view.preferences_dialog import PreferencesDialog
+        PreferencesDialog(self._settings, self).exec()
+
+    def _on_check_for_update(self) -> None:
+        from mdf_viewer.update_checker import UpdateCheckError, fetch_latest_release, is_newer
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
+        try:
+            release = fetch_latest_release()
+        except UpdateCheckError as exc:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.warning(self, "Update Check Failed", str(exc))
+            return
+        finally:
+            QApplication.restoreOverrideCursor()
+        if is_newer(release.tag, __version__):
+            self._on_update_available(release.tag, release.url)
+        else:
+            QMessageBox.information(
+                self,
+                "Up to Date",
+                f"MDF-Viewer {__version__} is the latest version.",
+            )
+
+    def _on_update_available(self, tag: str, url: str) -> None:
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Update Available")
+        msg.setIcon(QMessageBox.Icon.Information)
+        msg.setText(f"Version <b>{tag}</b> is available.")
+        msg.setInformativeText(f"You are running version {__version__}.")
+        open_btn = msg.addButton("Open Release Page", QMessageBox.ButtonRole.ActionRole)
+        msg.addButton(QMessageBox.StandardButton.Close)
+        msg.exec()
+        if msg.clickedButton() is open_btn:
+            QDesktopServices.openUrl(QUrl(url))
+
     def _on_about(self) -> None:
         info = self._license_info
         if info is not None:
@@ -569,13 +634,30 @@ class MainWindow(QMainWindow):
         if not paths:
             return
 
-        self._recent_sep = self._file_menu.insertSeparator(self._exit_action)
         for path in paths:
             action = QAction(Path(path).name, self)
             action.setToolTip(str(path))
             action.triggered.connect(lambda checked, p=path: self._on_open_recent(p))
-            self._file_menu.insertAction(self._exit_action, action)
+            self._file_menu.insertAction(self._preferences_action, action)
             self._recent_actions.append(action)
+        self._recent_sep = self._file_menu.insertSeparator(self._preferences_action)
 
     def _on_open_recent(self, path: Path) -> None:
         self._load_file(path)
+
+
+class _UpdateCheckThread(QThread):
+    update_available = pyqtSignal(str, str)  # tag, url
+
+    def __init__(self, current_version: str, parent=None) -> None:
+        super().__init__(parent)
+        self._current = current_version
+
+    def run(self) -> None:
+        from mdf_viewer.update_checker import UpdateCheckError, fetch_latest_release, is_newer
+        try:
+            release = fetch_latest_release()
+            if is_newer(release.tag, self._current):
+                self.update_available.emit(release.tag, release.url)
+        except UpdateCheckError:
+            pass
