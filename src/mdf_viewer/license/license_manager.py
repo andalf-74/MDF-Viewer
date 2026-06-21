@@ -102,3 +102,11 @@ class LicenseManager:
             return _verify_and_parse(path)
         except LicenseError:
             return None
+
+    def export_license(self, dest: Path) -> None:
+        """Copy the stored license file to dest. Raises LicenseError if not stored."""
+        src = self.stored_path()
+        if not src.exists():
+            raise LicenseError("No stored license found.")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dest)

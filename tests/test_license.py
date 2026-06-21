@@ -310,3 +310,44 @@ class TestImportAndLoad:
         manager = LicenseManager()
         monkeypatch.setattr(manager, "stored_path", lambda: dest)
         assert manager.load_stored() is None
+
+
+# ---------------------------------------------------------------------------
+# LicenseManager.export_license
+# ---------------------------------------------------------------------------
+
+class TestExportLicense:
+    def test_export_copies_file_to_dest(self, tmp_path, key_pair, monkeypatch):
+        private_key, _ = key_pair
+        src = _write_license(tmp_path, _default_payload(), private_key)
+        stored = tmp_path / "appdata" / "license.lic"
+        stored.parent.mkdir()
+        stored.write_bytes(src.read_bytes())
+
+        manager = LicenseManager()
+        monkeypatch.setattr(manager, "stored_path", lambda: stored)
+
+        dest = tmp_path / "export" / "My_License.lic"
+        manager.export_license(dest)
+
+        assert dest.exists()
+        assert dest.read_bytes() == stored.read_bytes()
+
+    def test_export_creates_parent_dirs(self, tmp_path, key_pair, monkeypatch):
+        private_key, _ = key_pair
+        src = _write_license(tmp_path, _default_payload(), private_key)
+        stored = tmp_path / "license.lic"
+        stored.write_bytes(src.read_bytes())
+
+        manager = LicenseManager()
+        monkeypatch.setattr(manager, "stored_path", lambda: stored)
+
+        dest = tmp_path / "a" / "b" / "c" / "out.lic"
+        manager.export_license(dest)
+        assert dest.exists()
+
+    def test_export_raises_when_no_stored_license(self, tmp_path, monkeypatch):
+        manager = LicenseManager()
+        monkeypatch.setattr(manager, "stored_path", lambda: tmp_path / "license.lic")
+        with pytest.raises(LicenseError, match="No stored license"):
+            manager.export_license(tmp_path / "out.lic")

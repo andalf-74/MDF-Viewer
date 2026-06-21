@@ -9,6 +9,7 @@ from PyQt6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QMessageBox,
     QPushButton,
@@ -79,13 +80,20 @@ class LicenseDialog(QDialog):
             layout.addWidget(notice)
 
         layout.addSpacing(4)
+
+        btn_row = QHBoxLayout()
         change_btn = QPushButton("Change License…")
         change_btn.clicked.connect(self._switch_to_import)
-        layout.addWidget(change_btn, alignment=Qt.AlignmentFlag.AlignLeft)
-
-        close_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        close_box.rejected.connect(self.reject)
-        layout.addWidget(close_box)
+        retrieve_btn = QPushButton("Retrieve License…")
+        retrieve_btn.clicked.connect(self._retrieve_license)
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(self.reject)
+        btn_row.addWidget(change_btn)
+        btn_row.addSpacing(6)
+        btn_row.addWidget(retrieve_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
 
     def _build_import(self, layout: QVBoxLayout) -> None:
         self.setWindowTitle("Enter License Key")
@@ -151,6 +159,18 @@ class LicenseDialog(QDialog):
     def dropEvent(self, event: QDropEvent) -> None:
         path = Path(event.mimeData().urls()[0].toLocalFile())
         self._try_import(path)
+
+    def _retrieve_license(self) -> None:
+        default_name = self._current.licensee_name.replace(" ", "_") + ".lic"
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save License File", default_name, "License files (*.lic);;All files (*)"
+        )
+        if not path:
+            return
+        try:
+            self._manager.export_license(Path(path))
+        except LicenseError as exc:
+            QMessageBox.critical(self, "Export Failed", str(exc))
 
     def _switch_to_import(self) -> None:
         self._current = None
