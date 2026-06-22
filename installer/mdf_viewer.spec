@@ -26,10 +26,10 @@ a = Analysis(
         (os.path.join(ROOT, "src/mdf_viewer/resources"), "mdf_viewer/resources"),
         *asammdf_datas,
     ],
-    hiddenimports=asammdf_hiddenimports,
+    hiddenimports=[*asammdf_hiddenimports, "certifi_win32"],
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[os.path.join(SPECPATH, "rthook_certifi_win32.py")],
     excludes=["tkinter", "matplotlib", "IPython", "jupyter"],
     noarchive=False,
 )

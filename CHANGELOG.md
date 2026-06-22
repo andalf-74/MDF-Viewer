@@ -2,6 +2,14 @@
 
 All notable changes to MDF-Viewer are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- Update check now succeeds in environments with a corporate SSL inspection CA
+  (e.g. company proxies). `python-certifi-win32` is added as a Windows
+  dependency; it bridges the Windows certificate store into Python's SSL
+  layer so internal CAs are trusted automatically (#57).
+
 ## [2.0] - 2026-06-21
 
 ### Added
