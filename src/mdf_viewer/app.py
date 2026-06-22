@@ -94,6 +94,7 @@ def run(argv: list[str]) -> int:
         active_signals_table=window.active_signals_table,
         get_active_signals=lambda: controller.active_signals,
         get_cursor_persistent=lambda: settings.cursor_persistent,
+        get_cursor_mode=lambda: settings.cursor_mode,
     )
     controller.set_cursor_controller(cursor_ctrl)
 

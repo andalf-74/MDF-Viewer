@@ -553,7 +553,9 @@ class MainWindow(QMainWindow):
         if self._settings is None:
             return
         from mdf_viewer.view.preferences_dialog import PreferencesDialog
-        PreferencesDialog(self._settings, self).exec()
+        dlg = PreferencesDialog(self._settings, self)
+        if dlg.exec() and self._controller is not None:
+            self._controller.refresh_cursors()
 
     def _on_check_for_update(self) -> None:
         from mdf_viewer.update_checker import UpdateCheckError, fetch_latest_release, is_newer

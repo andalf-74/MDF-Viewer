@@ -8,6 +8,12 @@ All notable changes to MDF-Viewer are documented in this file.
 - "Persistent cursors" setting in Preferences → Cursors tab (default: on).
   When on, cursors reappear at their last position; when off, they are placed
   at 25 % and 75 % of the current viewport on every show (#59, #62).
+- "Cursor L / R" mode in Preferences → Cursors tab. In this mode the left
+  cursor is always yellow and reports to the "Cursor L" column; the right
+  cursor is always blue and reports to "Cursor R". Colors swap dynamically
+  when one cursor crosses the other. Delta is always R − L. The default
+  "Cursor 1 / 2" mode keeps C1 yellow, C2 orange, and delta as C2 − C1
+  regardless of position (#62).
 
 ### Fixed
 - Cursors are now placed at 25 % and 75 % of the current viewport on first

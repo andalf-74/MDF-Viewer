@@ -127,6 +127,11 @@ class CursorView(QObject):
 
         self._refresh_label_visibility()
 
+    def set_line_colors(self, color0: tuple, color1: tuple) -> None:
+        """Update the pen color of each cursor line (RGB tuples)."""
+        for line, color in zip(self._lines, (color0, color1)):
+            line.setPen(pg.mkPen(color=color, width=1, style=Qt.PenStyle.DashLine))
+
     def recolor_labels(self, active: ActiveSignal, color) -> None:
         """Update the color of all existing labels for a specific signal."""
         for (_, sig), (lbl, _) in self._labels.items():

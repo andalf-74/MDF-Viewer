@@ -24,6 +24,11 @@ if TYPE_CHECKING:
 
 _ModeCallback = Callable[["CursorMode"], None]
 
+# Cursor line colors (RGB tuples consumed by CursorView.set_line_colors)
+_COLOR_C1 = (220, 220, 50)   # yellow — Cursor 1 and Cursor L
+_COLOR_C2 = (255, 140, 0)    # orange — Cursor 2
+_COLOR_CR = (50, 150, 255)   # blue   — Cursor R
+
 
 class CursorMode(Enum):
     """The three states cycled by the Cursor Toggle toolbar button."""
@@ -47,6 +52,7 @@ class CursorController:
         active_signals_table: CursorValueSinkProtocol,
         get_active_signals: Callable[[], list] | None = None,
         get_cursor_persistent: Callable[[], bool] | None = None,
+        get_cursor_mode: Callable[[], str] | None = None,
     ) -> None:
         """
         Parameters
@@ -66,6 +72,9 @@ class CursorController:
         get_cursor_persistent:
             Callable returning whether cursors should remember their last
             position across hide/show cycles.  Defaults to ``lambda: True``.
+        get_cursor_mode:
+            Callable returning ``"1/2"`` or ``"L/R"``.  Defaults to
+            ``lambda: "1/2"``.
         """
         self._view = cursor_view
         self._get_x_range = get_x_range
@@ -76,10 +85,14 @@ class CursorController:
         self._get_cursor_persistent: Callable[[], bool] = (
             get_cursor_persistent if get_cursor_persistent is not None else (lambda: True)
         )
+        self._get_cursor_mode: Callable[[], str] = (
+            get_cursor_mode if get_cursor_mode is not None else (lambda: "1/2")
+        )
 
         self._mode = CursorMode.HIDDEN
         self._positions: list[float] = [0.0, 0.0]
         self._initialized = False
+        self._left_idx: int = 0
         self._mode_changed_cb: _ModeCallback | None = None
 
         cursor_view.cursor_moved.connect(self._on_cursor_dragged)
@@ -206,33 +219,66 @@ class CursorController:
         self._positions[1] = x_min + span * 0.75
 
     def _refresh(self, *, update_labels: bool) -> None:
-        """Update table values and (optionally) plot labels."""
+        """Update table values, cursor colors, and (optionally) plot labels."""
         if self._mode == CursorMode.HIDDEN:
             return
 
+        cursor_mode = self._get_cursor_mode()
         active_signals = self._get_active_signals()
-        c1_x = self._positions[0]
-        c2_x = self._positions[1] if self._mode == CursorMode.TWO else None
 
-        for active in active_signals:
-            c1_val = _interpolate(active, c1_x)
-            c2_val = _interpolate(active, c2_x) if c2_x is not None else None
-
-            delta: float | None = None
-            if c1_val is not None and c2_val is not None:
-                delta = c2_val - c1_val
-
-            self._table.update_cursor_values(
-                active,
-                _fmt(c1_val),
-                _fmt(c2_val),
-                _fmt(delta),
-            )
+        if cursor_mode == "L/R":
+            self._table.set_cursor_column_headers("Cursor L", "Cursor R")
+            if self._mode == CursorMode.TWO:
+                p0, p1 = self._positions
+                if p0 < p1:
+                    self._left_idx = 0
+                elif p1 < p0:
+                    self._left_idx = 1
+                # equal positions: keep _left_idx unchanged (tie-breaking)
+                right_idx = 1 - self._left_idx
+                cl_x = self._positions[self._left_idx]
+                cr_x = self._positions[right_idx]
+                line_colors: list = [None, None]
+                line_colors[self._left_idx] = _COLOR_C1
+                line_colors[right_idx] = _COLOR_CR
+                self._view.set_line_colors(line_colors[0], line_colors[1])
+                for active in active_signals:
+                    cl_val = _interpolate(active, cl_x)
+                    cr_val = _interpolate(active, cr_x)
+                    delta: float | None = (
+                        cr_val - cl_val
+                        if cl_val is not None and cr_val is not None
+                        else None
+                    )
+                    self._table.update_cursor_values(
+                        active, _fmt(cl_val), _fmt(cr_val), _fmt(delta)
+                    )
+            else:  # ONE — single cursor is always Cursor L by definition
+                self._view.set_line_colors(_COLOR_C1, _COLOR_CR)
+                c_x = self._positions[0]
+                for active in active_signals:
+                    self._table.update_cursor_values(
+                        active, _fmt(_interpolate(active, c_x)), "", ""
+                    )
+        else:  # "1/2" mode (default)
+            self._table.set_cursor_column_headers("Cursor 1", "Cursor 2")
+            self._view.set_line_colors(_COLOR_C1, _COLOR_C2)
+            c1_x = self._positions[0]
+            c2_x = self._positions[1] if self._mode == CursorMode.TWO else None
+            for active in active_signals:
+                c1_val = _interpolate(active, c1_x)
+                c2_val = _interpolate(active, c2_x) if c2_x is not None else None
+                delta2: float | None = (
+                    c2_val - c1_val
+                    if c1_val is not None and c2_val is not None
+                    else None
+                )
+                self._table.update_cursor_values(
+                    active, _fmt(c1_val), _fmt(c2_val), _fmt(delta2)
+                )
 
         if update_labels:
-            self._view.update_labels(
-                active_signals, self._positions, self._mode
-            )
+            self._view.update_labels(active_signals, self._positions, self._mode)
 
 
 # ---------------------------------------------------------------------------

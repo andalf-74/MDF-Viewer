@@ -110,6 +110,11 @@ class ActiveSignalsTable(QWidget):
         for col in _CURSOR_COLS:
             self._table.setColumnHidden(col, not visible)
 
+    def set_cursor_column_headers(self, c3_label: str, c4_label: str) -> None:
+        """Update the header text for the two cursor value columns."""
+        self._table.setHorizontalHeaderItem(_COL_C1, QTableWidgetItem(c3_label))
+        self._table.setHorizontalHeaderItem(_COL_C2, QTableWidgetItem(c4_label))
+
     def update_cursor_values(
         self,
         active: ActiveSignal,

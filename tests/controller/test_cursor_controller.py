@@ -529,6 +529,99 @@ def test_persistence_off_repositions_cursors_on_show(
     assert ctrl._positions[0] == pytest.approx(2.5)
 
 
+# ---------------------------------------------------------------------------
+# Cursor mode (1/2 vs L/R)
+# ---------------------------------------------------------------------------
+
+def _make_ctrl_mode(
+    view: MagicMock,
+    table: MagicMock,
+    mode: str,
+    x_range: tuple[float, float] = (0.0, 1.0),
+    signals: list | None = None,
+) -> CursorController:
+    return CursorController(
+        cursor_view=view,
+        get_x_range=lambda: x_range,
+        active_signals_table=table,
+        get_active_signals=lambda: (signals or []),
+        get_cursor_mode=lambda: mode,
+    )
+
+
+def test_12_mode_sets_cursor_1_2_headers(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_mode(view, table, "1/2")
+    ctrl.toggle()
+    table.set_cursor_column_headers.assert_called_with("Cursor 1", "Cursor 2")
+
+
+def test_lr_mode_sets_cursor_lr_headers(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_mode(view, table, "L/R")
+    ctrl.toggle()
+    table.set_cursor_column_headers.assert_called_with("Cursor L", "Cursor R")
+
+
+def test_lr_mode_left_idx_follows_position(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_mode(view, table, "L/R")
+    ctrl.toggle()   # ONE
+    ctrl.toggle()   # TWO
+    ctrl._positions = [0.7, 0.3]  # cursor 1 (at 0.3) is left
+    ctrl._on_cursor_dragged(0, 0.7)
+    assert ctrl._left_idx == 1
+
+
+def test_lr_mode_tie_keeps_left_idx(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_mode(view, table, "L/R")
+    ctrl.toggle()   # ONE
+    ctrl.toggle()   # TWO
+    ctrl._positions = [0.3, 0.7]
+    ctrl._on_cursor_dragged(0, 0.3)
+    assert ctrl._left_idx == 0     # cursor 0 is left
+    ctrl._positions = [0.5, 0.5]
+    ctrl._on_cursor_dragged(1, 0.5)
+    assert ctrl._left_idx == 0     # tie: keep previous assignment
+
+
+def test_lr_mode_single_cursor_is_always_left(view: MagicMock, table: MagicMock) -> None:
+    active = _make_active()
+    ctrl = _make_ctrl_mode(view, table, "L/R", signals=[active])
+    ctrl.toggle()  # ONE
+    args = table.update_cursor_values.call_args[0]
+    assert args[2] == ""   # Cursor R column is empty
+    assert args[3] == ""   # delta is empty
+
+
+def test_12_mode_delta_is_c2_minus_c1(view: MagicMock, table: MagicMock) -> None:
+    active = _make_active()
+    ctrl = _make_ctrl_mode(view, table, "1/2", signals=[active])
+    ctrl.toggle()   # ONE
+    ctrl.toggle()   # TWO
+    ctrl._positions[0] = 0.0    # sin(0) = 0
+    ctrl._positions[1] = 0.25   # sin(π/2) ≈ 1
+    ctrl._on_cursor_dragged(1, 0.25)
+    delta = float(table.update_cursor_values.call_args[0][3])
+    assert delta == pytest.approx(1.0, abs=0.01)
+
+
+def test_lr_mode_delta_is_r_minus_l(view: MagicMock, table: MagicMock) -> None:
+    active = _make_active()
+    ctrl = _make_ctrl_mode(view, table, "L/R", signals=[active])
+    ctrl.toggle()   # ONE
+    ctrl.toggle()   # TWO
+    # cursor 1 (at 0.0) is left, cursor 0 (at 0.25) is right → R - L = 1 - 0 = 1
+    ctrl._positions[0] = 0.25
+    ctrl._positions[1] = 0.0
+    ctrl._on_cursor_dragged(0, 0.25)
+    delta = float(table.update_cursor_values.call_args[0][3])
+    assert delta == pytest.approx(1.0, abs=0.01)
+
+
+def test_set_line_colors_called_on_refresh(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_mode(view, table, "1/2")
+    ctrl.toggle()
+    view.set_line_colors.assert_called()
+
+
 def test_persistence_defaults_to_on(view: MagicMock, table: MagicMock) -> None:
     ctrl = CursorController(
         cursor_view=view,

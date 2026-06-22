@@ -31,6 +31,7 @@ class Settings:
         self._recent: list[Path] = []
         self._check_for_updates: bool = True
         self._cursor_persistent: bool = True
+        self._cursor_mode: str = "1/2"
         self._load()
 
     # ------------------------------------------------------------------
@@ -66,6 +67,15 @@ class Settings:
         self._cursor_persistent = value
         self._save()
 
+    @property
+    def cursor_mode(self) -> str:
+        return self._cursor_mode
+
+    @cursor_mode.setter
+    def cursor_mode(self, value: str) -> None:
+        self._cursor_mode = value
+        self._save()
+
     def get_and_prune(self) -> list[Path]:
         """Return only paths that exist on disk; save if any were removed."""
         existing = [p for p in self._recent if p.exists()]
@@ -84,10 +94,12 @@ class Settings:
             self._recent = [Path(p) for p in data.get("recent_files", [])]
             self._check_for_updates = bool(data.get("check_for_updates", True))
             self._cursor_persistent = bool(data.get("cursor_persistent", True))
+            self._cursor_mode = str(data.get("cursor_mode", "1/2"))
         except (FileNotFoundError, json.JSONDecodeError, TypeError, KeyError):
             self._recent = []
             self._check_for_updates = True
             self._cursor_persistent = True
+            self._cursor_mode = "1/2"
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -97,6 +109,7 @@ class Settings:
                     "recent_files": [str(p) for p in self._recent],
                     "check_for_updates": self._check_for_updates,
                     "cursor_persistent": self._cursor_persistent,
+                    "cursor_mode": self._cursor_mode,
                 },
                 indent=2,
             ),

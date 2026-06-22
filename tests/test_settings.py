@@ -183,3 +183,28 @@ def test_cursor_persistent_defaults_to_true_on_missing_key(tmp_path: Path) -> No
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
     assert Settings(path=path).cursor_persistent is True
+
+
+# ---------------------------------------------------------------------------
+# cursor_mode
+# ---------------------------------------------------------------------------
+
+def test_cursor_mode_default_12(settings: Settings) -> None:
+    assert settings.cursor_mode == "1/2"
+
+
+def test_cursor_mode_can_be_changed(settings: Settings) -> None:
+    settings.cursor_mode = "L/R"
+    assert settings.cursor_mode == "L/R"
+
+
+def test_cursor_mode_persists(settings: Settings) -> None:
+    settings.cursor_mode = "L/R"
+    reloaded = Settings(path=settings._path)
+    assert reloaded.cursor_mode == "L/R"
+
+
+def test_cursor_mode_defaults_to_12_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    assert Settings(path=path).cursor_mode == "1/2"

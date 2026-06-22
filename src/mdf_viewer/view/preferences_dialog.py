@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
+    QButtonGroup,
     QCheckBox,
     QDialog,
     QDialogButtonBox,
+    QHBoxLayout,
+    QRadioButton,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -35,6 +38,30 @@ class PreferencesDialog(QDialog):
 
         cursors = QWidget()
         cursors_layout = QVBoxLayout(cursors)
+
+        self._cursor_mode_group = QButtonGroup(self)
+        self._cursor_12 = QRadioButton("Cursor 1 / 2")
+        self._cursor_12.setToolTip(
+            "Cursor 1 and Cursor 2 always stay the same cursor, regardless of their position.\n"
+            "Delta is always Cursor 2 − Cursor 1."
+        )
+        self._cursor_lr = QRadioButton("Cursor L / R")
+        self._cursor_lr.setToolTip(
+            "Cursor L is always the cursor on the left, Cursor R is always the cursor on the right.\n"
+            "Delta is always Cursor R − Cursor L."
+        )
+        self._cursor_mode_group.addButton(self._cursor_12, 0)
+        self._cursor_mode_group.addButton(self._cursor_lr, 1)
+        if self._settings.cursor_mode == "L/R":
+            self._cursor_lr.setChecked(True)
+        else:
+            self._cursor_12.setChecked(True)
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(self._cursor_12)
+        mode_row.addWidget(self._cursor_lr)
+        mode_row.addStretch()
+        cursors_layout.addLayout(mode_row)
+
         self._cursor_persistent = QCheckBox("Persistent cursors")
         self._cursor_persistent.setChecked(self._settings.cursor_persistent)
         self._cursor_persistent.setToolTip(
@@ -57,4 +84,5 @@ class PreferencesDialog(QDialog):
     def _apply(self) -> None:
         self._settings.check_for_updates = self._update_check.isChecked()
         self._settings.cursor_persistent = self._cursor_persistent.isChecked()
+        self._settings.cursor_mode = "L/R" if self._cursor_lr.isChecked() else "1/2"
         self.accept()

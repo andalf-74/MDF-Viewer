@@ -102,6 +102,11 @@ class AppController:
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.set_mode_changed_callback(cb)
 
+    def refresh_cursors(self) -> None:
+        """Refresh cursor display after preference changes."""
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.refresh()
+
     def load_file(self, path: str | os.PathLike) -> None:
         """Open an MDF file and populate the Signal Browser.
 
