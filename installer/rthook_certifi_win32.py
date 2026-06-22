@@ -6,7 +6,7 @@ that effect so SSL connections trust the Windows certificate store (including
 corporate / internal CAs) when the app runs as a one-folder bundle.
 """
 try:
-    import certifi_win32
-    certifi_win32.load_pywin_certs()
-except ImportError:
+    import certifi_win32.bootstrap
+    certifi_win32.bootstrap.bootstrap()
+except (ImportError, Exception):
     pass
