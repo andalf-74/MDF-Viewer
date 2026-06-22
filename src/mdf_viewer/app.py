@@ -93,6 +93,7 @@ def run(argv: list[str]) -> int:
         get_x_range=lambda: tuple(window.plot_area.plot_item.vb.viewRange()[0]),
         active_signals_table=window.active_signals_table,
         get_active_signals=lambda: controller.active_signals,
+        get_cursor_persistent=lambda: settings.cursor_persistent,
     )
     controller.set_cursor_controller(cursor_ctrl)
 

@@ -33,6 +33,18 @@ class PreferencesDialog(QDialog):
         general_layout.addStretch()
         tabs.addTab(general, "General")
 
+        cursors = QWidget()
+        cursors_layout = QVBoxLayout(cursors)
+        self._cursor_persistent = QCheckBox("Persistent cursors")
+        self._cursor_persistent.setChecked(self._settings.cursor_persistent)
+        self._cursor_persistent.setToolTip(
+            "If activated, cursors keep their last position when hidden and reshown.\n"
+            "If deactivated, toggling the cursors makes them reappear in the current view."
+        )
+        cursors_layout.addWidget(self._cursor_persistent)
+        cursors_layout.addStretch()
+        tabs.addTab(cursors, "Cursors")
+
         layout.addWidget(tabs)
 
         buttons = QDialogButtonBox(
@@ -44,4 +56,5 @@ class PreferencesDialog(QDialog):
 
     def _apply(self) -> None:
         self._settings.check_for_updates = self._update_check.isChecked()
+        self._settings.cursor_persistent = self._cursor_persistent.isChecked()
         self.accept()

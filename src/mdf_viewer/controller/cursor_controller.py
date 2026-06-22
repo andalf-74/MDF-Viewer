@@ -46,6 +46,7 @@ class CursorController:
         get_x_range: Callable[[], tuple[float, float]],
         active_signals_table: CursorValueSinkProtocol,
         get_active_signals: Callable[[], list] | None = None,
+        get_cursor_persistent: Callable[[], bool] | None = None,
     ) -> None:
         """
         Parameters
@@ -62,12 +63,18 @@ class CursorController:
             AppController passes ``lambda: controller.active_signals``.
             Defaults to an empty-list callable when omitted (useful in tests
             that only exercise toggle/mode behaviour).
+        get_cursor_persistent:
+            Callable returning whether cursors should remember their last
+            position across hide/show cycles.  Defaults to ``lambda: True``.
         """
         self._view = cursor_view
         self._get_x_range = get_x_range
         self._table = active_signals_table
         self._get_active_signals: Callable[[], list] = (
             get_active_signals if get_active_signals is not None else (lambda: [])
+        )
+        self._get_cursor_persistent: Callable[[], bool] = (
+            get_cursor_persistent if get_cursor_persistent is not None else (lambda: True)
         )
 
         self._mode = CursorMode.HIDDEN
@@ -177,8 +184,10 @@ class CursorController:
 
     def _ensure_initialized(self) -> None:
         if not self._initialized:
-            self._place_initial_positions()
+            self._place_viewport_positions()
             self._initialized = True
+        elif not self._get_cursor_persistent():
+            self._place_viewport_positions()
 
     def _commit_mode(self) -> None:
         self._view.apply_mode(self._mode, self._positions)
@@ -187,14 +196,14 @@ class CursorController:
         if self._mode_changed_cb is not None:
             self._mode_changed_cb(self._mode)
 
-    def _place_initial_positions(self) -> None:
+    def _place_viewport_positions(self) -> None:
         try:
             x_min, x_max = self._get_x_range()
         except Exception:
             x_min, x_max = 0.0, 1.0
         span = max(x_max - x_min, 0.0)
-        self._positions[0] = x_min
-        self._positions[1] = x_min + span * 0.1
+        self._positions[0] = x_min + span * 0.25
+        self._positions[1] = x_min + span * 0.75
 
     def _refresh(self, *, update_labels: bool) -> None:
         """Update table values and (optionally) plot labels."""

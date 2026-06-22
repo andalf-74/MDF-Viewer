@@ -4,6 +4,17 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- "Persistent cursors" setting in Preferences → Cursors tab (default: on).
+  When on, cursors reappear at their last position; when off, they are placed
+  at 25 % and 75 % of the current viewport on every show (#59, #62).
+
+### Fixed
+- Cursors are now placed at 25 % and 75 % of the current viewport on first
+  activation, instead of at the leftmost edge of the full time range (#59).
+
+## [2.0.1] - 2026-06-22
+
 ### Fixed
 - Update check now succeeds in environments with a corporate SSL inspection CA
   (e.g. company proxies). `python-certifi-win32` is added as a Windows

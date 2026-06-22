@@ -158,3 +158,28 @@ def test_check_for_updates_defaults_to_true_on_missing_key(tmp_path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
     assert Settings(path=path).check_for_updates is True
+
+
+# ---------------------------------------------------------------------------
+# cursor_persistent
+# ---------------------------------------------------------------------------
+
+def test_cursor_persistent_default_true(settings: Settings) -> None:
+    assert settings.cursor_persistent is True
+
+
+def test_cursor_persistent_can_be_disabled(settings: Settings) -> None:
+    settings.cursor_persistent = False
+    assert settings.cursor_persistent is False
+
+
+def test_cursor_persistent_persists(settings: Settings) -> None:
+    settings.cursor_persistent = False
+    reloaded = Settings(path=settings._path)
+    assert reloaded.cursor_persistent is False
+
+
+def test_cursor_persistent_defaults_to_true_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    assert Settings(path=path).cursor_persistent is True

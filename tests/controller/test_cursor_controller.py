@@ -134,22 +134,22 @@ def test_toggle_calls_apply_mode_on_view(
 # Initial cursor placement
 # ---------------------------------------------------------------------------
 
-def test_first_toggle_places_cursor_at_x_min() -> None:
-    view = MagicMock()
-    view.cursor_moved = MagicMock()
-    view.cursor_moved.connect = MagicMock()
-    ctrl = CursorController(view, lambda: (2.5, 7.5), MagicMock(), lambda: [])
-    ctrl.toggle()
-    assert ctrl._positions[0] == pytest.approx(2.5)
-
-
-def test_first_toggle_places_second_cursor_at_10_percent_span() -> None:
+def test_first_toggle_places_cursor_at_25_percent() -> None:
     view = MagicMock()
     view.cursor_moved = MagicMock()
     view.cursor_moved.connect = MagicMock()
     ctrl = CursorController(view, lambda: (0.0, 10.0), MagicMock(), lambda: [])
     ctrl.toggle()
-    assert ctrl._positions[1] == pytest.approx(1.0)  # 10% of span
+    assert ctrl._positions[0] == pytest.approx(2.5)  # 25% of span
+
+
+def test_first_toggle_places_second_cursor_at_75_percent() -> None:
+    view = MagicMock()
+    view.cursor_moved = MagicMock()
+    view.cursor_moved.connect = MagicMock()
+    ctrl = CursorController(view, lambda: (0.0, 10.0), MagicMock(), lambda: [])
+    ctrl.toggle()
+    assert ctrl._positions[1] == pytest.approx(7.5)  # 75% of span
 
 
 def test_subsequent_toggles_use_remembered_positions(
@@ -185,7 +185,7 @@ def test_reset_causes_reinitialisation_on_next_toggle(ctrl: CursorController) ->
     ctrl2._positions[0] = 0.99
     ctrl2.reset()
     ctrl2.toggle()
-    assert ctrl2._positions[0] == pytest.approx(5.0)
+    assert ctrl2._positions[0] == pytest.approx(6.25)  # 25% of (5, 10)
 
 
 def test_reset_hides_cursors_if_active(ctrl: CursorController, view: MagicMock) -> None:
@@ -332,8 +332,8 @@ def test_first_toggle_uses_get_x_range(view: MagicMock, table: MagicMock) -> Non
     ctrl.toggle()
 
     positions = view.apply_mode.call_args[0][1]
-    assert positions[0] == pytest.approx(2.0)
-    assert positions[1] == pytest.approx(2.2)
+    assert positions[0] == pytest.approx(2.5)   # 25% of (2, 4)
+    assert positions[1] == pytest.approx(3.5)   # 75% of (2, 4)
 
 
 def test_first_toggle_uses_get_x_range_even_with_signals(
@@ -350,8 +350,8 @@ def test_first_toggle_uses_get_x_range_even_with_signals(
     ctrl.toggle()
 
     positions = view.apply_mode.call_args[0][1]
-    assert positions[0] == pytest.approx(0.0)
-    assert positions[1] == pytest.approx(0.1)
+    assert positions[0] == pytest.approx(0.25)  # 25% of (0, 1)
+    assert positions[1] == pytest.approx(0.75)  # 75% of (0, 1)
 
 
 # ---------------------------------------------------------------------------
@@ -484,3 +484,60 @@ def test_mode_changed_callback_not_fired_on_reset_when_already_hidden(
     ctrl.set_mode_changed_callback(seen.append)
     ctrl.reset()  # already HIDDEN — no state change, no callback
     assert seen == []
+
+
+# ---------------------------------------------------------------------------
+# Cursor persistence
+# ---------------------------------------------------------------------------
+
+def _make_ctrl_persistent(
+    view: MagicMock,
+    table: MagicMock,
+    persistent: bool,
+    x_range: tuple[float, float] = (0.0, 1.0),
+) -> CursorController:
+    return CursorController(
+        cursor_view=view,
+        get_x_range=lambda: x_range,
+        active_signals_table=table,
+        get_active_signals=lambda: [],
+        get_cursor_persistent=lambda: persistent,
+    )
+
+
+def test_persistence_on_keeps_positions_after_hide_show(
+    view: MagicMock, table: MagicMock
+) -> None:
+    ctrl = _make_ctrl_persistent(view, table, persistent=True)
+    ctrl.toggle()             # HIDDEN → ONE; placed at 25%/75%
+    ctrl._positions[0] = 0.42
+    ctrl.toggle()             # ONE → TWO
+    ctrl.toggle()             # TWO → HIDDEN
+    ctrl.toggle()             # HIDDEN → ONE; persistence=on → keep positions
+    assert ctrl._positions[0] == pytest.approx(0.42)
+
+
+def test_persistence_off_repositions_cursors_on_show(
+    view: MagicMock, table: MagicMock
+) -> None:
+    ctrl = _make_ctrl_persistent(view, table, persistent=False, x_range=(0.0, 10.0))
+    ctrl.toggle()             # HIDDEN → ONE; placed at 2.5/7.5
+    ctrl._positions[0] = 9.0
+    ctrl.toggle()             # ONE → TWO
+    ctrl.toggle()             # TWO → HIDDEN
+    ctrl.toggle()             # HIDDEN → ONE; persistence=off → reposition
+    assert ctrl._positions[0] == pytest.approx(2.5)
+
+
+def test_persistence_defaults_to_on(view: MagicMock, table: MagicMock) -> None:
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.99
+    ctrl.toggle()   # TWO
+    ctrl.toggle()   # HIDDEN
+    ctrl.toggle()   # ONE — should keep 0.99
+    assert ctrl._positions[0] == pytest.approx(0.99)
