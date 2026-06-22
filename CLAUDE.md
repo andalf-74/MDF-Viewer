@@ -209,6 +209,9 @@ This is printed to stderr but does **not** affect app behaviour — `MdfLoader.o
 
 ## Development Workflow
 
+### Reviewing Issues
+When asked to look at / check / review the GitHub issues, always fetch and display them grouped by milestone so the current development priority is immediately visible.
+
 ### Grill-Me Skill
 When the user says **"grill me"** about a feature or topic, Claude should enter interview mode: ask focused, one-at-a-time questions to surface requirements, edge cases, and design decisions before writing any code. Summarize findings before proceeding.
 
@@ -236,7 +239,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-21:** v1.5 released — 446 tests passing. v2.0 feature work complete (#10, #19, #54 + arch cleanup #46–#52).
+**As of 2026-06-22:** v2.0.1 released — 465 tests passing. v2.1 "Cursor Stuff" in progress: #59 and #62 closed.
 
 ### Implemented
 
@@ -385,7 +388,7 @@ See [`docs/architecture.md`](docs/architecture.md) — decision log is maintaine
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
 
 ### Next steps
-v2.0 feature-complete — ready to tag and release. Next milestone: v2.1 "Cursor Stuff" (#11, #25, #26, #29, #39).
+v2.1 "Cursor Stuff" in progress. Remaining open issues: #11, #25, #26, #29, #39, #63.
 
 ### Security — secrets that must never be committed
 
