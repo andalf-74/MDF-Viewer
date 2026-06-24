@@ -115,6 +115,10 @@ class ActiveSignalsTable(QWidget):
         self._table.setHorizontalHeaderItem(_COL_C1, QTableWidgetItem(c3_label))
         self._table.setHorizontalHeaderItem(_COL_C2, QTableWidgetItem(c4_label))
 
+    def set_delta_column_header(self, text: str) -> None:
+        """Update the header text for the delta column."""
+        self._table.setHorizontalHeaderItem(_COL_DELTA, QTableWidgetItem(text))
+
     def update_cursor_values(
         self,
         active: ActiveSignal,

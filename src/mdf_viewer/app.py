@@ -101,6 +101,9 @@ def run(argv: list[str]) -> int:
             settings.cursor_color_cl,
             settings.cursor_color_cr,
         ),
+        get_y_range=lambda: tuple(window.plot_area.plot_item.vb.viewRange()[1]),
+        get_show_delta_time=lambda: settings.show_delta_time_in_plot,
+        get_delta_time_color=lambda: settings.delta_time_color,
     )
     controller.set_cursor_controller(cursor_ctrl)
 

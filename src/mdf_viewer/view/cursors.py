@@ -29,10 +29,14 @@ if TYPE_CHECKING:
 _CURSOR_PEN = pg.mkPen(color=(220, 220, 50), width=1, style=Qt.PenStyle.DashLine)
 
 
+_DELTA_PEN = pg.mkPen(color=(200, 200, 200), width=1, style=Qt.PenStyle.DashLine)
+
+
 class CursorView(QObject):
     """Manages the draggable cursor InfiniteLines and their value labels."""
 
-    cursor_moved = pyqtSignal(int, float)  # (cursor_index, x_position)
+    cursor_moved = pyqtSignal(int, float)   # (cursor_index, x_position)
+    delta_line_moved = pyqtSignal(float)    # (y_position)
 
     def __init__(self, plot_item: pg.PlotItem, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -50,6 +54,18 @@ class CursorView(QObject):
                 lambda ln, idx=i: self.cursor_moved.emit(idx, ln.value())
             )
             self._lines.append(line)
+
+        # Horizontal delta-time line (angle=0), hidden until TWO mode.
+        self._delta_line = pg.InfiniteLine(angle=0, movable=True, pen=_DELTA_PEN)
+        self._delta_line.setVisible(False)
+        self._pi.addItem(self._delta_line)
+        self._delta_line.sigPositionChanged.connect(self._on_delta_line_pos_changed)
+
+        # Delta-time label, parented to the main ViewBox.
+        self._delta_label = pg.TextItem(text="", color=(200, 200, 200), anchor=(0.5, 1.0))
+        self._delta_label.setVisible(False)
+        self._pi.vb.addItem(self._delta_label, ignoreBounds=True)
+        self._delta_label_x: float = 0.0  # last known midpoint X, updated in update_delta_time
 
         # (cursor_index, ActiveSignal) → (TextItem, ViewBox)
         # Labels are owned by the signal's ViewBox so they track Y pan/zoom.
@@ -75,7 +91,50 @@ class CursorView(QObject):
             self._lines[0].setValue(positions[0])
         if mode == CursorMode.TWO:
             self._lines[1].setValue(positions[1])
+        if mode != CursorMode.TWO:
+            self._delta_line.setVisible(False)
+            self._delta_label.setVisible(False)
         self._refresh_label_visibility()
+
+    def update_delta_time(
+        self,
+        x1: float,
+        x2: float,
+        delta_t_str: str,
+        y_pos: float | None,
+        show: bool,
+        color: tuple,
+    ) -> None:
+        """Show or hide the horizontal delta-time line and its label.
+
+        If *y_pos* is None the line is placed at 10 % from the top of the
+        current view range.  The caller is notified of the chosen position
+        via the ``delta_line_moved`` signal so it can persist it.
+        """
+        if not show:
+            self._delta_line.setVisible(False)
+            self._delta_label.setVisible(False)
+            return
+
+        pen = pg.mkPen(color=color, width=1, style=Qt.PenStyle.DashLine)
+        self._delta_line.setPen(pen)
+        self._delta_label.setColor(color)
+
+        if y_pos is None:
+            try:
+                y_min, y_max = self._pi.vb.viewRange()[1]
+            except Exception:
+                y_min, y_max = 0.0, 1.0
+            y_pos = y_max - 0.1 * (y_max - y_min)
+
+        mid_x = (x1 + x2) / 2.0
+        self._delta_label_x = mid_x  # must be set before setValue fires sigPositionChanged
+        self._delta_line.setValue(y_pos)  # fires _on_delta_line_pos_changed → updates label
+        self._delta_line.setVisible(True)
+
+        self._delta_label.setText(delta_t_str)
+        self._delta_label.setPos(mid_x, y_pos)
+        self._delta_label.setVisible(True)
 
     def update_labels(
         self,
@@ -160,6 +219,12 @@ class CursorView(QObject):
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _on_delta_line_pos_changed(self, line: pg.InfiniteLine) -> None:
+        y = line.value()
+        if self._delta_label.isVisible():
+            self._delta_label.setPos(self._delta_label_x, y)
+        self.delta_line_moved.emit(y)
 
     def _refresh_label_visibility(self) -> None:
         for (ci, _), (lbl, _) in self._labels.items():

@@ -54,6 +54,9 @@ class CursorController:
         get_cursor_persistent: Callable[[], bool] | None = None,
         get_cursor_mode: Callable[[], str] | None = None,
         get_cursor_colors: Callable[[], tuple] | None = None,
+        get_y_range: Callable[[], tuple[float, float]] | None = None,
+        get_show_delta_time: Callable[[], bool] | None = None,
+        get_delta_time_color: Callable[[], tuple] | None = None,
     ) -> None:
         """
         Parameters
@@ -79,6 +82,16 @@ class CursorController:
         get_cursor_colors:
             Callable returning a 4-tuple ``(c1, c2, cl, cr)`` of RGB tuples.
             Defaults to the module-level color constants.
+        get_y_range:
+            Callable returning the current plot Y range as (y_min, y_max).
+            Used to place the delta-time line on first TWO activation.
+            Defaults to ``lambda: (0.0, 1.0)``.
+        get_show_delta_time:
+            Callable returning whether to show the delta-time line in the plot.
+            Defaults to ``lambda: True``.
+        get_delta_time_color:
+            Callable returning the delta-time line color as an RGB tuple.
+            Defaults to ``lambda: (200, 200, 200)``.
         """
         self._view = cursor_view
         self._get_x_range = get_x_range
@@ -97,14 +110,27 @@ class CursorController:
             if get_cursor_colors is not None
             else (lambda: (_COLOR_C1, _COLOR_C2, _COLOR_C1, _COLOR_CR))
         )
+        self._get_y_range: Callable[[], tuple[float, float]] = (
+            get_y_range if get_y_range is not None else (lambda: (0.0, 1.0))
+        )
+        self._get_show_delta_time: Callable[[], bool] = (
+            get_show_delta_time if get_show_delta_time is not None else (lambda: True)
+        )
+        self._get_delta_time_color: Callable[[], tuple] = (
+            get_delta_time_color
+            if get_delta_time_color is not None
+            else (lambda: (200, 200, 200))
+        )
 
         self._mode = CursorMode.HIDDEN
         self._positions: list[float] = [0.0, 0.0]
+        self._delta_y_pos: float | None = None
         self._initialized = False
         self._left_idx: int = 0
         self._mode_changed_cb: _ModeCallback | None = None
 
         cursor_view.cursor_moved.connect(self._on_cursor_dragged)
+        cursor_view.delta_line_moved.connect(self._on_delta_line_dragged)
 
     # ------------------------------------------------------------------
     # Public API
@@ -161,6 +187,7 @@ class CursorController:
     def reset(self) -> None:
         """Called by AppController on file load — next toggle re-places cursors."""
         self._initialized = False
+        self._delta_y_pos = None
         if self._mode != CursorMode.HIDDEN:
             self._mode = CursorMode.HIDDEN
             self._view.apply_mode(CursorMode.HIDDEN, self._positions)
@@ -199,6 +226,9 @@ class CursorController:
     def _on_cursor_dragged(self, index: int, x: float) -> None:
         self._positions[index] = x
         self._refresh(update_labels=True)
+
+    def _on_delta_line_dragged(self, y: float) -> None:
+        self._delta_y_pos = y
 
     # ------------------------------------------------------------------
     # Helpers
@@ -289,6 +319,28 @@ class CursorController:
 
         if update_labels:
             self._view.update_labels(active_signals, self._positions, self._mode)
+
+        self._refresh_delta_time()
+
+    def _refresh_delta_time(self) -> None:
+        """Update the delta-time line, label, and table column header."""
+        if self._mode == CursorMode.TWO:
+            delta_t = abs(self._positions[1] - self._positions[0])
+            delta_t_str = f"Δt = {delta_t:.4g} s"
+            self._table.set_delta_column_header(delta_t_str)
+            self._view.update_delta_time(
+                x1=self._positions[0],
+                x2=self._positions[1],
+                delta_t_str=delta_t_str,
+                y_pos=self._delta_y_pos,
+                show=self._get_show_delta_time(),
+                color=self._get_delta_time_color(),
+            )
+        else:
+            self._table.set_delta_column_header("Δ")
+            self._view.update_delta_time(
+                x1=0.0, x2=0.0, delta_t_str="", y_pos=None, show=False, color=(0, 0, 0)
+            )
 
 
 # ---------------------------------------------------------------------------

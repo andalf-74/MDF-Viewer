@@ -433,3 +433,18 @@ def test_rebuild_rows_restores_color_swatches(
     for r in range(table._table.rowCount()):
         widget = table._table.cellWidget(r, 0)
         assert isinstance(widget, _ColorSwatch)
+
+
+def test_set_delta_column_header(table: ActiveSignalsTable) -> None:
+    table.set_delta_column_header("Δt = 1.234 s")
+    item = table._table.horizontalHeaderItem(4)
+    assert item is not None
+    assert item.text() == "Δt = 1.234 s"
+
+
+def test_set_delta_column_header_resets_to_default(table: ActiveSignalsTable) -> None:
+    table.set_delta_column_header("Δt = 1.234 s")
+    table.set_delta_column_header("Δ")
+    item = table._table.horizontalHeaderItem(4)
+    assert item is not None
+    assert item.text() == "Δ"

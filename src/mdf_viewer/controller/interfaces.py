@@ -66,6 +66,8 @@ class SignalInfoProtocol(Protocol):
 class CursorViewProtocol(Protocol):
     # pyqtSignal(int, float) — connected in CursorController.__init__
     cursor_moved: Any
+    # pyqtSignal(float) — connected in CursorController.__init__
+    delta_line_moved: Any
 
     def apply_mode(self, mode: CursorMode, positions: list[float]) -> None: ...
     def update_labels(
@@ -73,6 +75,15 @@ class CursorViewProtocol(Protocol):
         signals: list[ActiveSignal],
         positions: list[float],
         mode: CursorMode,
+    ) -> None: ...
+    def update_delta_time(
+        self,
+        x1: float,
+        x2: float,
+        delta_t_str: str,
+        y_pos: float | None,
+        show: bool,
+        color: tuple,
     ) -> None: ...
     def remove_labels_for(self, active: ActiveSignal) -> None: ...
     def clear_labels(self) -> None: ...
@@ -88,3 +99,4 @@ class CursorValueSinkProtocol(Protocol):
     ) -> None: ...
     def show_cursor_columns(self, show: bool) -> None: ...
     def set_cursor_column_headers(self, c3: str, c4: str) -> None: ...
+    def set_delta_column_header(self, text: str) -> None: ...

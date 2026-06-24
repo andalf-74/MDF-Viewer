@@ -33,9 +33,11 @@ def _make_active(name: str = "sig") -> ActiveSignal:
 @pytest.fixture()
 def view() -> MagicMock:
     v = MagicMock()
-    # cursor_moved must behave like a real signal for .connect()
+    # cursor_moved and delta_line_moved must behave like real signals for .connect()
     v.cursor_moved = MagicMock()
     v.cursor_moved.connect = MagicMock()
+    v.delta_line_moved = MagicMock()
+    v.delta_line_moved.connect = MagicMock()
     return v
 
 
@@ -671,3 +673,83 @@ def test_persistence_defaults_to_on(view: MagicMock, table: MagicMock) -> None:
     ctrl.toggle()   # HIDDEN
     ctrl.toggle()   # ONE — should keep 0.99
     assert ctrl._positions[0] == pytest.approx(0.99)
+
+
+# ---------------------------------------------------------------------------
+# Delta-time
+# ---------------------------------------------------------------------------
+
+def _make_ctrl_delta(view, table, show=True, color=(200, 200, 200)):
+    return CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_show_delta_time=lambda: show,
+        get_delta_time_color=lambda: color,
+    )
+
+
+def test_delta_time_not_shown_in_one_mode(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_delta(view, table)
+    ctrl.toggle()  # ONE
+    view.update_delta_time.assert_called_with(
+        x1=pytest.approx(0.0, abs=1.0),
+        x2=pytest.approx(0.0, abs=1.0),
+        delta_t_str="",
+        y_pos=None,
+        show=False,
+        color=(0, 0, 0),
+    )
+
+
+def test_delta_time_shown_in_two_mode(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_delta(view, table)
+    ctrl.toggle()  # ONE
+    ctrl.toggle()  # TWO
+    call_kwargs = view.update_delta_time.call_args[1]
+    assert call_kwargs["show"] is True
+    assert "Δt" in call_kwargs["delta_t_str"]
+
+
+def test_delta_time_hidden_when_show_false(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_delta(view, table, show=False)
+    ctrl.toggle()  # ONE
+    ctrl.toggle()  # TWO
+    call_kwargs = view.update_delta_time.call_args[1]
+    assert call_kwargs["show"] is False
+
+
+def test_delta_time_color_passed_to_view(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_delta(view, table, color=(1, 2, 3))
+    ctrl.toggle()  # ONE
+    ctrl.toggle()  # TWO
+    call_kwargs = view.update_delta_time.call_args[1]
+    assert call_kwargs["color"] == (1, 2, 3)
+
+
+def test_delta_column_header_set_in_two_mode(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_delta(view, table)
+    ctrl.toggle()  # ONE
+    ctrl._positions[1] = 0.5
+    ctrl.toggle()  # TWO
+    calls = [str(c) for c in table.set_delta_column_header.call_args_list]
+    assert any("Δt" in c for c in calls)
+
+
+def test_delta_column_header_reset_when_not_two(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_delta(view, table)
+    ctrl.toggle()  # ONE
+    table.set_delta_column_header.assert_called_with("Δ")
+
+
+def test_delta_y_pos_remembered_after_drag(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_delta(view, table)
+    ctrl._on_delta_line_dragged(0.42)
+    assert ctrl._delta_y_pos == pytest.approx(0.42)
+
+
+def test_delta_y_pos_reset_on_file_load(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_delta(view, table)
+    ctrl._on_delta_line_dragged(0.42)
+    ctrl.reset()
+    assert ctrl._delta_y_pos is None

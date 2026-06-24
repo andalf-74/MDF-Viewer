@@ -19,6 +19,7 @@ DEFAULT_CURSOR_COLOR_C1 = (220, 220, 50)
 DEFAULT_CURSOR_COLOR_C2 = (255, 140, 0)
 DEFAULT_CURSOR_COLOR_CL = (220, 220, 50)
 DEFAULT_CURSOR_COLOR_CR = (50, 150, 255)
+DEFAULT_DELTA_TIME_COLOR = (200, 200, 200)
 
 
 def _default_config_path() -> Path:
@@ -42,6 +43,8 @@ class Settings:
         self._cursor_color_c2: tuple[int, int, int] = DEFAULT_CURSOR_COLOR_C2
         self._cursor_color_cl: tuple[int, int, int] = DEFAULT_CURSOR_COLOR_CL
         self._cursor_color_cr: tuple[int, int, int] = DEFAULT_CURSOR_COLOR_CR
+        self._show_delta_time_in_plot: bool = True
+        self._delta_time_color: tuple[int, int, int] = DEFAULT_DELTA_TIME_COLOR
         self._load()
 
     # ------------------------------------------------------------------
@@ -122,6 +125,24 @@ class Settings:
         self._cursor_color_cr = value
         self._save()
 
+    @property
+    def show_delta_time_in_plot(self) -> bool:
+        return self._show_delta_time_in_plot
+
+    @show_delta_time_in_plot.setter
+    def show_delta_time_in_plot(self, value: bool) -> None:
+        self._show_delta_time_in_plot = value
+        self._save()
+
+    @property
+    def delta_time_color(self) -> tuple[int, int, int]:
+        return self._delta_time_color
+
+    @delta_time_color.setter
+    def delta_time_color(self, value: tuple[int, int, int]) -> None:
+        self._delta_time_color = value
+        self._save()
+
     def get_and_prune(self) -> list[Path]:
         """Return only paths that exist on disk; save if any were removed."""
         existing = [p for p in self._recent if p.exists()]
@@ -145,6 +166,8 @@ class Settings:
             self._cursor_color_c2 = self._load_color(data, "cursor_color_c2", DEFAULT_CURSOR_COLOR_C2)
             self._cursor_color_cl = self._load_color(data, "cursor_color_cl", DEFAULT_CURSOR_COLOR_CL)
             self._cursor_color_cr = self._load_color(data, "cursor_color_cr", DEFAULT_CURSOR_COLOR_CR)
+            self._show_delta_time_in_plot = bool(data.get("show_delta_time_in_plot", True))
+            self._delta_time_color = self._load_color(data, "delta_time_color", DEFAULT_DELTA_TIME_COLOR)
         except (FileNotFoundError, json.JSONDecodeError, TypeError, KeyError):
             self._recent = []
             self._check_for_updates = True
@@ -154,6 +177,8 @@ class Settings:
             self._cursor_color_c2 = DEFAULT_CURSOR_COLOR_C2
             self._cursor_color_cl = DEFAULT_CURSOR_COLOR_CL
             self._cursor_color_cr = DEFAULT_CURSOR_COLOR_CR
+            self._show_delta_time_in_plot = True
+            self._delta_time_color = DEFAULT_DELTA_TIME_COLOR
 
     @staticmethod
     def _load_color(
@@ -177,6 +202,8 @@ class Settings:
                     "cursor_color_c2": list(self._cursor_color_c2),
                     "cursor_color_cl": list(self._cursor_color_cl),
                     "cursor_color_cr": list(self._cursor_color_cr),
+                    "show_delta_time_in_plot": self._show_delta_time_in_plot,
+                    "delta_time_color": list(self._delta_time_color),
                 },
                 indent=2,
             ),

@@ -262,3 +262,44 @@ def test_cursor_colors_default_on_malformed_value(tmp_path: Path) -> None:
     s = Settings(path=path)
     assert s.cursor_color_c1 == DEFAULT_CURSOR_COLOR_C1
     assert s.cursor_color_cr == DEFAULT_CURSOR_COLOR_CR
+
+
+# ---------------------------------------------------------------------------
+# show_delta_time_in_plot / delta_time_color
+# ---------------------------------------------------------------------------
+
+def test_show_delta_time_default_true(settings: Settings) -> None:
+    assert settings.show_delta_time_in_plot is True
+
+
+def test_show_delta_time_can_be_disabled(settings: Settings) -> None:
+    settings.show_delta_time_in_plot = False
+    assert settings.show_delta_time_in_plot is False
+
+
+def test_show_delta_time_persists(settings: Settings) -> None:
+    settings.show_delta_time_in_plot = False
+    reloaded = Settings(path=settings._path)
+    assert reloaded.show_delta_time_in_plot is False
+
+
+def test_show_delta_time_defaults_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    assert Settings(path=path).show_delta_time_in_plot is True
+
+
+def test_delta_time_color_default(settings: Settings) -> None:
+    from mdf_viewer.settings import DEFAULT_DELTA_TIME_COLOR
+    assert settings.delta_time_color == DEFAULT_DELTA_TIME_COLOR
+
+
+def test_delta_time_color_can_be_changed(settings: Settings) -> None:
+    settings.delta_time_color = (1, 2, 3)
+    assert settings.delta_time_color == (1, 2, 3)
+
+
+def test_delta_time_color_persists(settings: Settings) -> None:
+    settings.delta_time_color = (1, 2, 3)
+    reloaded = Settings(path=settings._path)
+    assert reloaded.delta_time_color == (1, 2, 3)

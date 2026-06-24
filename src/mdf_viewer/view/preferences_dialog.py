@@ -22,6 +22,7 @@ from mdf_viewer.settings import (
     DEFAULT_CURSOR_COLOR_C2,
     DEFAULT_CURSOR_COLOR_CL,
     DEFAULT_CURSOR_COLOR_CR,
+    DEFAULT_DELTA_TIME_COLOR,
     Settings,
 )
 
@@ -105,6 +106,18 @@ class PreferencesDialog(QDialog):
         color_grid.addWidget(QLabel("Cursor R"), 1, 4)
         cursors_layout.addLayout(color_grid)
 
+        cursors_layout.addSpacing(8)
+
+        delta_row = QHBoxLayout()
+        self._show_delta_time = QCheckBox("Show ∆-Time in Plot")
+        self._show_delta_time.setChecked(self._settings.show_delta_time_in_plot)
+        self._swatch_delta = _make_swatch(self._settings.delta_time_color)
+        delta_row.addWidget(self._show_delta_time)
+        delta_row.addStretch()
+        delta_row.addWidget(self._swatch_delta)
+        delta_row.addWidget(QLabel("∆-Time color"))
+        cursors_layout.addLayout(delta_row)
+
         reset_row = QHBoxLayout()
         reset_row.addStretch()
         reset_btn = QPushButton("Reset to defaults")
@@ -132,6 +145,8 @@ class PreferencesDialog(QDialog):
         self._settings.cursor_color_c2 = self._swatch_c2.rgb()
         self._settings.cursor_color_cl = self._swatch_cl.rgb()
         self._settings.cursor_color_cr = self._swatch_cr.rgb()
+        self._settings.show_delta_time_in_plot = self._show_delta_time.isChecked()
+        self._settings.delta_time_color = self._swatch_delta.rgb()
         self.accept()
 
     def _reset_cursor_colors(self) -> None:
@@ -139,6 +154,8 @@ class PreferencesDialog(QDialog):
         self._swatch_c2.set_color(QColor(*DEFAULT_CURSOR_COLOR_C2))
         self._swatch_cl.set_color(QColor(*DEFAULT_CURSOR_COLOR_CL))
         self._swatch_cr.set_color(QColor(*DEFAULT_CURSOR_COLOR_CR))
+        self._swatch_delta.set_color(QColor(*DEFAULT_DELTA_TIME_COLOR))
+        self._show_delta_time.setChecked(True)
 
 
 class _CursorColorSwatch(QPushButton):
