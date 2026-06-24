@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QRadioButton,
+    QSpinBox,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -50,6 +51,21 @@ class PreferencesDialog(QDialog):
         self._update_check = QCheckBox("Check for updates on startup")
         self._update_check.setChecked(self._settings.check_for_updates)
         general_layout.addWidget(self._update_check)
+
+        undo_row = QHBoxLayout()
+        undo_row.addWidget(QLabel("Undo steps:"))
+        self._undo_steps = QSpinBox()
+        self._undo_steps.setMinimum(1)
+        self._undo_steps.setMaximum(100)
+        self._undo_steps.setValue(self._settings.max_undo_steps)
+        self._undo_steps.setToolTip(
+            "Number of zoom steps that can be undone (Ctrl+Z).\n"
+            "Higher values use more memory."
+        )
+        undo_row.addWidget(self._undo_steps)
+        undo_row.addStretch()
+        general_layout.addLayout(undo_row)
+
         general_layout.addStretch()
         tabs.addTab(general, "General")
 
@@ -177,6 +193,7 @@ class PreferencesDialog(QDialog):
 
     def _apply(self) -> None:
         self._settings.check_for_updates = self._update_check.isChecked()
+        self._settings.max_undo_steps = self._undo_steps.value()
         self._settings.cursor_persistent = self._cursor_persistent.isChecked()
         self._settings.cursor_mode = "L/R" if self._cursor_lr.isChecked() else "1/2"
         self._settings.cursor_color_c1 = self._swatch_c1.rgb()

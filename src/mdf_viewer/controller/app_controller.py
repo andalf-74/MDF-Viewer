@@ -66,6 +66,7 @@ class AppController:
         self._selected: ActiveSignal | None = None
         self._color_index: int = 0
         self._cursor_ctrl = None  # set by set_cursor_controller()
+        self._zoom_ctrl = None    # set by set_zoom_controller()
         self._y_grid_enabled: bool = False
 
     # ------------------------------------------------------------------
@@ -75,6 +76,10 @@ class AppController:
     def set_cursor_controller(self, cursor_ctrl) -> None:
         """Wire in the CursorController after construction."""
         self._cursor_ctrl = cursor_ctrl
+
+    def set_zoom_controller(self, zoom_ctrl) -> None:
+        """Wire in the ZoomController after construction."""
+        self._zoom_ctrl = zoom_ctrl
 
     # ------------------------------------------------------------------
     # Cursor proxy — MainWindow calls these instead of CursorController
@@ -93,10 +98,19 @@ class AppController:
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.press_cursor2()
 
-    def zoom_to_cursors(self) -> tuple[float, float] | None:
-        if self._cursor_ctrl is not None:
-            return self._cursor_ctrl.zoom_to_cursors()
-        return None
+    def zoom_to_cursors(self) -> bool:
+        """Zoom X to the cursor span in TWO mode. Returns True if applied."""
+        if self._cursor_ctrl is None:
+            return False
+        span = self._cursor_ctrl.zoom_to_cursors()
+        if span is None:
+            return False
+        if self._zoom_ctrl is not None:
+            self._zoom_ctrl.before_discrete_action()
+        self._plot.zoom_to_x_range(*span)
+        if self._zoom_ctrl is not None:
+            self._zoom_ctrl.after_discrete_action()
+        return True
 
     def press_left(self) -> None:
         if self._cursor_ctrl is not None:
@@ -114,6 +128,38 @@ class AppController:
         """Refresh cursor display after preference changes."""
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.refresh()
+
+    # ------------------------------------------------------------------
+    # Zoom proxy — MainWindow calls these for all zoom actions so the
+    # ZoomController can wrap each one with before/after_discrete_action.
+    # ------------------------------------------------------------------
+
+    def zoom_to_fit(self) -> None:
+        if self._zoom_ctrl is not None:
+            self._zoom_ctrl.before_discrete_action()
+        self._plot.zoom_to_fit()
+        if self._zoom_ctrl is not None:
+            self._zoom_ctrl.after_discrete_action()
+
+    def zoom_y_to_view(self) -> bool:
+        if self._zoom_ctrl is not None:
+            self._zoom_ctrl.before_discrete_action()
+        result = self._plot.zoom_y_to_view()
+        if self._zoom_ctrl is not None:
+            self._zoom_ctrl.after_discrete_action()
+        return result
+
+    # ------------------------------------------------------------------
+    # Undo/redo proxy
+    # ------------------------------------------------------------------
+
+    def undo(self) -> None:
+        if self._zoom_ctrl is not None:
+            self._zoom_ctrl.undo()
+
+    def redo(self) -> None:
+        if self._zoom_ctrl is not None:
+            self._zoom_ctrl.redo()
 
     def load_file(self, path: str | os.PathLike) -> None:
         """Open an MDF file and populate the Signal Browser.
@@ -137,6 +183,8 @@ class AppController:
         self._info_box.set_info(info)
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.reset()
+        if self._zoom_ctrl is not None:
+            self._zoom_ctrl.clear()
         if self._settings is not None:
             self._settings.add_recent(path)
 
@@ -211,7 +259,12 @@ class AppController:
 
         Returns True if applied, False when no signals are active.
         """
-        return self._plot.swimlanes(self._active)
+        if self._zoom_ctrl is not None:
+            self._zoom_ctrl.before_discrete_action()
+        result = self._plot.swimlanes(self._active)
+        if self._zoom_ctrl is not None:
+            self._zoom_ctrl.after_discrete_action()
+        return result
 
     def reorder_signals(self, ordered: list) -> None:
         """Update the active signal order to match the table's new row order."""

@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
 from mdf_viewer.view_model.active_signal import ActiveSignal
+from mdf_viewer.view_model.zoom_state import ZoomState
 
 if TYPE_CHECKING:
     pass
@@ -137,6 +138,8 @@ class PlotArea(QWidget):
     file_dropped = pyqtSignal(object)  # Path
     # Emitted when signals are dragged from the Signal Browser and dropped.
     signals_dropped = pyqtSignal(list)  # list of (group_index, channel_index)
+    # Emitted whenever the X or any signal Y range changes (for zoom undo/redo).
+    range_changed = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -156,6 +159,7 @@ class PlotArea(QWidget):
         self._pi.vb.sigResized.connect(self._update_view_geometries)
         self._pi.ctrl.yGridCheck.toggled.connect(self._on_y_grid_toggled)
         self._pi.vb.zoom_rect_finished.connect(self._on_zoom_rect_finished)
+        self._pi.vb.sigRangeChanged.connect(self._on_vb_range_changed)
 
         self._pw.viewport().setAcceptDrops(True)
         self._pw.viewport().installEventFilter(self)
@@ -212,6 +216,9 @@ class PlotArea(QWidget):
 
         self._update_view_geometries()
         vb.enableAutoRange()
+        # Connect after enableAutoRange so the initial auto-range isn't captured
+        # as a zoom undo step.
+        vb.sigRangeChanged.connect(self._on_vb_range_changed)
 
     def remove_signal(self, active: ActiveSignal) -> None:
         """Remove a signal's curve, ViewBox, and axis. No-op if not present."""
@@ -219,6 +226,7 @@ class PlotArea(QWidget):
             return
         spd = self._data.pop(active)
         spd.view_box.zoom_rect_finished.disconnect(self._on_zoom_rect_finished)
+        spd.view_box.sigRangeChanged.disconnect(self._on_vb_range_changed)
         spd.view_box.removeItem(spd.curve)
         self._pi.layout.removeItem(spd.axis)
         spd.axis.hide()
@@ -346,6 +354,28 @@ class PlotArea(QWidget):
             spd.view_box.setYRange(y_min, y_max, padding=0.05)
         return True
 
+    def get_zoom_state(self, active_signals: list) -> ZoomState:
+        """Snapshot the current X range and each active signal's Y range."""
+        x_range = tuple(self._pi.vb.viewRange()[0])
+        y_ranges = {
+            active: tuple(active.view_box.viewRange()[1])
+            for active in active_signals
+            if active.view_box is not None
+        }
+        return ZoomState(x_range=x_range, y_ranges=y_ranges)
+
+    def set_zoom_state(self, state: ZoomState, active_signals: list) -> None:
+        """Restore X and Y ranges from a previously captured ZoomState.
+
+        Signals present in active_signals but absent from state.y_ranges (added
+        after the snapshot) keep their current Y range.  Signals that were in
+        the snapshot but have since been removed are silently skipped.
+        """
+        self._pi.vb.setXRange(*state.x_range, padding=0)
+        for active in active_signals:
+            if active in state.y_ranges and active.view_box is not None:
+                active.view_box.setYRange(*state.y_ranges[active], padding=0)
+
     @property
     def plot_item(self) -> pg.PlotItem:
         return self._pi
@@ -403,6 +433,9 @@ class PlotArea(QWidget):
             event.ignore()
         else:
             event.ignore()
+
+    def _on_vb_range_changed(self, *_) -> None:
+        self.range_changed.emit()
 
     def _on_zoom_rect_finished(self, scene_rect: QRectF) -> None:
         """Apply zoom rect Y extent to every signal ViewBox and update their undo history."""

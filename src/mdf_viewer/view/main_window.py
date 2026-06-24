@@ -242,6 +242,14 @@ class MainWindow(QMainWindow):
         self._cursor_right_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self._cursor_right_shortcut.activated.connect(self._on_cursor_right)
 
+        self._undo_action = QAction("Undo", self)
+        self._undo_action.setShortcut(QKeySequence("Ctrl+Z"))
+        self._undo_action.triggered.connect(self._on_undo)
+
+        self._redo_action = QAction("Redo", self)
+        self._redo_action.setShortcut(QKeySequence("Ctrl+Shift+Z"))
+        self._redo_action.triggered.connect(self._on_redo)
+
         self._preferences_action = QAction("Preferences…", self)
         self._preferences_action.triggered.connect(self._on_preferences)
 
@@ -265,6 +273,10 @@ class MainWindow(QMainWindow):
         self._file_menu.addSeparator()
         self._file_menu.addAction(self._exit_action)
         self._file_menu.aboutToShow.connect(self._rebuild_recent_files)
+
+        self._edit_menu = self.menuBar().addMenu("&Edit")
+        self._edit_menu.addAction(self._undo_action)
+        self._edit_menu.addAction(self._redo_action)
 
         self._help_menu = self.menuBar().addMenu("&Help")
         self._help_menu.addAction(self._check_update_action)
@@ -520,11 +532,13 @@ class MainWindow(QMainWindow):
             self.statusBar().clearMessage()
 
     def _on_zoom_to_fit(self) -> None:
-        if hasattr(self.plot_area, "zoom_to_fit"):
-            self.plot_area.zoom_to_fit()
+        if self._controller is not None:
+            self._controller.zoom_to_fit()
 
     def _on_zoom_y_to_view(self) -> None:
-        if not self.plot_area.zoom_y_to_view():
+        if self._controller is None:
+            return
+        if not self._controller.zoom_y_to_view():
             self.show_status("No active signals to zoom.")
 
     def _on_swimlanes(self) -> None:
@@ -534,11 +548,16 @@ class MainWindow(QMainWindow):
             self.show_status("No active signals to arrange.")
 
     def _on_zoom_to_cursors(self) -> None:
-        if self._controller is None:
-            return
-        span = self._controller.zoom_to_cursors()
-        if span is not None:
-            self.plot_area.zoom_to_x_range(*span)
+        if self._controller is not None:
+            self._controller.zoom_to_cursors()
+
+    def _on_undo(self) -> None:
+        if self._controller is not None:
+            self._controller.undo()
+
+    def _on_redo(self) -> None:
+        if self._controller is not None:
+            self._controller.redo()
 
     def _on_cursor_mode_changed(self, mode) -> None:
         from mdf_viewer.controller.cursor_controller import CursorMode

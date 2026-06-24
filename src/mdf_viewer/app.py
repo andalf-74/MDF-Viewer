@@ -22,6 +22,7 @@ def run(argv: list[str]) -> int:
     from mdf_viewer import __version__
     from mdf_viewer.controller.app_controller import AppController
     from mdf_viewer.controller.cursor_controller import CursorController
+    from mdf_viewer.controller.zoom_controller import ZoomController
     from mdf_viewer.errors import MdfLoadError
     from mdf_viewer.license.license_manager import LicenseManager
     from mdf_viewer.model.mdf_loader import MdfLoader
@@ -112,6 +113,13 @@ def run(argv: list[str]) -> int:
         get_x_per_pixel=lambda: window.plot_area.plot_item.vb.viewPixelSize()[0],
     )
     controller.set_cursor_controller(cursor_ctrl)
+
+    zoom_ctrl = ZoomController(
+        plot_area=window.plot_area,
+        get_active_signals=lambda: controller.active_signals,
+        get_max_steps=lambda: settings.max_undo_steps,
+    )
+    controller.set_zoom_controller(zoom_ctrl)
 
     window.set_settings(settings)
     window.set_controller(controller)

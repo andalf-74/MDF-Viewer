@@ -27,6 +27,9 @@ DEFAULT_CURSOR_STEP_SAMPLES = 1        # number of samples per key press
 DEFAULT_CURSOR_STEP_PIXELS = 1         # number of pixels per key press
 DEFAULT_CURSOR_STEP_TIME_MS = 10.0     # milliseconds per key press
 
+# Default zoom undo history depth
+DEFAULT_MAX_UNDO_STEPS = 1
+
 
 def _default_config_path() -> Path:
     if sys.platform == "win32":
@@ -55,6 +58,7 @@ class Settings:
         self._cursor_step_samples: int = DEFAULT_CURSOR_STEP_SAMPLES
         self._cursor_step_pixels: int = DEFAULT_CURSOR_STEP_PIXELS
         self._cursor_step_time_ms: float = DEFAULT_CURSOR_STEP_TIME_MS
+        self._max_undo_steps: int = DEFAULT_MAX_UNDO_STEPS
         self._load()
 
     # ------------------------------------------------------------------
@@ -189,6 +193,15 @@ class Settings:
         self._cursor_step_time_ms = value
         self._save()
 
+    @property
+    def max_undo_steps(self) -> int:
+        return self._max_undo_steps
+
+    @max_undo_steps.setter
+    def max_undo_steps(self, value: int) -> None:
+        self._max_undo_steps = max(1, int(value))
+        self._save()
+
     def get_and_prune(self) -> list[Path]:
         """Return only paths that exist on disk; save if any were removed."""
         existing = [p for p in self._recent if p.exists()]
@@ -218,6 +231,7 @@ class Settings:
             self._cursor_step_samples = int(data.get("cursor_step_samples", DEFAULT_CURSOR_STEP_SAMPLES))
             self._cursor_step_pixels = int(data.get("cursor_step_pixels", DEFAULT_CURSOR_STEP_PIXELS))
             self._cursor_step_time_ms = float(data.get("cursor_step_time_ms", DEFAULT_CURSOR_STEP_TIME_MS))
+            self._max_undo_steps = max(1, int(data.get("max_undo_steps", DEFAULT_MAX_UNDO_STEPS)))
         except (FileNotFoundError, json.JSONDecodeError, TypeError, KeyError):
             self._recent = []
             self._check_for_updates = True
@@ -233,6 +247,7 @@ class Settings:
             self._cursor_step_samples = DEFAULT_CURSOR_STEP_SAMPLES
             self._cursor_step_pixels = DEFAULT_CURSOR_STEP_PIXELS
             self._cursor_step_time_ms = DEFAULT_CURSOR_STEP_TIME_MS
+            self._max_undo_steps = DEFAULT_MAX_UNDO_STEPS
 
     @staticmethod
     def _load_color(
@@ -262,6 +277,7 @@ class Settings:
                     "cursor_step_samples": self._cursor_step_samples,
                     "cursor_step_pixels": self._cursor_step_pixels,
                     "cursor_step_time_ms": self._cursor_step_time_ms,
+                    "max_undo_steps": self._max_undo_steps,
                 },
                 indent=2,
             ),

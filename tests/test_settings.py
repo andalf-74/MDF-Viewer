@@ -303,3 +303,38 @@ def test_delta_time_color_persists(settings: Settings) -> None:
     settings.delta_time_color = (1, 2, 3)
     reloaded = Settings(path=settings._path)
     assert reloaded.delta_time_color == (1, 2, 3)
+
+
+# ---------------------------------------------------------------------------
+# max_undo_steps
+# ---------------------------------------------------------------------------
+
+def test_max_undo_steps_default(settings: Settings) -> None:
+    from mdf_viewer.settings import DEFAULT_MAX_UNDO_STEPS
+    assert settings.max_undo_steps == DEFAULT_MAX_UNDO_STEPS
+
+
+def test_max_undo_steps_default_is_1(settings: Settings) -> None:
+    assert settings.max_undo_steps == 1
+
+
+def test_max_undo_steps_can_be_changed(settings: Settings) -> None:
+    settings.max_undo_steps = 10
+    assert settings.max_undo_steps == 10
+
+
+def test_max_undo_steps_persists(settings: Settings) -> None:
+    settings.max_undo_steps = 5
+    reloaded = Settings(path=settings._path)
+    assert reloaded.max_undo_steps == 5
+
+
+def test_max_undo_steps_clamps_below_1(settings: Settings) -> None:
+    settings.max_undo_steps = 0
+    assert settings.max_undo_steps == 1
+
+
+def test_max_undo_steps_defaults_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    assert Settings(path=path).max_undo_steps == 1
