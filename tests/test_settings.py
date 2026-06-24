@@ -6,7 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from mdf_viewer.settings import MAX_RECENT, Settings
+from mdf_viewer.settings import (
+    DEFAULT_CURSOR_COLOR_C1,
+    DEFAULT_CURSOR_COLOR_C2,
+    DEFAULT_CURSOR_COLOR_CL,
+    DEFAULT_CURSOR_COLOR_CR,
+    MAX_RECENT,
+    Settings,
+)
 
 
 @pytest.fixture()
@@ -208,3 +215,50 @@ def test_cursor_mode_defaults_to_12_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
     assert Settings(path=path).cursor_mode == "1/2"
+
+
+# ---------------------------------------------------------------------------
+# cursor colors
+# ---------------------------------------------------------------------------
+
+def test_cursor_colors_default(settings: Settings) -> None:
+    assert settings.cursor_color_c1 == DEFAULT_CURSOR_COLOR_C1
+    assert settings.cursor_color_c2 == DEFAULT_CURSOR_COLOR_C2
+    assert settings.cursor_color_cl == DEFAULT_CURSOR_COLOR_CL
+    assert settings.cursor_color_cr == DEFAULT_CURSOR_COLOR_CR
+
+
+def test_cursor_colors_can_be_changed(settings: Settings) -> None:
+    settings.cursor_color_c1 = (1, 2, 3)
+    settings.cursor_color_c2 = (4, 5, 6)
+    settings.cursor_color_cl = (7, 8, 9)
+    settings.cursor_color_cr = (10, 11, 12)
+    assert settings.cursor_color_c1 == (1, 2, 3)
+    assert settings.cursor_color_c2 == (4, 5, 6)
+    assert settings.cursor_color_cl == (7, 8, 9)
+    assert settings.cursor_color_cr == (10, 11, 12)
+
+
+def test_cursor_colors_persist(settings: Settings) -> None:
+    settings.cursor_color_c1 = (1, 2, 3)
+    settings.cursor_color_cr = (10, 11, 12)
+    reloaded = Settings(path=settings._path)
+    assert reloaded.cursor_color_c1 == (1, 2, 3)
+    assert reloaded.cursor_color_cr == (10, 11, 12)
+
+
+def test_cursor_colors_default_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    s = Settings(path=path)
+    assert s.cursor_color_c1 == DEFAULT_CURSOR_COLOR_C1
+    assert s.cursor_color_cr == DEFAULT_CURSOR_COLOR_CR
+
+
+def test_cursor_colors_default_on_malformed_value(tmp_path: Path) -> None:
+    import json
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"cursor_color_c1": "bad", "cursor_color_cr": [1, 2]}), encoding="utf-8")
+    s = Settings(path=path)
+    assert s.cursor_color_c1 == DEFAULT_CURSOR_COLOR_C1
+    assert s.cursor_color_cr == DEFAULT_CURSOR_COLOR_CR

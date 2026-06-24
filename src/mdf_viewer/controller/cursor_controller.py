@@ -53,6 +53,7 @@ class CursorController:
         get_active_signals: Callable[[], list] | None = None,
         get_cursor_persistent: Callable[[], bool] | None = None,
         get_cursor_mode: Callable[[], str] | None = None,
+        get_cursor_colors: Callable[[], tuple] | None = None,
     ) -> None:
         """
         Parameters
@@ -75,6 +76,9 @@ class CursorController:
         get_cursor_mode:
             Callable returning ``"1/2"`` or ``"L/R"``.  Defaults to
             ``lambda: "1/2"``.
+        get_cursor_colors:
+            Callable returning a 4-tuple ``(c1, c2, cl, cr)`` of RGB tuples.
+            Defaults to the module-level color constants.
         """
         self._view = cursor_view
         self._get_x_range = get_x_range
@@ -87,6 +91,11 @@ class CursorController:
         )
         self._get_cursor_mode: Callable[[], str] = (
             get_cursor_mode if get_cursor_mode is not None else (lambda: "1/2")
+        )
+        self._get_cursor_colors: Callable[[], tuple] = (
+            get_cursor_colors
+            if get_cursor_colors is not None
+            else (lambda: (_COLOR_C1, _COLOR_C2, _COLOR_C1, _COLOR_CR))
         )
 
         self._mode = CursorMode.HIDDEN
@@ -225,6 +234,7 @@ class CursorController:
 
         cursor_mode = self._get_cursor_mode()
         active_signals = self._get_active_signals()
+        color_c1, color_c2, color_cl, color_cr = self._get_cursor_colors()
 
         if cursor_mode == "L/R":
             self._table.set_cursor_column_headers("Cursor L", "Cursor R")
@@ -239,8 +249,8 @@ class CursorController:
                 cl_x = self._positions[self._left_idx]
                 cr_x = self._positions[right_idx]
                 line_colors: list = [None, None]
-                line_colors[self._left_idx] = _COLOR_C1
-                line_colors[right_idx] = _COLOR_CR
+                line_colors[self._left_idx] = color_cl
+                line_colors[right_idx] = color_cr
                 self._view.set_line_colors(line_colors[0], line_colors[1])
                 for active in active_signals:
                     cl_val = _interpolate(active, cl_x)
@@ -254,7 +264,7 @@ class CursorController:
                         active, _fmt(cl_val), _fmt(cr_val), _fmt(delta)
                     )
             else:  # ONE — single cursor is always Cursor L by definition
-                self._view.set_line_colors(_COLOR_C1, _COLOR_CR)
+                self._view.set_line_colors(color_cl, color_cr)
                 c_x = self._positions[0]
                 for active in active_signals:
                     self._table.update_cursor_values(
@@ -262,7 +272,7 @@ class CursorController:
                     )
         else:  # "1/2" mode (default)
             self._table.set_cursor_column_headers("Cursor 1", "Cursor 2")
-            self._view.set_line_colors(_COLOR_C1, _COLOR_C2)
+            self._view.set_line_colors(color_c1, color_c2)
             c1_x = self._positions[0]
             c2_x = self._positions[1] if self._mode == CursorMode.TWO else None
             for active in active_signals:

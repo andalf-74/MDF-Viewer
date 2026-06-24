@@ -622,6 +622,43 @@ def test_set_line_colors_called_on_refresh(view: MagicMock, table: MagicMock) ->
     view.set_line_colors.assert_called()
 
 
+def test_get_cursor_colors_called_on_refresh(view: MagicMock, table: MagicMock) -> None:
+    custom = ((1, 2, 3), (4, 5, 6), (7, 8, 9), (10, 11, 12))
+    calls = []
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_cursor_colors=lambda: (calls.append(1) or custom),
+    )
+    ctrl.toggle()
+    assert calls, "get_cursor_colors was not called during refresh"
+    view.set_line_colors.assert_called_with(custom[0], custom[1])
+
+
+def test_get_cursor_colors_used_in_lr_mode(view: MagicMock, table: MagicMock) -> None:
+    custom = ((1, 2, 3), (4, 5, 6), (7, 8, 9), (10, 11, 12))
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_cursor_mode=lambda: "L/R",
+        get_cursor_colors=lambda: custom,
+    )
+    ctrl.toggle()  # ONE — single cursor uses cl and cr
+    view.set_line_colors.assert_called_with(custom[2], custom[3])
+
+
+def test_get_cursor_colors_defaults_when_omitted(view: MagicMock, table: MagicMock) -> None:
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+    )
+    ctrl.toggle()
+    view.set_line_colors.assert_called()
+
+
 def test_persistence_defaults_to_on(view: MagicMock, table: MagicMock) -> None:
     ctrl = CursorController(
         cursor_view=view,

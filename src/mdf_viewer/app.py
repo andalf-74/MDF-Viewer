@@ -95,6 +95,12 @@ def run(argv: list[str]) -> int:
         get_active_signals=lambda: controller.active_signals,
         get_cursor_persistent=lambda: settings.cursor_persistent,
         get_cursor_mode=lambda: settings.cursor_mode,
+        get_cursor_colors=lambda: (
+            settings.cursor_color_c1,
+            settings.cursor_color_c2,
+            settings.cursor_color_cl,
+            settings.cursor_color_cr,
+        ),
     )
     controller.set_cursor_controller(cursor_ctrl)
 

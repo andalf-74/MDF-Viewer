@@ -1,18 +1,28 @@
 from __future__ import annotations
 
+from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
+    QColorDialog,
     QDialog,
     QDialogButtonBox,
     QHBoxLayout,
+    QLabel,
+    QPushButton,
     QRadioButton,
     QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
-from mdf_viewer.settings import Settings
+from mdf_viewer.settings import (
+    DEFAULT_CURSOR_COLOR_C1,
+    DEFAULT_CURSOR_COLOR_C2,
+    DEFAULT_CURSOR_COLOR_CL,
+    DEFAULT_CURSOR_COLOR_CR,
+    Settings,
+)
 
 
 class PreferencesDialog(QDialog):
@@ -69,6 +79,42 @@ class PreferencesDialog(QDialog):
             "If deactivated, toggling the cursors makes them reappear in the current view."
         )
         cursors_layout.addWidget(self._cursor_persistent)
+
+        cursors_layout.addSpacing(8)
+
+        def _make_swatch(rgb: tuple[int, int, int]) -> _CursorColorSwatch:
+            return _CursorColorSwatch(QColor(*rgb))
+
+        self._swatch_c1 = _make_swatch(self._settings.cursor_color_c1)
+        self._swatch_c2 = _make_swatch(self._settings.cursor_color_c2)
+        self._swatch_cl = _make_swatch(self._settings.cursor_color_cl)
+        self._swatch_cr = _make_swatch(self._settings.cursor_color_cr)
+
+        row1 = QHBoxLayout()
+        row1.addWidget(self._swatch_c1)
+        row1.addWidget(QLabel("Cursor 1"))
+        row1.addSpacing(16)
+        row1.addWidget(self._swatch_c2)
+        row1.addWidget(QLabel("Cursor 2"))
+        row1.addStretch()
+        cursors_layout.addLayout(row1)
+
+        row2 = QHBoxLayout()
+        row2.addWidget(self._swatch_cl)
+        row2.addWidget(QLabel("Cursor L"))
+        row2.addSpacing(16)
+        row2.addWidget(self._swatch_cr)
+        row2.addWidget(QLabel("Cursor R"))
+        row2.addStretch()
+        cursors_layout.addLayout(row2)
+
+        reset_row = QHBoxLayout()
+        reset_row.addStretch()
+        reset_btn = QPushButton("Reset to defaults")
+        reset_btn.clicked.connect(self._reset_cursor_colors)
+        reset_row.addWidget(reset_btn)
+        cursors_layout.addLayout(reset_row)
+
         cursors_layout.addStretch()
         tabs.addTab(cursors, "Cursors")
 
@@ -85,4 +131,45 @@ class PreferencesDialog(QDialog):
         self._settings.check_for_updates = self._update_check.isChecked()
         self._settings.cursor_persistent = self._cursor_persistent.isChecked()
         self._settings.cursor_mode = "L/R" if self._cursor_lr.isChecked() else "1/2"
+        self._settings.cursor_color_c1 = self._swatch_c1.rgb()
+        self._settings.cursor_color_c2 = self._swatch_c2.rgb()
+        self._settings.cursor_color_cl = self._swatch_cl.rgb()
+        self._settings.cursor_color_cr = self._swatch_cr.rgb()
         self.accept()
+
+    def _reset_cursor_colors(self) -> None:
+        self._swatch_c1.set_color(QColor(*DEFAULT_CURSOR_COLOR_C1))
+        self._swatch_c2.set_color(QColor(*DEFAULT_CURSOR_COLOR_C2))
+        self._swatch_cl.set_color(QColor(*DEFAULT_CURSOR_COLOR_CL))
+        self._swatch_cr.set_color(QColor(*DEFAULT_CURSOR_COLOR_CR))
+
+
+class _CursorColorSwatch(QPushButton):
+    """Flat colored button that opens a color picker on click."""
+
+    def __init__(self, color: QColor, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setFixedSize(20, 16)
+        self.setFlat(True)
+        self.set_color(color)
+        self.clicked.connect(self._pick_color)
+
+    def set_color(self, color: QColor) -> None:
+        self._color = color
+        self.setStyleSheet(
+            f"background-color: {color.name()};"
+            "border: 1px solid #666;"
+            "border-radius: 2px;"
+        )
+
+    @property
+    def color(self) -> QColor:
+        return self._color
+
+    def rgb(self) -> tuple[int, int, int]:
+        return (self._color.red(), self._color.green(), self._color.blue())
+
+    def _pick_color(self) -> None:
+        color = QColorDialog.getColor(self._color, self)
+        if color.isValid():
+            self.set_color(color)
