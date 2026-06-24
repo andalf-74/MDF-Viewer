@@ -34,7 +34,7 @@ def _make_active(name: str = "sig") -> ActiveSignal:
 def view() -> MagicMock:
     v = MagicMock()
     # Signals must behave like real signals for .connect()
-    for sig in ("cursor_moved", "delta_line_moved", "cursor_fetch_requested", "delta_fetch_requested"):
+    for sig in ("cursor_moved", "cursor_clicked", "delta_line_moved", "cursor_fetch_requested", "delta_fetch_requested"):
         mock_sig = MagicMock()
         mock_sig.connect = MagicMock()
         setattr(v, sig, mock_sig)
@@ -845,3 +845,231 @@ def test_set_cursor_names_called_on_refresh_lr_mode(
     ctrl = _make_ctrl_mode(view, table, "L/R")
     ctrl.toggle()
     view.set_cursor_names.assert_called_with("Cursor L", "Cursor R")
+
+
+# ---------------------------------------------------------------------------
+# Active cursor tracking
+# ---------------------------------------------------------------------------
+
+def test_active_cursor_none_initially(ctrl: CursorController) -> None:
+    assert ctrl._active_cursor_idx is None
+
+
+def test_active_cursor_set_to_0_on_toggle_to_one(ctrl: CursorController) -> None:
+    ctrl.toggle()  # HIDDEN → ONE
+    assert ctrl._active_cursor_idx == 0
+
+
+def test_active_cursor_set_to_none_on_toggle_to_hidden(ctrl: CursorController) -> None:
+    ctrl.toggle()   # ONE
+    ctrl.toggle()   # TWO
+    ctrl.toggle()   # HIDDEN
+    assert ctrl._active_cursor_idx is None
+
+
+def test_active_cursor_set_on_drag(ctrl: CursorController) -> None:
+    ctrl.toggle()  # ONE
+    ctrl.toggle()  # TWO
+    ctrl._on_cursor_dragged(1, 0.8)
+    assert ctrl._active_cursor_idx == 1
+
+
+def test_active_cursor_set_on_click(ctrl: CursorController) -> None:
+    ctrl.toggle()  # ONE
+    ctrl.toggle()  # TWO
+    ctrl._on_cursor_clicked(1)
+    assert ctrl._active_cursor_idx == 1
+
+
+def test_active_cursor_reset_on_file_load(ctrl: CursorController) -> None:
+    ctrl.toggle()
+    ctrl._on_cursor_clicked(0)
+    ctrl.reset()
+    assert ctrl._active_cursor_idx is None
+
+
+# ---------------------------------------------------------------------------
+# press_left / press_right — sample mode
+# ---------------------------------------------------------------------------
+
+def _make_ctrl_step(
+    view: MagicMock,
+    table: MagicMock,
+    unit: str = "samples",
+    samples: int = 1,
+    pixels: int = 1,
+    time_ms: float = 10.0,
+    x_per_pixel: float = 0.01,
+) -> CursorController:
+    return CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_cursor_step_unit=lambda: unit,
+        get_cursor_step_samples=lambda: samples,
+        get_cursor_step_pixels=lambda: pixels,
+        get_cursor_step_time_ms=lambda: time_ms,
+        get_x_per_pixel=lambda: x_per_pixel,
+    )
+
+
+def test_press_right_samples_moves_to_next_sample(
+    view: MagicMock, table: MagicMock
+) -> None:
+    active = _make_active()
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [active],
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 1,
+    )
+    ctrl.toggle()  # ONE → active_cursor_idx = 0
+    ctrl._positions[0] = 0.0  # exactly at first sample
+    ctrl.press_right()
+    assert ctrl._positions[0] > 0.0
+
+
+def test_press_left_samples_moves_to_prev_sample(
+    view: MagicMock, table: MagicMock
+) -> None:
+    active = _make_active()
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [active],
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 1,
+    )
+    ctrl.toggle()  # ONE
+    ctrl._positions[0] = 0.5
+    ctrl.press_left()
+    assert ctrl._positions[0] < 0.5
+
+
+def test_press_right_stops_at_last_sample(
+    view: MagicMock, table: MagicMock
+) -> None:
+    active = _make_active()
+    ts_last = float(active.data.timestamps[-1])
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [active],
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 1,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = ts_last
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(ts_last)
+
+
+def test_press_left_stops_at_first_sample(
+    view: MagicMock, table: MagicMock
+) -> None:
+    active = _make_active()
+    ts_first = float(active.data.timestamps[0])
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [active],
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 1,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = ts_first
+    ctrl.press_left()
+    assert ctrl._positions[0] == pytest.approx(ts_first)
+
+
+def test_press_right_samples_n_steps(
+    view: MagicMock, table: MagicMock
+) -> None:
+    active = _make_active()  # 101 samples over [0, 1], step = 0.01
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [active],
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 3,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.0
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(0.03, abs=1e-9)
+
+
+def test_press_right_no_effect_when_hidden(
+    view: MagicMock, table: MagicMock
+) -> None:
+    active = _make_active()
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [active],
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 1,
+    )
+    ctrl._positions[0] = 0.5
+    ctrl.press_right()  # HIDDEN — no effect
+    assert ctrl._positions[0] == pytest.approx(0.5)
+
+
+def test_press_right_no_effect_when_no_active_cursor_in_two_mode(
+    view: MagicMock, table: MagicMock
+) -> None:
+    active = _make_active()
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [active],
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 1,
+    )
+    ctrl.toggle()  # ONE (sets active_cursor_idx = 0)
+    ctrl.toggle()  # TWO
+    ctrl._active_cursor_idx = None  # simulate: no cursor touched yet
+    ctrl._positions[0] = 0.5
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(0.5)
+
+
+def test_press_right_time_mode(view: MagicMock, table: MagicMock) -> None:
+    active = _make_active()
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [active],
+        get_cursor_step_unit=lambda: "time",
+        get_cursor_step_time_ms=lambda: 100.0,  # 100 ms = 0.1 s
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.0
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(0.1)
+
+
+def test_press_right_pixels_mode(view: MagicMock, table: MagicMock) -> None:
+    active = _make_active()
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [active],
+        get_cursor_step_unit=lambda: "pixels",
+        get_cursor_step_pixels=lambda: 5,
+        get_x_per_pixel=lambda: 0.02,  # 5 px * 0.02 = 0.1 s
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.0
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(0.1)

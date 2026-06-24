@@ -5,8 +5,10 @@ from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QColorDialog,
+    QComboBox,
     QDialog,
     QDialogButtonBox,
+    QDoubleSpinBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -22,6 +24,9 @@ from mdf_viewer.settings import (
     DEFAULT_CURSOR_COLOR_C2,
     DEFAULT_CURSOR_COLOR_CL,
     DEFAULT_CURSOR_COLOR_CR,
+    DEFAULT_CURSOR_STEP_PIXELS,
+    DEFAULT_CURSOR_STEP_SAMPLES,
+    DEFAULT_CURSOR_STEP_TIME_MS,
     DEFAULT_DELTA_TIME_COLOR,
     Settings,
 )
@@ -118,6 +123,39 @@ class PreferencesDialog(QDialog):
         delta_row.addWidget(QLabel("∆-Time color"))
         cursors_layout.addLayout(delta_row)
 
+        cursors_layout.addSpacing(8)
+
+        # Arrow-key step
+        step_row = QHBoxLayout()
+        step_row.addWidget(QLabel("Arrow key step:"))
+        self._step_unit = QComboBox()
+        self._step_unit.addItems(["Samples", "Pixels", "Time"])
+        unit_index = {"samples": 0, "pixels": 1, "time": 2}.get(
+            self._settings.cursor_step_unit, 0
+        )
+        self._step_unit.setCurrentIndex(unit_index)
+        step_row.addWidget(self._step_unit)
+
+        self._step_amount = QDoubleSpinBox()
+        self._step_amount.setMinimum(0.1)
+        self._step_amount.setMaximum(99999.0)
+        self._step_amount.setFixedWidth(80)
+        step_row.addWidget(self._step_amount)
+
+        self._step_unit_label = QLabel()
+        step_row.addWidget(self._step_unit_label)
+        step_row.addStretch()
+        cursors_layout.addLayout(step_row)
+
+        # Per-unit cached amounts (so switching units doesn't lose the value)
+        self._step_values = {
+            "samples": float(self._settings.cursor_step_samples),
+            "pixels": float(self._settings.cursor_step_pixels),
+            "time": self._settings.cursor_step_time_ms,
+        }
+        self._step_unit.currentIndexChanged.connect(self._on_step_unit_changed)
+        self._on_step_unit_changed(unit_index)  # configure spinbox for current unit
+
         reset_row = QHBoxLayout()
         reset_row.addStretch()
         reset_btn = QPushButton("Reset to defaults")
@@ -147,7 +185,33 @@ class PreferencesDialog(QDialog):
         self._settings.cursor_color_cr = self._swatch_cr.rgb()
         self._settings.show_delta_time_in_plot = self._show_delta_time.isChecked()
         self._settings.delta_time_color = self._swatch_delta.rgb()
+        # Flush the current spinbox value back to the cache before saving
+        self._flush_step_amount()
+        unit_key = ["samples", "pixels", "time"][self._step_unit.currentIndex()]
+        self._settings.cursor_step_unit = unit_key
+        self._settings.cursor_step_samples = max(1, int(self._step_values["samples"]))
+        self._settings.cursor_step_pixels = max(1, int(self._step_values["pixels"]))
+        self._settings.cursor_step_time_ms = max(0.1, self._step_values["time"])
         self.accept()
+
+    def _on_step_unit_changed(self, index: int) -> None:
+        self._flush_step_amount()
+        unit_key = ["samples", "pixels", "time"][index]
+        if unit_key == "time":
+            self._step_amount.setDecimals(1)
+            self._step_amount.setSingleStep(1.0)
+            self._step_unit_label.setText("ms")
+        else:
+            self._step_amount.setDecimals(0)
+            self._step_amount.setSingleStep(1.0)
+            self._step_unit_label.setText("samples" if unit_key == "samples" else "px")
+        self._step_amount.setValue(self._step_values[unit_key])
+        self._current_step_unit_key = unit_key
+
+    def _flush_step_amount(self) -> None:
+        key = getattr(self, "_current_step_unit_key", None)
+        if key is not None:
+            self._step_values[key] = self._step_amount.value()
 
     def _reset_cursor_colors(self) -> None:
         self._swatch_c1.set_color(QColor(*DEFAULT_CURSOR_COLOR_C1))
@@ -156,6 +220,13 @@ class PreferencesDialog(QDialog):
         self._swatch_cr.set_color(QColor(*DEFAULT_CURSOR_COLOR_CR))
         self._swatch_delta.set_color(QColor(*DEFAULT_DELTA_TIME_COLOR))
         self._show_delta_time.setChecked(True)
+        self._step_values = {
+            "samples": float(DEFAULT_CURSOR_STEP_SAMPLES),
+            "pixels": float(DEFAULT_CURSOR_STEP_PIXELS),
+            "time": DEFAULT_CURSOR_STEP_TIME_MS,
+        }
+        self._on_step_unit_changed(0)
+        self._step_unit.setCurrentIndex(0)
 
 
 class _CursorColorSwatch(QPushButton):

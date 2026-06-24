@@ -104,6 +104,12 @@ def run(argv: list[str]) -> int:
         get_y_range=lambda: tuple(window.plot_area.plot_item.vb.viewRange()[1]),
         get_show_delta_time=lambda: settings.show_delta_time_in_plot,
         get_delta_time_color=lambda: settings.delta_time_color,
+        get_selected_signal=lambda: controller.selected_signal,
+        get_cursor_step_unit=lambda: settings.cursor_step_unit,
+        get_cursor_step_samples=lambda: settings.cursor_step_samples,
+        get_cursor_step_pixels=lambda: settings.cursor_step_pixels,
+        get_cursor_step_time_ms=lambda: settings.cursor_step_time_ms,
+        get_x_per_pixel=lambda: window.plot_area.plot_item.vb.viewPixelSize()[0],
     )
     controller.set_cursor_controller(cursor_ctrl)
 

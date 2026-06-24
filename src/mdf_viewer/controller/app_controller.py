@@ -98,6 +98,14 @@ class AppController:
             return self._cursor_ctrl.zoom_to_cursors()
         return None
 
+    def press_left(self) -> None:
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.press_left()
+
+    def press_right(self) -> None:
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.press_right()
+
     def set_cursor_mode_callback(self, cb) -> None:
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.set_mode_changed_callback(cb)

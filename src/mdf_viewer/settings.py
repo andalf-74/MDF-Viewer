@@ -21,6 +21,12 @@ DEFAULT_CURSOR_COLOR_CL = (220, 220, 50)
 DEFAULT_CURSOR_COLOR_CR = (50, 150, 255)
 DEFAULT_DELTA_TIME_COLOR = (200, 200, 200)
 
+# Default arrow-key step settings
+DEFAULT_CURSOR_STEP_UNIT = "samples"   # "samples" | "pixels" | "time"
+DEFAULT_CURSOR_STEP_SAMPLES = 1        # number of samples per key press
+DEFAULT_CURSOR_STEP_PIXELS = 1         # number of pixels per key press
+DEFAULT_CURSOR_STEP_TIME_MS = 10.0     # milliseconds per key press
+
 
 def _default_config_path() -> Path:
     if sys.platform == "win32":
@@ -45,6 +51,10 @@ class Settings:
         self._cursor_color_cr: tuple[int, int, int] = DEFAULT_CURSOR_COLOR_CR
         self._show_delta_time_in_plot: bool = True
         self._delta_time_color: tuple[int, int, int] = DEFAULT_DELTA_TIME_COLOR
+        self._cursor_step_unit: str = DEFAULT_CURSOR_STEP_UNIT
+        self._cursor_step_samples: int = DEFAULT_CURSOR_STEP_SAMPLES
+        self._cursor_step_pixels: int = DEFAULT_CURSOR_STEP_PIXELS
+        self._cursor_step_time_ms: float = DEFAULT_CURSOR_STEP_TIME_MS
         self._load()
 
     # ------------------------------------------------------------------
@@ -143,6 +153,42 @@ class Settings:
         self._delta_time_color = value
         self._save()
 
+    @property
+    def cursor_step_unit(self) -> str:
+        return self._cursor_step_unit
+
+    @cursor_step_unit.setter
+    def cursor_step_unit(self, value: str) -> None:
+        self._cursor_step_unit = value
+        self._save()
+
+    @property
+    def cursor_step_samples(self) -> int:
+        return self._cursor_step_samples
+
+    @cursor_step_samples.setter
+    def cursor_step_samples(self, value: int) -> None:
+        self._cursor_step_samples = value
+        self._save()
+
+    @property
+    def cursor_step_pixels(self) -> int:
+        return self._cursor_step_pixels
+
+    @cursor_step_pixels.setter
+    def cursor_step_pixels(self, value: int) -> None:
+        self._cursor_step_pixels = value
+        self._save()
+
+    @property
+    def cursor_step_time_ms(self) -> float:
+        return self._cursor_step_time_ms
+
+    @cursor_step_time_ms.setter
+    def cursor_step_time_ms(self, value: float) -> None:
+        self._cursor_step_time_ms = value
+        self._save()
+
     def get_and_prune(self) -> list[Path]:
         """Return only paths that exist on disk; save if any were removed."""
         existing = [p for p in self._recent if p.exists()]
@@ -168,6 +214,10 @@ class Settings:
             self._cursor_color_cr = self._load_color(data, "cursor_color_cr", DEFAULT_CURSOR_COLOR_CR)
             self._show_delta_time_in_plot = bool(data.get("show_delta_time_in_plot", True))
             self._delta_time_color = self._load_color(data, "delta_time_color", DEFAULT_DELTA_TIME_COLOR)
+            self._cursor_step_unit = str(data.get("cursor_step_unit", DEFAULT_CURSOR_STEP_UNIT))
+            self._cursor_step_samples = int(data.get("cursor_step_samples", DEFAULT_CURSOR_STEP_SAMPLES))
+            self._cursor_step_pixels = int(data.get("cursor_step_pixels", DEFAULT_CURSOR_STEP_PIXELS))
+            self._cursor_step_time_ms = float(data.get("cursor_step_time_ms", DEFAULT_CURSOR_STEP_TIME_MS))
         except (FileNotFoundError, json.JSONDecodeError, TypeError, KeyError):
             self._recent = []
             self._check_for_updates = True
@@ -179,6 +229,10 @@ class Settings:
             self._cursor_color_cr = DEFAULT_CURSOR_COLOR_CR
             self._show_delta_time_in_plot = True
             self._delta_time_color = DEFAULT_DELTA_TIME_COLOR
+            self._cursor_step_unit = DEFAULT_CURSOR_STEP_UNIT
+            self._cursor_step_samples = DEFAULT_CURSOR_STEP_SAMPLES
+            self._cursor_step_pixels = DEFAULT_CURSOR_STEP_PIXELS
+            self._cursor_step_time_ms = DEFAULT_CURSOR_STEP_TIME_MS
 
     @staticmethod
     def _load_color(
@@ -204,6 +258,10 @@ class Settings:
                     "cursor_color_cr": list(self._cursor_color_cr),
                     "show_delta_time_in_plot": self._show_delta_time_in_plot,
                     "delta_time_color": list(self._delta_time_color),
+                    "cursor_step_unit": self._cursor_step_unit,
+                    "cursor_step_samples": self._cursor_step_samples,
+                    "cursor_step_pixels": self._cursor_step_pixels,
+                    "cursor_step_time_ms": self._cursor_step_time_ms,
                 },
                 indent=2,
             ),

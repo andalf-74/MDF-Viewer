@@ -61,6 +61,7 @@ class CursorView(QObject):
     """Manages the draggable cursor InfiniteLines and their value labels."""
 
     cursor_moved = pyqtSignal(int, float)            # (cursor_index, x_position)
+    cursor_clicked = pyqtSignal(int)                 # (cursor_index) — clicked without drag
     delta_line_moved = pyqtSignal(float)             # (y_position)
     cursor_fetch_requested = pyqtSignal(int, float)  # (cursor_index, x_data) — chevron clicked
     delta_fetch_requested = pyqtSignal(float)        # (y_data) — delta-time chevron clicked
@@ -79,6 +80,9 @@ class CursorView(QObject):
             self._pi.addItem(line)
             line.sigPositionChanged.connect(
                 lambda ln, idx=i: self.cursor_moved.emit(idx, ln.value())
+            )
+            line.sigClicked.connect(
+                lambda ln, ev, idx=i: self.cursor_clicked.emit(idx)
             )
             self._lines.append(line)
 

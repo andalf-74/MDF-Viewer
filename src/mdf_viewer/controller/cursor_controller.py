@@ -14,7 +14,7 @@ a single authoritative list (owned by AppController).
 from __future__ import annotations
 
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 
@@ -57,6 +57,12 @@ class CursorController:
         get_y_range: Callable[[], tuple[float, float]] | None = None,
         get_show_delta_time: Callable[[], bool] | None = None,
         get_delta_time_color: Callable[[], tuple] | None = None,
+        get_selected_signal: Callable[[], Any] | None = None,
+        get_cursor_step_unit: Callable[[], str] | None = None,
+        get_cursor_step_samples: Callable[[], int] | None = None,
+        get_cursor_step_pixels: Callable[[], int] | None = None,
+        get_cursor_step_time_ms: Callable[[], float] | None = None,
+        get_x_per_pixel: Callable[[], float] | None = None,
     ) -> None:
         """
         Parameters
@@ -121,6 +127,24 @@ class CursorController:
             if get_delta_time_color is not None
             else (lambda: (200, 200, 200))
         )
+        self._get_selected_signal: Callable[[], Any] = (
+            get_selected_signal if get_selected_signal is not None else (lambda: None)
+        )
+        self._get_cursor_step_unit: Callable[[], str] = (
+            get_cursor_step_unit if get_cursor_step_unit is not None else (lambda: "samples")
+        )
+        self._get_cursor_step_samples: Callable[[], int] = (
+            get_cursor_step_samples if get_cursor_step_samples is not None else (lambda: 1)
+        )
+        self._get_cursor_step_pixels: Callable[[], int] = (
+            get_cursor_step_pixels if get_cursor_step_pixels is not None else (lambda: 1)
+        )
+        self._get_cursor_step_time_ms: Callable[[], float] = (
+            get_cursor_step_time_ms if get_cursor_step_time_ms is not None else (lambda: 10.0)
+        )
+        self._get_x_per_pixel: Callable[[], float] = (
+            get_x_per_pixel if get_x_per_pixel is not None else (lambda: 1.0)
+        )
 
         self._mode = CursorMode.HIDDEN
         self._positions: list[float] = [0.0, 0.0]
@@ -128,8 +152,10 @@ class CursorController:
         self._initialized = False
         self._left_idx: int = 0
         self._mode_changed_cb: _ModeCallback | None = None
+        self._active_cursor_idx: int | None = None
 
         cursor_view.cursor_moved.connect(self._on_cursor_dragged)
+        cursor_view.cursor_clicked.connect(self._on_cursor_clicked)
         cursor_view.delta_line_moved.connect(self._on_delta_line_dragged)
         cursor_view.cursor_fetch_requested.connect(self._on_cursor_fetch)
         cursor_view.delta_fetch_requested.connect(self._on_delta_fetch)
@@ -152,6 +178,14 @@ class CursorController:
             return None
         x1, x2 = self._positions
         return (min(x1, x2), max(x1, x2))
+
+    def press_left(self) -> None:
+        """Move the active cursor one step to the left."""
+        self._move_active_cursor(-1)
+
+    def press_right(self) -> None:
+        """Move the active cursor one step to the right."""
+        self._move_active_cursor(+1)
 
     def toggle(self) -> None:
         """Advance: HIDDEN → ONE → TWO → HIDDEN."""
@@ -190,6 +224,7 @@ class CursorController:
         """Called by AppController on file load — next toggle re-places cursors."""
         self._initialized = False
         self._delta_y_pos = None
+        self._active_cursor_idx = None
         if self._mode != CursorMode.HIDDEN:
             self._mode = CursorMode.HIDDEN
             self._view.apply_mode(CursorMode.HIDDEN, self._positions)
@@ -225,7 +260,11 @@ class CursorController:
     # Slots (private)
     # ------------------------------------------------------------------
 
+    def _on_cursor_clicked(self, index: int) -> None:
+        self._active_cursor_idx = index
+
     def _on_cursor_dragged(self, index: int, x: float) -> None:
+        self._active_cursor_idx = index
         self._positions[index] = x
         self._refresh(update_labels=True)
 
@@ -243,6 +282,58 @@ class CursorController:
         self._delta_y_pos = y
         self._refresh(update_labels=False)
 
+    def _move_active_cursor(self, direction: int) -> None:
+        """Move the active cursor one step in the given direction (-1 left, +1 right)."""
+        if self._mode == CursorMode.HIDDEN:
+            return
+        idx = 0 if self._mode == CursorMode.ONE else self._active_cursor_idx
+        if idx is None:
+            return
+
+        x = self._positions[idx]
+        unit = self._get_cursor_step_unit()
+        signal = self._get_selected_signal() or next(iter(self._get_active_signals()), None)
+
+        if unit == "samples":
+            if signal is None:
+                return
+            n = self._get_cursor_step_samples()
+            new_x = self._step_by_sample(signal, x, direction, n)
+        elif unit == "pixels":
+            px = self._get_cursor_step_pixels()
+            new_x = x + direction * px * self._get_x_per_pixel()
+            new_x = self._clamp_to_signal(new_x, signal)
+        else:  # "time"
+            ms = self._get_cursor_step_time_ms()
+            new_x = x + direction * ms / 1000.0
+            new_x = self._clamp_to_signal(new_x, signal)
+
+        self._positions[idx] = new_x
+        self._view.apply_mode(self._mode, self._positions)
+        self._refresh(update_labels=True)
+
+    def _step_by_sample(self, signal: Any, x: float, direction: int, n: int) -> float:
+        ts = signal.data.timestamps
+        if len(ts) == 0:
+            return x
+        if direction > 0:
+            idx = int(np.searchsorted(ts, x, side="right"))
+            new_idx = min(idx + n - 1, len(ts) - 1)
+        else:
+            idx = int(np.searchsorted(ts, x, side="left")) - 1
+            new_idx = max(idx - (n - 1), 0)
+        return float(ts[new_idx])
+
+    def _clamp_to_signal(self, x: float, signal: Any) -> float:
+        if signal is not None and len(signal.data.timestamps) > 0:
+            ts = signal.data.timestamps
+            return max(float(ts[0]), min(float(ts[-1]), x))
+        try:
+            x_min, x_max = self._get_x_range()
+            return max(x_min, min(x_max, x))
+        except Exception:
+            return x
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -255,6 +346,10 @@ class CursorController:
             self._place_viewport_positions()
 
     def _commit_mode(self) -> None:
+        if self._mode == CursorMode.HIDDEN:
+            self._active_cursor_idx = None
+        elif self._mode == CursorMode.ONE:
+            self._active_cursor_idx = 0
         self._view.apply_mode(self._mode, self._positions)
         self._table.show_cursor_columns(self._mode != CursorMode.HIDDEN)
         self._refresh(update_labels=True)

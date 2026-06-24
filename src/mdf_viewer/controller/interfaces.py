@@ -66,11 +66,13 @@ class SignalInfoProtocol(Protocol):
 class CursorViewProtocol(Protocol):
     # pyqtSignal(int, float) — connected in CursorController.__init__
     cursor_moved: Any
+    # pyqtSignal(int) — connected in CursorController.__init__
+    cursor_clicked: Any
     # pyqtSignal(float) — connected in CursorController.__init__
     delta_line_moved: Any
-    # pyqtSignal(int) — emitted when a cursor chevron is clicked
+    # pyqtSignal(int, float) — emitted when a cursor chevron is clicked
     cursor_fetch_requested: Any
-    # pyqtSignal() — emitted when the delta-time chevron is clicked
+    # pyqtSignal(float) — emitted when the delta-time chevron is clicked
     delta_fetch_requested: Any
 
     def apply_mode(self, mode: CursorMode, positions: list[float]) -> None: ...

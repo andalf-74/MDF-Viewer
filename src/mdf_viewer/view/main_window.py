@@ -235,6 +235,13 @@ class MainWindow(QMainWindow):
         self._cursor2_shortcut = QShortcut(QKeySequence(","), self)
         self._cursor2_shortcut.activated.connect(self._on_cursor2)
 
+        self._cursor_left_shortcut = QShortcut(QKeySequence("Left"), self)
+        self._cursor_left_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._cursor_left_shortcut.activated.connect(self._on_cursor_left)
+        self._cursor_right_shortcut = QShortcut(QKeySequence("Right"), self)
+        self._cursor_right_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._cursor_right_shortcut.activated.connect(self._on_cursor_right)
+
         self._preferences_action = QAction("Preferences…", self)
         self._preferences_action.triggered.connect(self._on_preferences)
 
@@ -548,6 +555,20 @@ class MainWindow(QMainWindow):
     def _on_cursor2(self) -> None:
         if self._controller is not None:
             self._controller.press_cursor2()
+
+    def _on_cursor_left(self) -> None:
+        if self._controller is not None and not self._focus_in_text_widget():
+            self._controller.press_left()
+
+    def _on_cursor_right(self) -> None:
+        if self._controller is not None and not self._focus_in_text_widget():
+            self._controller.press_right()
+
+    @staticmethod
+    def _focus_in_text_widget() -> bool:
+        from PyQt6.QtWidgets import QAbstractSpinBox, QLineEdit
+        w = QApplication.focusWidget()
+        return isinstance(w, (QLineEdit, QAbstractSpinBox))
 
     def _on_preferences(self) -> None:
         if self._settings is None:
