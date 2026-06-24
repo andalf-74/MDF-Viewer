@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QColorDialog,
     QDialog,
     QDialogButtonBox,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -90,23 +91,19 @@ class PreferencesDialog(QDialog):
         self._swatch_cl = _make_swatch(self._settings.cursor_color_cl)
         self._swatch_cr = _make_swatch(self._settings.cursor_color_cr)
 
-        row1 = QHBoxLayout()
-        row1.addWidget(self._swatch_c1)
-        row1.addWidget(QLabel("Cursor 1"))
-        row1.addSpacing(16)
-        row1.addWidget(self._swatch_c2)
-        row1.addWidget(QLabel("Cursor 2"))
-        row1.addStretch()
-        cursors_layout.addLayout(row1)
-
-        row2 = QHBoxLayout()
-        row2.addWidget(self._swatch_cl)
-        row2.addWidget(QLabel("Cursor L"))
-        row2.addSpacing(16)
-        row2.addWidget(self._swatch_cr)
-        row2.addWidget(QLabel("Cursor R"))
-        row2.addStretch()
-        cursors_layout.addLayout(row2)
+        color_grid = QGridLayout()
+        color_grid.setHorizontalSpacing(6)
+        color_grid.setColumnStretch(2, 1)  # gap column between the two pairs
+        color_grid.setColumnStretch(5, 1)  # trailing stretch
+        color_grid.addWidget(self._swatch_c1, 0, 0)
+        color_grid.addWidget(QLabel("Cursor 1"), 0, 1)
+        color_grid.addWidget(self._swatch_c2, 0, 3)
+        color_grid.addWidget(QLabel("Cursor 2"), 0, 4)
+        color_grid.addWidget(self._swatch_cl, 1, 0)
+        color_grid.addWidget(QLabel("Cursor L"), 1, 1)
+        color_grid.addWidget(self._swatch_cr, 1, 3)
+        color_grid.addWidget(QLabel("Cursor R"), 1, 4)
+        cursors_layout.addLayout(color_grid)
 
         reset_row = QHBoxLayout()
         reset_row.addStretch()
