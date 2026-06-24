@@ -239,7 +239,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-22:** v2.0.1 released — 465 tests passing. v2.1 "Cursor Stuff" in progress: #59 and #62 closed.
+**As of 2026-06-24:** v2.0.1 released — 477 tests passing. v2.1 "Cursor Stuff" in progress: #59, #62, and #63 closed.
 
 ### Implemented
 
@@ -259,13 +259,13 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
 | `controller/interfaces.py` | Protocol contracts for all controller-view dependencies | — |
 | `controller/app_controller.py` | `AppController` — coordinates all layers | 39 |
-| `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation | 28 |
-| `settings.py` | `Settings` — JSON persistence for recent files + preferences | 16 |
+| `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation | 31 |
+| `settings.py` | `Settings` — JSON persistence for recent files + preferences | 22 |
 | `update_checker.py` | `fetch_latest_release()`, `is_newer()`, `ReleaseInfo`, `UpdateCheckError` — GitHub releases API, no Qt | 13 |
 | `license/license_info.py` | `LicenseInfo` dataclass, `Tier` enum, `FORMAT_VERSION`, embedded public key | — |
 | `license/license_manager.py` | `LicenseManager` — verify, import, load_stored, export_license; `LicenseError` | 29 |
 | `view/license_dialog.py` | `LicenseDialog` — import mode (browse/drop) + view mode (details + expiry notice + Retrieve License button); on successful import shows a "restart required" message and closes | — |
-| `view/preferences_dialog.py` | `PreferencesDialog` — tabbed `QDialog`; General tab with "Check for updates on startup" checkbox | — |
+| `view/preferences_dialog.py` | `PreferencesDialog` — tabbed `QDialog`; General tab with "Check for updates on startup" checkbox; Cursors tab with mode, persistent, and 4 cursor color swatches (C1/C2/CL/CR) + reset button | 4 |
 | `app.py` | MVC assembly point | — |
 
 **`MdfLoader`** is the sole importer of `asammdf`. Public API:
@@ -296,7 +296,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `active_signals` / `selected_signal` / `is_file_loaded` — read-only state accessors
 
 **`CursorController`** public API:
-- Constructor: `(cursor_view, get_x_range, active_signals_table, get_active_signals=None)` — active signal list is read on demand via `get_active_signals` callable (avoids a second authoritative list); `app.py` passes `lambda: controller.active_signals`
+- Constructor: `(cursor_view, get_x_range, active_signals_table, get_active_signals=None, get_cursor_persistent=None, get_cursor_mode=None, get_cursor_colors=None)` — all settings read on demand via callables; `get_cursor_colors` returns a 4-tuple `(c1, c2, cl, cr)` of RGB tuples; defaults to module-level color constants when omitted
 - `toggle()` — HIDDEN → ONE → TWO → HIDDEN; on first activation places cursors at plot X range start + 10% span; subsequent toggles use remembered positions
 - `press_cursor1()` / `press_cursor2()` — direct single-cursor activation (dot / comma keys)
 - `zoom_to_cursors() -> tuple[float,float] | None` — returns the span between the two cursors in TWO mode; None otherwise
@@ -348,6 +348,10 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `recent_files() -> list[Path]` — raw list (may include missing paths)
 - `get_and_prune() -> list[Path]` — filters to existing paths, saves if anything was removed; used as the `MainWindow` recent-files provider
 - `check_for_updates: bool` — property (default `True`); setting it saves immediately
+- `cursor_persistent: bool` — property (default `True`); setting it saves immediately
+- `cursor_mode: str` — property (`"1/2"` or `"L/R"`, default `"1/2"`); setting it saves immediately
+- `cursor_color_c1 / c2 / cl / cr: tuple[int,int,int]` — per-cursor RGB colors (default: C1/CL yellow `(220,220,50)`, C2 orange `(255,140,0)`, CR blue `(50,150,255)`); stored as `[r,g,b]` lists in JSON; `_load_color()` falls back to default on malformed values
+- Module-level constants `DEFAULT_CURSOR_COLOR_C1/C2/CL/CR` exported for use by `PreferencesDialog`
 - Config path: `%APPDATA%\mdf-viewer\settings.json` (Windows) / `~/.config/mdf-viewer/settings.json` (Linux); detected via `sys.platform`; parent dirs created on first save
 - Constructor accepts an optional `path` override (used in tests via `tmp_path`)
 
@@ -382,13 +386,14 @@ See [`docs/architecture.md`](docs/architecture.md) — decision log is maintaine
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (426 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (477 passing) and `python -m mdf_viewer` both work.
+- `cryptography` must be installed separately on macOS: `.venv/bin/pip install cryptography`
 
 ### Changelog
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
 
 ### Next steps
-v2.1 "Cursor Stuff" in progress. Remaining open issues: #11, #25, #26, #29, #39, #63.
+v2.1 "Cursor Stuff" in progress. Remaining open issues: #25, #26, #29, #39.
 
 ### Security — secrets that must never be committed
 
