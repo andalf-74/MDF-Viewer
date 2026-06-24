@@ -33,11 +33,11 @@ def _make_active(name: str = "sig") -> ActiveSignal:
 @pytest.fixture()
 def view() -> MagicMock:
     v = MagicMock()
-    # cursor_moved and delta_line_moved must behave like real signals for .connect()
-    v.cursor_moved = MagicMock()
-    v.cursor_moved.connect = MagicMock()
-    v.delta_line_moved = MagicMock()
-    v.delta_line_moved.connect = MagicMock()
+    # Signals must behave like real signals for .connect()
+    for sig in ("cursor_moved", "delta_line_moved", "cursor_fetch_requested", "delta_fetch_requested"):
+        mock_sig = MagicMock()
+        mock_sig.connect = MagicMock()
+        setattr(v, sig, mock_sig)
     return v
 
 
@@ -753,3 +753,95 @@ def test_delta_y_pos_reset_on_file_load(view: MagicMock, table: MagicMock) -> No
     ctrl._on_delta_line_dragged(0.42)
     ctrl.reset()
     assert ctrl._delta_y_pos is None
+
+
+# ---------------------------------------------------------------------------
+# Fetch — cursor chevron clicked
+# ---------------------------------------------------------------------------
+
+def _make_ctrl_fetch(
+    view: MagicMock,
+    table: MagicMock,
+    x_range: tuple[float, float] = (0.0, 10.0),
+    y_range: tuple[float, float] = (-1.0, 1.0),
+) -> CursorController:
+    return CursorController(
+        cursor_view=view,
+        get_x_range=lambda: x_range,
+        active_signals_table=table,
+        get_y_range=lambda: y_range,
+    )
+
+
+def test_fetch_cursor_sets_position_to_clicked_x(
+    view: MagicMock, table: MagicMock
+) -> None:
+    ctrl = _make_ctrl_fetch(view, table, x_range=(0.0, 10.0))
+    ctrl.toggle()
+    ctrl._on_cursor_fetch(0, 1.23)
+    assert ctrl._positions[0] == pytest.approx(1.23)
+
+
+def test_fetch_cursor_calls_apply_mode(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_fetch(view, table)
+    ctrl.toggle()
+    view.apply_mode.reset_mock()
+    ctrl._on_cursor_fetch(0, 3.0)
+    view.apply_mode.assert_called_once_with(CursorMode.ONE, ctrl._positions)
+
+
+def test_fetch_cursor_calls_update_labels(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_fetch(view, table)
+    ctrl.toggle()
+    view.update_labels.reset_mock()
+    ctrl._on_cursor_fetch(0, 3.0)
+    view.update_labels.assert_called()
+
+
+def test_fetch_cursor_index_1(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_fetch(view, table, x_range=(0.0, 10.0))
+    ctrl.toggle()  # ONE
+    ctrl.toggle()  # TWO
+    ctrl._on_cursor_fetch(1, 7.5)
+    assert ctrl._positions[1] == pytest.approx(7.5)
+
+
+# ---------------------------------------------------------------------------
+# Fetch — delta-time chevron clicked
+# ---------------------------------------------------------------------------
+
+def test_fetch_delta_sets_position_to_clicked_y(
+    view: MagicMock, table: MagicMock
+) -> None:
+    ctrl = _make_ctrl_fetch(view, table)
+    ctrl._on_delta_fetch(0.42)
+    assert ctrl._delta_y_pos == pytest.approx(0.42)
+
+
+def test_fetch_delta_triggers_refresh(view: MagicMock, table: MagicMock) -> None:
+    ctrl = _make_ctrl_fetch(view, table)
+    ctrl.toggle()  # ONE
+    ctrl.toggle()  # TWO
+    view.update_delta_time.reset_mock()
+    ctrl._on_delta_fetch(0.5)
+    view.update_delta_time.assert_called()
+
+
+# ---------------------------------------------------------------------------
+# set_cursor_names — called during refresh
+# ---------------------------------------------------------------------------
+
+def test_set_cursor_names_called_on_refresh_12_mode(
+    view: MagicMock, table: MagicMock
+) -> None:
+    ctrl = _make_ctrl_mode(view, table, "1/2")
+    ctrl.toggle()
+    view.set_cursor_names.assert_called_with("Cursor 1", "Cursor 2")
+
+
+def test_set_cursor_names_called_on_refresh_lr_mode(
+    view: MagicMock, table: MagicMock
+) -> None:
+    ctrl = _make_ctrl_mode(view, table, "L/R")
+    ctrl.toggle()
+    view.set_cursor_names.assert_called_with("Cursor L", "Cursor R")

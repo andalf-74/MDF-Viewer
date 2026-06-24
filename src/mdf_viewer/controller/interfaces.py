@@ -68,6 +68,10 @@ class CursorViewProtocol(Protocol):
     cursor_moved: Any
     # pyqtSignal(float) — connected in CursorController.__init__
     delta_line_moved: Any
+    # pyqtSignal(int) — emitted when a cursor chevron is clicked
+    cursor_fetch_requested: Any
+    # pyqtSignal() — emitted when the delta-time chevron is clicked
+    delta_fetch_requested: Any
 
     def apply_mode(self, mode: CursorMode, positions: list[float]) -> None: ...
     def update_labels(
@@ -89,6 +93,7 @@ class CursorViewProtocol(Protocol):
     def clear_labels(self) -> None: ...
     def recolor_labels(self, active: ActiveSignal, color: Any) -> None: ...
     def set_line_colors(self, color0: tuple, color1: tuple) -> None: ...
+    def set_cursor_names(self, name0: str, name1: str) -> None: ...
 
 
 class CursorValueSinkProtocol(Protocol):

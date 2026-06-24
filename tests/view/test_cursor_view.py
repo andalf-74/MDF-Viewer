@@ -222,3 +222,147 @@ def test_cursor_moved_emitted_on_line_move(
         cv._lines[0].setValue(0.42)
     assert blocker.args[0] == 0
     assert blocker.args[1] == pytest.approx(0.42)
+
+
+# ---------------------------------------------------------------------------
+# Chevron indicators — off-screen cursor / delta-time line
+# ---------------------------------------------------------------------------
+
+def _set_view_range(pw: pg.PlotWidget, x: tuple, y: tuple) -> None:
+    """Set the ViewBox range with no padding so viewRange() matches exactly."""
+    pw.getViewBox().setRange(xRange=x, yRange=y, padding=0)
+
+
+def test_chevrons_created(cv: CursorView) -> None:
+    assert len(cv._c_chevrons) == 2
+    assert cv._dt_chevron is not None
+
+
+def test_chevrons_hidden_initially(cv: CursorView) -> None:
+    assert not cv._c_chevrons[0].isVisible()
+    assert not cv._c_chevrons[1].isVisible()
+    assert not cv._dt_chevron.isVisible()
+
+
+def test_cursor_chevron_hidden_when_mode_is_hidden(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv._lines[0].setValue(-5.0)  # off-screen left
+    cv._update_chevrons()
+    assert not cv._c_chevrons[0].isVisible()
+
+
+def test_cursor_chevron_left_shown_when_off_screen(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.ONE, [-5.0, 7.5])
+    assert cv._c_chevrons[0].isVisible()
+    assert cv._c_chevrons[0].toPlainText() == "<"
+
+
+def test_cursor_chevron_right_shown_when_off_screen(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.ONE, [99.0, 7.5])
+    assert cv._c_chevrons[0].isVisible()
+    assert cv._c_chevrons[0].toPlainText() == ">"
+
+
+def test_cursor_chevron_hidden_when_on_screen(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.ONE, [5.0, 7.5])
+    assert not cv._c_chevrons[0].isVisible()
+
+
+def test_cursor_1_chevron_hidden_in_one_mode(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.ONE, [5.0, 99.0])  # cursor 1 off-screen
+    assert not cv._c_chevrons[1].isVisible()
+
+
+def test_both_cursors_off_screen_same_side(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.TWO, [-3.0, -1.0])
+    assert cv._c_chevrons[0].isVisible()
+    assert cv._c_chevrons[1].isVisible()
+    # Stacked: different Y positions
+    assert cv._c_chevrons[0].pos().y() != cv._c_chevrons[1].pos().y()
+
+
+def test_delta_chevron_shown_above(cv: CursorView, pw: pg.PlotWidget) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.TWO, [2.5, 7.5])
+    cv._cached_delta_y = 5.0   # above y_max = 1.0
+    cv._cached_delta_show = True
+    cv._cached_delta_color = (200, 200, 200)
+    cv._update_chevrons()
+    assert cv._dt_chevron.isVisible()
+    assert cv._dt_chevron.toPlainText() == "^"
+
+
+def test_delta_chevron_shown_below(cv: CursorView, pw: pg.PlotWidget) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.TWO, [2.5, 7.5])
+    cv._cached_delta_y = -5.0  # below y_min = -1.0
+    cv._cached_delta_show = True
+    cv._cached_delta_color = (200, 200, 200)
+    cv._update_chevrons()
+    assert cv._dt_chevron.isVisible()
+    assert cv._dt_chevron.toPlainText() == "v"
+
+
+def test_delta_chevron_hidden_when_on_screen(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.TWO, [2.5, 7.5])
+    cv._cached_delta_y = 0.0   # within range
+    cv._cached_delta_show = True
+    cv._cached_delta_color = (200, 200, 200)
+    cv._update_chevrons()
+    assert not cv._dt_chevron.isVisible()
+
+
+def test_delta_chevron_hidden_when_show_false(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.TWO, [2.5, 7.5])
+    cv._cached_delta_y = 5.0
+    cv._cached_delta_show = False
+    cv._update_chevrons()
+    assert not cv._dt_chevron.isVisible()
+
+
+def test_cursor_fetch_signal_emitted(cv: CursorView, qtbot: QtBot) -> None:
+    # Simulate a click by calling the callback with a dummy scene position.
+    # The real conversion (scenePos → data-X) needs a live scene, so we test
+    # that the signal fires and carries the cursor index as its first arg.
+    from PyQt6.QtCore import QPointF
+    with qtbot.waitSignal(cv.cursor_fetch_requested, timeout=500) as blocker:
+        cv._c_chevrons[0]._clicked_cb(QPointF(0.0, 0.0))
+    assert blocker.args[0] == 0  # cursor index
+
+
+def test_delta_fetch_signal_emitted(cv: CursorView, qtbot: QtBot) -> None:
+    from PyQt6.QtCore import QPointF
+    with qtbot.waitSignal(cv.delta_fetch_requested, timeout=500):
+        cv._dt_chevron._clicked_cb(QPointF(0.0, 0.0))
+
+
+def test_set_cursor_names_updates_tooltip(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.set_cursor_names("Cursor L", "Cursor R")
+    cv.apply_mode(CursorMode.ONE, [-5.0, 7.5])
+    assert cv._c_chevrons[0].toolTip() == "Fetch Cursor L"

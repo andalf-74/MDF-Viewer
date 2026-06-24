@@ -131,6 +131,8 @@ class CursorController:
 
         cursor_view.cursor_moved.connect(self._on_cursor_dragged)
         cursor_view.delta_line_moved.connect(self._on_delta_line_dragged)
+        cursor_view.cursor_fetch_requested.connect(self._on_cursor_fetch)
+        cursor_view.delta_fetch_requested.connect(self._on_delta_fetch)
 
     # ------------------------------------------------------------------
     # Public API
@@ -230,6 +232,17 @@ class CursorController:
     def _on_delta_line_dragged(self, y: float) -> None:
         self._delta_y_pos = y
 
+    def _on_cursor_fetch(self, index: int, x: float) -> None:
+        """Move cursor to the X position clicked on the chevron."""
+        self._positions[index] = x
+        self._view.apply_mode(self._mode, self._positions)
+        self._refresh(update_labels=True)
+
+    def _on_delta_fetch(self, y: float) -> None:
+        """Move the delta-time line to the Y position clicked on the chevron."""
+        self._delta_y_pos = y
+        self._refresh(update_labels=False)
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -318,6 +331,12 @@ class CursorController:
                 )
 
         if update_labels:
+            if cursor_mode == "L/R":
+                n0 = "Cursor L" if self._left_idx == 0 else "Cursor R"
+                n1 = "Cursor R" if self._left_idx == 0 else "Cursor L"
+            else:
+                n0, n1 = "Cursor 1", "Cursor 2"
+            self._view.set_cursor_names(n0, n1)
             self._view.update_labels(active_signals, self._positions, self._mode)
 
         self._refresh_delta_time()
