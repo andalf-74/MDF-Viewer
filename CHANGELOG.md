@@ -5,6 +5,11 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Zoom undo/redo (#39). `Ctrl+Z` / `Ctrl+Shift+Z` step through zoom history;
+  also available under the new Edit menu. Covers all pan, scroll, drag-rect,
+  and toolbar zoom actions. Continuous gestures are coalesced into a single
+  step. History depth is configurable in Preferences → General → "Undo steps"
+  (default: 1).
 - Arrow-key cursor stepping (#29). Left/Right keys move the most-recently-
   touched cursor by a configurable step. Step unit (Samples / Pixels / Time)
   and amount are set in Preferences → Cursors. Keys have no effect when

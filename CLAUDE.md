@@ -239,7 +239,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-24:** v2.0.1 released — 532 tests passing. v2.1 "Cursor Stuff" in progress: #59, #62, #63, #25, #26, and #29 closed.
+**As of 2026-06-25:** v2.0.1 released — 564 tests passing. v2.1 "Cursor Stuff" complete: #59, #62, #63, #25, #26, #29, and #39 closed.
 
 ### Implemented
 
@@ -250,22 +250,24 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `model/signal_data.py` | `SignalData` dataclass | 2 |
 | `view/_mime.py` | Shared MIME type constant for signal drag-and-drop | — |
 | `view/signal_browser.py` | `SignalBrowser` — TreeView, multi-select, Add Signal button, drag | 21 |
-| `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, status bar, wiring | 32 |
+| `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, status bar, wiring | 31 |
 | `view/measurement_info_box.py` | `MeasurementInfoBox` — file metadata, QFormLayout + placeholder | 18 |
 | `view/signal_info_box.py` | `SignalInfoBox` — signal metadata, QFormLayout + placeholder | 18 |
 | `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons, drop target | 32 |
-| `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target | 35 |
+| `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target, zoom state snapshot | 35 |
 | `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic, delta-time line + label, off-screen chevron indicators | 43 |
 | `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
+| `view_model/zoom_state.py` | `ZoomState` dataclass — snapshot of X range + per-signal Y ranges | — |
 | `controller/interfaces.py` | Protocol contracts for all controller-view dependencies | — |
 | `controller/app_controller.py` | `AppController` — coordinates all layers | 39 |
 | `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation, delta-time | 41 |
-| `settings.py` | `Settings` — JSON persistence for recent files + preferences | 30 |
+| `controller/zoom_controller.py` | `ZoomController` — zoom undo/redo, gesture coalescing, stable-state pre-capture | 27 |
+| `settings.py` | `Settings` — JSON persistence for recent files + preferences | 36 |
 | `update_checker.py` | `fetch_latest_release()`, `is_newer()`, `ReleaseInfo`, `UpdateCheckError` — GitHub releases API, no Qt | 13 |
 | `license/license_info.py` | `LicenseInfo` dataclass, `Tier` enum, `FORMAT_VERSION`, embedded public key | — |
 | `license/license_manager.py` | `LicenseManager` — verify, import, load_stored, export_license; `LicenseError` | 29 |
 | `view/license_dialog.py` | `LicenseDialog` — import mode (browse/drop) + view mode (details + expiry notice + Retrieve License button); on successful import shows a "restart required" message and closes | — |
-| `view/preferences_dialog.py` | `PreferencesDialog` — tabbed `QDialog`; General tab with "Check for updates on startup" checkbox; Cursors tab with mode, persistent, 4 cursor color swatches (C1/C2/CL/CR), Show ∆-Time checkbox + color swatch, arrow-key step (unit combobox + spinbox), reset button | 4 |
+| `view/preferences_dialog.py` | `PreferencesDialog` — tabbed `QDialog`; General tab with "Check for updates on startup" checkbox and "Undo steps" spinbox (1–100); Cursors tab with mode, persistent, 4 cursor color swatches (C1/C2/CL/CR), Show ∆-Time checkbox + color swatch, arrow-key step (unit combobox + spinbox), reset button | 4 |
 | `app.py` | MVC assembly point | — |
 
 **`MdfLoader`** is the sole importer of `asammdf`. Public API:
@@ -285,13 +287,16 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 **`ActiveSignal`** fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in. `__hash__ = object.__hash__` and `__eq__ = object.__eq__` — identity semantics throughout to avoid numpy `__eq__` ambiguity (list `in` / `remove` also use `__eq__`).
 
 **`AppController`** public API:
-- `load_file(path)` — clears all state, opens file, populates browser + info box; resets color counter and cursor system; calls `settings.add_recent(path)` on success only; UI cleared before `open()` so state is clean on failure
+- `load_file(path)` — clears all state, opens file, populates browser + info box; resets color counter, cursor system, and zoom history; calls `settings.add_recent(path)` on success only; UI cleared before `open()` so state is clean on failure
 - `add_signal(gi, ci) -> bool` — loads channel, assigns next palette color, notifies plot + table; calls `cursor_ctrl.refresh()` to recompute values for the new signal; returns `True` if added, `False` if already active (duplicate)
 - `remove_signal(active)` — removes from plot/table/list; calls `cursor_ctrl.on_signal_removed` (label cleanup) then `cursor_ctrl.refresh()`; clears selection if that signal was selected
 - `remove_all()` — calls `cursor_ctrl.on_all_signals_cleared()` (label cleanup), then removes all signals, clears table, clears selection
 - `set_selected_signal(active | None)` — drives the Signal Info Box
 - `set_cursor_controller(cc)` — optional; wired from `app.py` after construction
-- Cursor proxy methods (so `MainWindow` has a single controller contact point): `toggle_cursor()`, `press_cursor1()`, `press_cursor2()`, `press_left()`, `press_right()`, `zoom_to_cursors() -> tuple[float,float] | None`, `set_cursor_mode_callback(cb)` — all delegate to `_cursor_ctrl`, guarded by `None` check
+- `set_zoom_controller(zc)` — optional; wired from `app.py` after construction
+- Cursor proxy methods: `toggle_cursor()`, `press_cursor1()`, `press_cursor2()`, `press_left()`, `press_right()`, `zoom_to_cursors() -> bool`, `set_cursor_mode_callback(cb)` — all delegate to `_cursor_ctrl`, guarded by `None` check; `zoom_to_cursors()` now applies the zoom internally and returns `True` if applied (was: returned the span tuple)
+- Zoom proxy methods: `zoom_to_fit()`, `zoom_y_to_view() -> bool`, `swimlanes() -> bool` — each calls `zoom_ctrl.before/after_discrete_action()` around the `PlotArea` call so the action is recorded as a single undo step
+- Undo/redo proxies: `undo()`, `redo()` — delegate to `_zoom_ctrl`, guarded by `None` check
 - Constructor accepts optional `settings: Settings` — omitting it disables recent-file tracking without any other effect
 - `active_signals` / `selected_signal` / `is_file_loaded` — read-only state accessors
 
@@ -310,6 +315,16 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - Active cursor tracking: `_active_cursor_idx` set by drag/click events, cleared on reset(); auto-set to 0 when entering ONE mode
 - Arrow-key step settings injected via callables: `get_cursor_step_unit` ("samples"/"pixels"/"time"), `get_cursor_step_samples`, `get_cursor_step_pixels`, `get_cursor_step_time_ms`, `get_x_per_pixel`
 
+**`ZoomController`** (`controller/zoom_controller.py`):
+- Constructor: `(plot_area, get_active_signals, get_max_steps, _timer=None)` — `_timer` is injectable for testing (avoids requiring QApplication in unit tests); connects to `plot_area.range_changed`
+- `before_discrete_action()` / `after_discrete_action()` — bracket toolbar zoom calls; `before` captures the current state onto the undo stack and sets `_ignore_range_changed`; `after` clears the flag and refreshes `_stable_state`
+- `undo()` / `redo()` — restore/re-apply zoom state; each saves the current state to the opposite stack and refreshes `_stable_state`
+- `clear()` — empties both stacks, resets `_stable_state` to `None`; called by `AppController.load_file()`
+- `can_undo` / `can_redo` — bool properties
+- Gesture coalescing: `PlotArea.range_changed` fires on every pan/scroll step; `ZoomController` uses a 300 ms debounce timer — `_on_range_changed()` marks gesture start and records the `_stable_state` as `_pre_gesture_state`; `_on_gesture_end()` pushes it to undo and refreshes `_stable_state`
+- `_stable_state` design: PyQtGraph fires `sigRangeChanged` synchronously inside `setRange`/`showAxRect`, so capturing "current state" in `_on_range_changed` would already see the post-change position. Instead, `_stable_state` is updated after each gesture ends (idle period), so it always reflects the view before the gesture that triggered `range_changed`. This is especially important for the zoom rectangle, which makes a large one-shot X+Y change.
+- History depth trimmed to `get_max_steps()` on every push
+
 **`CursorView`** (`QObject`, lives inside `PlotArea.plot_item`):
 - Two dashed `pg.InfiniteLine` items (hidden until activated); `apply_mode(mode, positions)` shows/hides and repositions them; hides delta-time line when leaving TWO mode
 - `update_labels(active_signals, positions, mode)` — creates/repositions `pg.TextItem` value labels (signal color, `{value:.4g}` — no unit); prunes stale labels
@@ -326,13 +341,13 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 **`MainWindow`** public API:
 - Constructor creates all five view widgets as public attrs: `signal_browser`, `plot_area`, `active_signals_table`, `measurement_info_box`, `signal_info_box`
-- `set_controller(ctrl)` — wires browser, table remove/selection signals to controller, drop signals from plot_area and active_signals_table; all cursor actions (toggle, cursor1, cursor2, zoom_to_cursors) call through `ctrl` proxy methods; calls `ctrl.set_cursor_mode_callback(self._on_cursor_mode_changed)` so the toolbar button reflects the active mode
+- `set_controller(ctrl)` — wires browser, table remove/selection signals to controller, drop signals from plot_area and active_signals_table; all cursor and zoom actions (toggle, cursor1, cursor2, zoom_to_cursors, zoom_to_fit, zoom_y_to_view, swimlanes, undo, redo) call through `ctrl` proxy methods; calls `ctrl.set_cursor_mode_callback(self._on_cursor_mode_changed)` so the toolbar button reflects the active mode
 - `set_recent_files_provider(callable)` — supplies a `() -> list[Path]` called on every `File` menu open; results are inserted between Load MDF separator and Preferences (section hidden when list is empty)
 - `set_settings(settings)` — stores the `Settings` instance; required before Preferences dialog can open
 - `trigger_startup_update_check()` — launches `_UpdateCheckThread` in the background; silently shows the update-available dialog if a newer version is found, silent on error or up-to-date
 - `show_status(message, timeout_ms=3000)` — displays a transient message in the `QStatusBar`
 - Layout: outer H-splitter → [SignalBrowser (260px) | center V-splitter | ActiveSignalsTable (260px)]; center → [PlotArea (3×) | bottom H-splitter → [MeasurementInfoBox | SignalInfoBox]]
-- Menu: File → Load MDF… (Ctrl+O) / [recent files] / Preferences… / Exit (Ctrl+Q); Help → Check for Update… / License / About
+- Menu: File → Load MDF… (Ctrl+O) / [recent files] / Preferences… / Exit (Ctrl+Q); Edit → Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z); Help → Check for Update… / License / About
 - Toolbar: Load File | Zoom to Fit (Ctrl+0) | Cursors (toggle) — all three use custom PNG icons from `resources/icons/`
 - All load paths (dialog, recent files, file drop) catch `MdfLoadError` and show `QMessageBox.critical`
 - `_on_add_signals(locations)` — called by browser `add_signals_requested`, plot `signals_dropped`, and table `signals_dropped`; loops over locations, counts duplicates (skipped silently), shows status bar message if any were skipped
@@ -340,7 +355,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `_on_check_for_update()` — manual update check: synchronous with wait cursor; shows update-available dialog or "up to date" dialog; error dialog on network failure
 - `_UpdateCheckThread` — module-level `QThread` subclass; emits `update_available(tag, url)` signal if a newer version is found; exceptions are swallowed (startup-check use case)
 
-**`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `Settings` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController` (with `get_active_signals=lambda: controller.active_signals`), wires all together via `controller.set_cursor_controller(cursor_ctrl)` and `window.set_controller(controller)`; calls `set_recent_files_provider(settings.get_and_prune)` and `window.set_settings(settings)`. License is loaded once here via `license_manager.load_stored()` and applied via `window.set_license(license_info, license_manager)`. After `window.show()`: calls `window.trigger_startup_update_check()` if `settings.check_for_updates` is `True`. If `sys.argv[1]` is a file path (e.g. via `.mf4` file association), loads it immediately after `window.show()`.
+**`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `Settings` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController` (with `get_active_signals=lambda: controller.active_signals`), constructs `ZoomController(plot_area, get_active_signals=lambda: controller.active_signals, get_max_steps=lambda: settings.max_undo_steps)`, wires all together via `controller.set_cursor_controller(cursor_ctrl)`, `controller.set_zoom_controller(zoom_ctrl)`, and `window.set_controller(controller)`; calls `set_recent_files_provider(settings.get_and_prune)` and `window.set_settings(settings)`. License is loaded once here via `license_manager.load_stored()` and applied via `window.set_license(license_info, license_manager)`. After `window.show()`: calls `window.trigger_startup_update_check()` if `settings.check_for_updates` is `True`. If `sys.argv[1]` is a file path (e.g. via `.mf4` file association), loads it immediately after `window.show()`.
 
 **`MeasurementInfoBox`** / **`SignalInfoBox`**: both use a `QStackedWidget` — page 0 is a centred placeholder label, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` / `set_metadata` populates the form and switches to page 1; `clear()` switches back. Optional fields (empty string / `None`) are omitted. MDF4 XML tags in comment fields are stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`. `SignalInfoBox` shows a "Data type" row (e.g. `uint8`, `float64`) when `SignalMetadata.data_type` is populated.
 
@@ -369,17 +384,20 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `cursor_step_samples: int` — step size in samples mode (default `1`)
 - `cursor_step_pixels: int` — step size in pixels mode (default `1`)
 - `cursor_step_time_ms: float` — step size in time mode, milliseconds (default `10.0`)
-- Module-level constants `DEFAULT_CURSOR_COLOR_C1/C2/CL/CR`, `DEFAULT_DELTA_TIME_COLOR`, `DEFAULT_CURSOR_STEP_UNIT/SAMPLES/PIXELS/TIME_MS` exported for use by `PreferencesDialog`
+- `max_undo_steps: int` — zoom undo history depth (default `1`, min `1`); setting saves immediately
+- Module-level constants `DEFAULT_CURSOR_COLOR_C1/C2/CL/CR`, `DEFAULT_DELTA_TIME_COLOR`, `DEFAULT_CURSOR_STEP_UNIT/SAMPLES/PIXELS/TIME_MS`, `DEFAULT_MAX_UNDO_STEPS` exported for use by `PreferencesDialog`
 - Config path: `%APPDATA%\mdf-viewer\settings.json` (Windows) / `~/.config/mdf-viewer/settings.json` (Linux); detected via `sys.platform`; parent dirs created on first save
 - Constructor accepts an optional `path` override (used in tests via `tmp_path`)
 
 **`PlotArea`** public API:
-- `add_signal(active)` — creates `ViewBox` + `AxisItem('right')` + `PlotDataItem`; sets `active.curve` and `active.view_box`; no-op for duplicates
+- `add_signal(active)` — creates `ViewBox` + `AxisItem('right')` + `PlotDataItem`; sets `active.curve` and `active.view_box`; no-op for duplicates; connects `vb.sigRangeChanged` AFTER `enableAutoRange()` so the initial auto-range is not captured as a zoom step
 - `remove_signal(active)` — removes curve/ViewBox/axis from scene and layout; clears `active.curve` and `active.view_box`; no-op for unknowns
 - `recolor_signal(active, color)` — updates curve pen, axis pen, axis text pen, and `active.color`; no-op for unknowns
 - `zoom_to_fit()` — full X range from timestamps, auto Y per signal; no-op when empty
+- `get_zoom_state(active_signals) -> ZoomState` — snapshots current X range and each active signal's Y range; keyed by `ActiveSignal` identity
+- `set_zoom_state(state, active_signals)` — restores X and per-signal Y ranges from a `ZoomState`; signals in `active_signals` but absent from state keep their current Y; removed signals are silently skipped
 - `plot_item` — read-only property exposing the inner `pg.PlotItem` (used by `CursorView`)
-- Signals: `y_grid_toggled(bool)`, `file_dropped(object)` (Path), `signals_dropped(list)`
+- Signals: `y_grid_toggled(bool)`, `file_dropped(object)` (Path), `signals_dropped(list)`, `range_changed()` — emitted whenever the X or any signal Y range changes (used by `ZoomController` for gesture detection)
 - Drop target: event filter on `_pw.viewport()` accepts MDF file URLs (`.mf4`/`.mdf`/`.dat`) and `application/x-mdf-viewer-signals` MIME data
 
 ### Decisions made
@@ -404,14 +422,14 @@ See [`docs/architecture.md`](docs/architecture.md) — decision log is maintaine
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (517 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (564 passing) and `python -m mdf_viewer` both work.
 - `cryptography` must be installed separately on macOS: `.venv/bin/pip install cryptography`
 
 ### Changelog
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
 
 ### Next steps
-v2.1 "Cursor Stuff" in progress. Remaining open issue: #39.
+v2.1 "Cursor Stuff" is complete — all issues closed. Ready to tag v2.1 and begin v2.2 "Signal Stuff".
 
 ### Security — secrets that must never be committed
 
