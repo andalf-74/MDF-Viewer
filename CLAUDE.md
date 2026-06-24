@@ -239,7 +239,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-24:** v2.0.1 released — 494 tests passing. v2.1 "Cursor Stuff" in progress: #59, #62, #63, and #25 closed.
+**As of 2026-06-24:** v2.0.1 released — 517 tests passing. v2.1 "Cursor Stuff" in progress: #59, #62, #63, #25, and #26 closed.
 
 ### Implemented
 
@@ -255,7 +255,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `view/signal_info_box.py` | `SignalInfoBox` — signal metadata, QFormLayout + placeholder | 18 |
 | `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons, drop target | 32 |
 | `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target | 35 |
-| `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic, delta-time line + label | 18 |
+| `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic, delta-time line + label, off-screen chevron indicators | 43 |
 | `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
 | `controller/interfaces.py` | Protocol contracts for all controller-view dependencies | — |
 | `controller/app_controller.py` | `AppController` — coordinates all layers | 39 |
@@ -315,6 +315,10 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - Nearest-cursor logic: `pg.SignalProxy` on `scene.sigMouseMoved` (30 fps) — in TWO mode, only the closer cursor's labels are shown
 - `cursor_moved(index, x)` — `pyqtSignal` emitted on every cursor drag step
 - `delta_line_moved(y)` — `pyqtSignal` emitted when the delta-time line is dragged (controller stores position)
+- Off-screen chevron indicators: `_ChevronItem` (bold `pg.TextItem` subclass, clickable) — one per cursor plus one for the delta-time line, added to the main ViewBox; `_update_chevrons()` repositions them on every mode/position change and on `sigRangeChanged`; cursor chevrons show `<`/`>` at the left/right edge, delta chevron shows `^`/`v` at the top/bottom edge; two chevrons on the same side are stacked at ±7% of the Y span around centre
+- `set_cursor_names(name0, name1)` — updates chevron tooltip text (called from controller on each refresh)
+- `cursor_fetch_requested(index, x)` — `pyqtSignal(int, float)` emitted when a cursor chevron is clicked; `x` is the data-X coordinate of the click
+- `delta_fetch_requested(y)` — `pyqtSignal(float)` emitted when the delta-time chevron is clicked; `y` is the data-Y coordinate of the click
 
 **`MainWindow`** public API:
 - Constructor creates all five view widgets as public attrs: `signal_browser`, `plot_area`, `active_signals_table`, `measurement_info_box`, `signal_info_box`
@@ -392,14 +396,14 @@ See [`docs/architecture.md`](docs/architecture.md) — decision log is maintaine
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (494 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (517 passing) and `python -m mdf_viewer` both work.
 - `cryptography` must be installed separately on macOS: `.venv/bin/pip install cryptography`
 
 ### Changelog
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
 
 ### Next steps
-v2.1 "Cursor Stuff" in progress. Remaining open issues: #26, #29, #39.
+v2.1 "Cursor Stuff" in progress. Remaining open issues: #29, #39.
 
 ### Security — secrets that must never be committed
 
