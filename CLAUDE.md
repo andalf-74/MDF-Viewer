@@ -239,7 +239,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-24:** v2.0.1 released — 517 tests passing. v2.1 "Cursor Stuff" in progress: #59, #62, #63, #25, and #26 closed.
+**As of 2026-06-24:** v2.0.1 released — 532 tests passing. v2.1 "Cursor Stuff" in progress: #59, #62, #63, #25, #26, and #29 closed.
 
 ### Implemented
 
@@ -265,7 +265,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `license/license_info.py` | `LicenseInfo` dataclass, `Tier` enum, `FORMAT_VERSION`, embedded public key | — |
 | `license/license_manager.py` | `LicenseManager` — verify, import, load_stored, export_license; `LicenseError` | 29 |
 | `view/license_dialog.py` | `LicenseDialog` — import mode (browse/drop) + view mode (details + expiry notice + Retrieve License button); on successful import shows a "restart required" message and closes | — |
-| `view/preferences_dialog.py` | `PreferencesDialog` — tabbed `QDialog`; General tab with "Check for updates on startup" checkbox; Cursors tab with mode, persistent, 4 cursor color swatches (C1/C2/CL/CR), Show ∆-Time checkbox + color swatch, reset button | 4 |
+| `view/preferences_dialog.py` | `PreferencesDialog` — tabbed `QDialog`; General tab with "Check for updates on startup" checkbox; Cursors tab with mode, persistent, 4 cursor color swatches (C1/C2/CL/CR), Show ∆-Time checkbox + color swatch, arrow-key step (unit combobox + spinbox), reset button | 4 |
 | `app.py` | MVC assembly point | — |
 
 **`MdfLoader`** is the sole importer of `asammdf`. Public API:
@@ -291,7 +291,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `remove_all()` — calls `cursor_ctrl.on_all_signals_cleared()` (label cleanup), then removes all signals, clears table, clears selection
 - `set_selected_signal(active | None)` — drives the Signal Info Box
 - `set_cursor_controller(cc)` — optional; wired from `app.py` after construction
-- Cursor proxy methods (so `MainWindow` has a single controller contact point): `toggle_cursor()`, `press_cursor1()`, `press_cursor2()`, `zoom_to_cursors() -> tuple[float,float] | None`, `set_cursor_mode_callback(cb)` — all delegate to `_cursor_ctrl`, guarded by `None` check
+- Cursor proxy methods (so `MainWindow` has a single controller contact point): `toggle_cursor()`, `press_cursor1()`, `press_cursor2()`, `press_left()`, `press_right()`, `zoom_to_cursors() -> tuple[float,float] | None`, `set_cursor_mode_callback(cb)` — all delegate to `_cursor_ctrl`, guarded by `None` check
 - Constructor accepts optional `settings: Settings` — omitting it disables recent-file tracking without any other effect
 - `active_signals` / `selected_signal` / `is_file_loaded` — read-only state accessors
 
@@ -299,6 +299,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - Constructor: `(cursor_view, get_x_range, active_signals_table, get_active_signals=None, get_cursor_persistent=None, get_cursor_mode=None, get_cursor_colors=None, get_y_range=None, get_show_delta_time=None, get_delta_time_color=None)` — all settings read on demand via callables; `get_cursor_colors` returns `(c1, c2, cl, cr)` RGB tuples; defaults to module-level constants when omitted
 - `toggle()` — HIDDEN → ONE → TWO → HIDDEN; on first activation places cursors at plot X range start + 10% span; subsequent toggles use remembered positions
 - `press_cursor1()` / `press_cursor2()` — direct single-cursor activation (dot / comma keys)
+- `press_left()` / `press_right()` — move the active cursor one step left/right (arrow keys); no-op when HIDDEN or no cursor touched in TWO mode
 - `zoom_to_cursors() -> tuple[float,float] | None` — returns the span between the two cursors in TWO mode; None otherwise
 - `reset()` — called by `AppController.load_file()`; hides cursors and marks positions for re-initialisation on next activation
 - `refresh()` — called by `AppController` after any change to the active signal list; re-computes values and updates labels
@@ -306,6 +307,8 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `set_mode_changed_callback(cb)` — registers a callable invoked with the new `CursorMode` on every toggle
 - `recolor_signal(active, color)` — delegates to `CursorView.recolor_labels()`
 - Drives `ActiveSignalsTable.update_cursor_values()` and `CursorView.update_labels()` on every drag and toggle
+- Active cursor tracking: `_active_cursor_idx` set by drag/click events, cleared on reset(); auto-set to 0 when entering ONE mode
+- Arrow-key step settings injected via callables: `get_cursor_step_unit` ("samples"/"pixels"/"time"), `get_cursor_step_samples`, `get_cursor_step_pixels`, `get_cursor_step_time_ms`, `get_x_per_pixel`
 
 **`CursorView`** (`QObject`, lives inside `PlotArea.plot_item`):
 - Two dashed `pg.InfiniteLine` items (hidden until activated); `apply_mode(mode, positions)` shows/hides and repositions them; hides delta-time line when leaving TWO mode
@@ -314,6 +317,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `remove_labels_for(active)` / `clear_labels()` — called on signal removal
 - Nearest-cursor logic: `pg.SignalProxy` on `scene.sigMouseMoved` (30 fps) — in TWO mode, only the closer cursor's labels are shown
 - `cursor_moved(index, x)` — `pyqtSignal` emitted on every cursor drag step
+- `cursor_clicked(index)` — `pyqtSignal` emitted when a cursor line is clicked (sets active cursor for arrow-key stepping)
 - `delta_line_moved(y)` — `pyqtSignal` emitted when the delta-time line is dragged (controller stores position)
 - Off-screen chevron indicators: `_ChevronItem` (bold `pg.TextItem` subclass, clickable) — one per cursor plus one for the delta-time line, added to the main ViewBox; `_update_chevrons()` repositions them on every mode/position change and on `sigRangeChanged`; cursor chevrons show `<`/`>` at the left/right edge, delta chevron shows `^`/`v` at the top/bottom edge; two chevrons on the same side are stacked at ±7% of the Y span around centre
 - `set_cursor_names(name0, name1)` — updates chevron tooltip text (called from controller on each refresh)
@@ -361,7 +365,11 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `cursor_color_c1 / c2 / cl / cr: tuple[int,int,int]` — per-cursor RGB colors (default: C1/CL yellow `(220,220,50)`, C2 orange `(255,140,0)`, CR blue `(50,150,255)`); stored as `[r,g,b]` lists in JSON; `_load_color()` falls back to default on malformed values
 - `show_delta_time_in_plot: bool` — property (default `True`); setting it saves immediately
 - `delta_time_color: tuple[int,int,int]` — delta-time line color (default light gray `(200,200,200)`)
-- Module-level constants `DEFAULT_CURSOR_COLOR_C1/C2/CL/CR` and `DEFAULT_DELTA_TIME_COLOR` exported for use by `PreferencesDialog`
+- `cursor_step_unit: str` — "samples" / "pixels" / "time" (default `"samples"`); setting saves immediately
+- `cursor_step_samples: int` — step size in samples mode (default `1`)
+- `cursor_step_pixels: int` — step size in pixels mode (default `1`)
+- `cursor_step_time_ms: float` — step size in time mode, milliseconds (default `10.0`)
+- Module-level constants `DEFAULT_CURSOR_COLOR_C1/C2/CL/CR`, `DEFAULT_DELTA_TIME_COLOR`, `DEFAULT_CURSOR_STEP_UNIT/SAMPLES/PIXELS/TIME_MS` exported for use by `PreferencesDialog`
 - Config path: `%APPDATA%\mdf-viewer\settings.json` (Windows) / `~/.config/mdf-viewer/settings.json` (Linux); detected via `sys.platform`; parent dirs created on first save
 - Constructor accepts an optional `path` override (used in tests via `tmp_path`)
 
@@ -403,7 +411,7 @@ See [`docs/architecture.md`](docs/architecture.md) — decision log is maintaine
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
 
 ### Next steps
-v2.1 "Cursor Stuff" in progress. Remaining open issues: #29, #39.
+v2.1 "Cursor Stuff" in progress. Remaining open issue: #39.
 
 ### Security — secrets that must never be committed
 

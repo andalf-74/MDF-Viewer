@@ -5,6 +5,10 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Arrow-key cursor stepping (#29). Left/Right keys move the most-recently-
+  touched cursor by a configurable step. Step unit (Samples / Pixels / Time)
+  and amount are set in Preferences → Cursors. Keys have no effect when
+  cursors are hidden.
 - "Persistent cursors" setting in Preferences → Cursors tab (default: on).
   When on, cursors reappear at their last position; when off, they are placed
   at 25 % and 75 % of the current viewport on every show (#59, #62).
