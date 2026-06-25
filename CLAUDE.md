@@ -291,7 +291,12 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `add_signal(gi, ci) -> bool` — loads channel, assigns next palette color, notifies plot + table; calls `cursor_ctrl.refresh()` to recompute values for the new signal; returns `True` if added, `False` if already active (duplicate)
 - `remove_signal(active)` — removes from plot/table/list; calls `cursor_ctrl.on_signal_removed` (label cleanup) then `cursor_ctrl.refresh()`; clears selection if that signal was selected
 - `remove_all()` — calls `cursor_ctrl.on_all_signals_cleared()` (label cleanup), then removes all signals, clears table, clears selection
-- `set_selected_signal(active | None)` — drives the Signal Info Box
+- `toggle_step_mode(active)` — flips `active.step_mode`; calls `PlotArea.set_step_mode()` to switch between linear and staircase rendering
+- `recolor_signal(active, color)` — updates curve + axis color via `PlotArea.recolor_signal()` and cursor labels via `cursor_ctrl.recolor_signal()`
+- `reorder_signals(ordered)` — updates `_active` list order to match new table row order; calls `cursor_ctrl.refresh()`; connected to `ActiveSignalsTable.order_changed`
+- `on_y_grid_toggled(enabled)` — tracks Y-grid state; turns grid off on the previously selected signal and on for the newly selected one; connected to `PlotArea.y_grid_toggled`
+- `set_selected_signal(active | None)` — drives the Signal Info Box; also manages per-signal Y-grid when `_y_grid_enabled`
+- `refresh_cursors()` — calls `cursor_ctrl.refresh()`; used by `PreferencesDialog` after cursor preference changes
 - `set_cursor_controller(cc)` — optional; wired from `app.py` after construction
 - `set_zoom_controller(zc)` — optional; wired from `app.py` after construction
 - Cursor proxy methods: `toggle_cursor()`, `press_cursor1()`, `press_cursor2()`, `press_left()`, `press_right()`, `zoom_to_cursors() -> bool`, `set_cursor_mode_callback(cb)` — all delegate to `_cursor_ctrl`, guarded by `None` check; `zoom_to_cursors()` now applies the zoom internally and returns `True` if applied (was: returned the span tuple)
@@ -301,7 +306,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `active_signals` / `selected_signal` / `is_file_loaded` — read-only state accessors
 
 **`CursorController`** public API:
-- Constructor: `(cursor_view, get_x_range, active_signals_table, get_active_signals=None, get_cursor_persistent=None, get_cursor_mode=None, get_cursor_colors=None, get_y_range=None, get_show_delta_time=None, get_delta_time_color=None)` — all settings read on demand via callables; `get_cursor_colors` returns `(c1, c2, cl, cr)` RGB tuples; defaults to module-level constants when omitted
+- Constructor: `(cursor_view, get_x_range, active_signals_table, get_active_signals=None, get_cursor_persistent=None, get_cursor_mode=None, get_cursor_colors=None, get_y_range=None, get_show_delta_time=None, get_delta_time_color=None, get_selected_signal=None, get_cursor_step_unit=None, get_cursor_step_samples=None, get_cursor_step_pixels=None, get_cursor_step_time_ms=None, get_x_per_pixel=None)` — all settings read on demand via callables; `get_cursor_colors` returns `(c1, c2, cl, cr)` RGB tuples; `get_selected_signal` used for sample-step mode when no cursor has been touched; defaults to module-level constants / empty-list / `None` when omitted
 - `toggle()` — HIDDEN → ONE → TWO → HIDDEN; on first activation places cursors at plot X range start + 10% span; subsequent toggles use remembered positions
 - `press_cursor1()` / `press_cursor2()` — direct single-cursor activation (dot / comma keys)
 - `press_left()` / `press_right()` — move the active cursor one step left/right (arrow keys); no-op when HIDDEN or no cursor touched in TWO mode
@@ -365,8 +370,9 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `set_cursor_column_headers(c3, c4)` — updates C1/C2 column header text (e.g. "Cursor L" / "Cursor R")
 - `set_delta_column_header(text)` — updates Δ column header; set to `"Δt = X s"` in TWO mode, `"Δ"` otherwise
 - `update_cursor_values(active, c1, c2, delta)` — fills cursor cells by row
-- Signals: `selection_changed(object)`, `remove_requested(object)`, `remove_all_requested()`, `color_change_requested(object, QColor)`, `signals_dropped(list)`
+- Signals: `selection_changed(object)`, `remove_requested(object)`, `remove_all_requested()`, `color_change_requested(object, QColor)`, `signals_dropped(list)`, `step_mode_toggle_requested(object)` (right-click context menu), `order_changed(list[ActiveSignal])` (emitted after row drag-and-drop reorder with the full new signal order)
 - `_ColorSwatch`: flat `QPushButton` with styled background; click → `QColorDialog` → updates swatch + emits `color_change_requested`
+- Row drag-and-drop reorder: drag initiated inside the table moves a row; `_apply_reorder` is deferred via `QTimer.singleShot(0)` so it runs after `startDrag()` returns; emits `order_changed` with the new `_signals` list
 - Uses `selectionModel().selectedRows()` (not `currentRow()`) so `clearSelection()` correctly emits `None`
 - Drop target: event filter on `_table.viewport()` accepts `application/x-mdf-viewer-signals` MIME data and emits `signals_dropped`
 
@@ -393,12 +399,16 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `add_signal(active)` — creates `ViewBox` + `AxisItem('right')` + `PlotDataItem`; sets `active.curve` and `active.view_box`; no-op for duplicates; connects `vb.sigRangeChanged` AFTER `enableAutoRange()` so the initial auto-range is not captured as a zoom step
 - `remove_signal(active)` — removes curve/ViewBox/axis from scene and layout; clears `active.curve` and `active.view_box`; no-op for unknowns
 - `recolor_signal(active, color)` — updates curve pen, axis pen, axis text pen, and `active.color`; no-op for unknowns
+- `set_step_mode(active, enabled)` — switches curve between linear and staircase (`pg.PlotDataItem(stepMode="right")`) rendering; no-op for unknowns
+- `set_y_grid(active, enabled)` — shows or hides horizontal Y-grid lines on a signal's `ViewBox`; no-op for unknowns
 - `zoom_to_fit()` — full X range from timestamps, auto Y per signal; no-op when empty
+- `zoom_to_x_range(x_min, x_max)` — sets the shared X axis to the given range without touching Y axes; used by `AppController.zoom_to_cursors()`
 - `get_zoom_state(active_signals) -> ZoomState` — snapshots current X range and each active signal's Y range; keyed by `ActiveSignal` identity
 - `set_zoom_state(state, active_signals)` — restores X and per-signal Y ranges from a `ZoomState`; signals in `active_signals` but absent from state keep their current Y; removed signals are silently skipped
 - `plot_item` — read-only property exposing the inner `pg.PlotItem` (used by `CursorView`)
 - Signals: `y_grid_toggled(bool)`, `file_dropped(object)` (Path), `signals_dropped(list)`, `range_changed()` — emitted whenever the X or any signal Y range changes (used by `ZoomController` for gesture detection)
 - Drop target: event filter on `_pw.viewport()` accepts MDF file URLs (`.mf4`/`.mdf`/`.dat`) and `application/x-mdf-viewer-signals` MIME data
+- Private internals: `_ViewBox` subclass handles pan/zoom with a context menu (Y-grid toggle); `_SignalAxisItem` subclass formats integer tick labels without decimals; `_SignalPlotData` dataclass bundles the ViewBox + axis + curve per signal
 
 ### Decisions made
 See [`docs/architecture.md`](docs/architecture.md) — decision log is maintained there, grouped by topic.
