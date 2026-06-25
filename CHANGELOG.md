@@ -4,8 +4,6 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
-## [2.1] - 2026-06-25
-
 ### Added
 - Zoom undo/redo (#39). `Ctrl+Z` / `Ctrl+Shift+Z` step through zoom history;
   also available under the new Edit menu. Covers all pan, scroll, drag-rect,

@@ -239,7 +239,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-25:** v2.1 released — 564 tests passing. v2.1 "Cursor Stuff" complete: #59, #62, #63, #25, #26, #29, and #39 closed.
+**As of 2026-06-25:** v2.0.1 released — 564 tests passing. v2.1 "Cursor Stuff" complete: #59, #62, #63, #25, #26, #29, and #39 closed.
 
 ### Implemented
 
@@ -430,7 +430,7 @@ See [`docs/architecture.md`](docs/architecture.md) — decision log is maintaine
 
 `dist/` is in `.gitignore`; build artifacts are never committed. The `.spec` and `.iss` files are committed under `installer/`.
 
-**Latest release — v2.1:** https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.1 — ships `MDF-Viewer-2.1-Setup.exe` (installer) and `MDF-Viewer-2.1-Windows.zip` (portable).
+**Latest release — v2.0:** https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.0 — ships `MDF-Viewer-2.0-Setup.exe` (installer) and `MDF-Viewer-2.0-Windows.zip` (portable).
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
@@ -441,7 +441,7 @@ See [`docs/architecture.md`](docs/architecture.md) — decision log is maintaine
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
 
 ### Next steps
-v2.1 "Cursor Stuff" is tagged and released. Next: v2.2 "Signal Stuff".
+v2.1 "Cursor Stuff" is complete — all issues closed. Ready to tag v2.1 and begin v2.2 "Signal Stuff".
 
 ### Security — secrets that must never be committed
 
