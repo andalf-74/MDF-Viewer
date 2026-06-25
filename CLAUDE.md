@@ -239,7 +239,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-25:** v2.0.1 released — 564 tests passing. Cursor Stuff work (#59, #62, #63, #25, #26, #29, #39) complete and merged to main; next release will be v2.1.1.
+**As of 2026-06-25:** v2.0.1 released — 582 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff starts (#56, #65, #66) merged to main; next release will be v2.1.1.
 
 ### Implemented
 
@@ -255,7 +255,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `view/measurement_info_box.py` | `MeasurementInfoBox` — file metadata, QFormLayout + placeholder | 18 |
 | `view/signal_info_box.py` | `SignalInfoBox` — signal metadata, QFormLayout + placeholder | 18 |
 | `view/widgets/color_swatch.py` | `ColorSwatch` — flat `QPushButton` color indicator; reusable across views | — |
-| `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons, drop target | 32 |
+| `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons, drop target; multi-select | 42 |
 | `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target, zoom state snapshot | 35 |
 | `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic, delta-time line + label, off-screen chevron indicators | 43 |
 | `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
@@ -292,9 +292,13 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `load_file(path)` — clears all state, opens file, populates browser + info box; resets color counter, cursor system, and zoom history; calls `settings.add_recent(path)` on success only; UI cleared before `open()` so state is clean on failure
 - `add_signal(gi, ci) -> bool` — loads channel, assigns next palette color, notifies plot + table; calls `cursor_ctrl.refresh()` to recompute values for the new signal; returns `True` if added, `False` if already active (duplicate)
 - `remove_signal(active)` — removes from plot/table/list; calls `cursor_ctrl.on_signal_removed` (label cleanup) then `cursor_ctrl.refresh()`; clears selection if that signal was selected
+- `remove_signals(actives)` — removes a list of signals; calls `on_signal_removed` per signal then a single `cursor_ctrl.refresh()`; connected to `ActiveSignalsTable.remove_requested`
 - `remove_all()` — calls `cursor_ctrl.on_all_signals_cleared()` (label cleanup), then removes all signals, clears table, clears selection
 - `toggle_step_mode(active)` — flips `active.step_mode`; calls `PlotArea.set_step_mode()` to switch between linear and staircase rendering
+- `set_step_modes(actives, enabled)` — sets step mode to a specific state for each signal; connected to `ActiveSignalsTable.step_mode_set_requested`
 - `recolor_signal(active, color)` — updates curve + axis color via `PlotArea.recolor_signal()` and cursor labels via `cursor_ctrl.recolor_signal()`
+- `recolor_signals(actives, color)` — loops `recolor_signal()` for each; connected to `ActiveSignalsTable.color_change_requested`
+- `on_multi_selection(multi)` — called when table switches to >1 selected rows; calls `signal_info.show_multi_selection()` when True; connected to `ActiveSignalsTable.multi_selection_active`
 - `reorder_signals(ordered)` — updates `_active` list order to match new table row order; calls `cursor_ctrl.refresh()`; connected to `ActiveSignalsTable.order_changed`
 - `on_y_grid_toggled(enabled)` — tracks Y-grid state; turns grid off on the previously selected signal and on for the newly selected one; connected to `PlotArea.y_grid_toggled`
 - `set_selected_signal(active | None)` — drives the Signal Info Box; also manages per-signal Y-grid when `_y_grid_enabled`
@@ -364,7 +368,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 **`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `Settings` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController` (with `get_active_signals=lambda: controller.active_signals`), constructs `ZoomController(plot_area, get_active_signals=lambda: controller.active_signals, get_max_steps=lambda: settings.max_undo_steps)`, wires all together via `controller.set_cursor_controller(cursor_ctrl)`, `controller.set_zoom_controller(zoom_ctrl)`, and `window.set_controller(controller)`; calls `set_recent_files_provider(settings.get_and_prune)` and `window.set_settings(settings)`. License is loaded once here via `license_manager.load_stored()` and applied via `window.set_license(license_info, license_manager)`. After `window.show()`: calls `window.trigger_startup_update_check()` if `settings.check_for_updates` is `True`. If `sys.argv[1]` is a file path (e.g. via `.mf4` file association), loads it immediately after `window.show()`.
 
-**`MeasurementInfoBox`** / **`SignalInfoBox`**: both use a `QStackedWidget` — page 0 is a centred placeholder label, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` / `set_metadata` populates the form and switches to page 1; `clear()` switches back. Optional fields (empty string / `None`) are omitted. MDF4 XML tags in comment fields are stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`. `SignalInfoBox` shows a "Data type" row (e.g. `uint8`, `float64`) when `SignalMetadata.data_type` is populated.
+**`MeasurementInfoBox`** / **`SignalInfoBox`**: both use a `QStackedWidget` — page 0 is a centred placeholder label, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` / `set_metadata` populates the form and switches to page 1; `clear()` switches back. Optional fields (empty string / `None`) are omitted. MDF4 XML tags in comment fields are stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`. `SignalInfoBox` shows a "Data type" row (e.g. `uint8`, `float64`) when `SignalMetadata.data_type` is populated. `SignalInfoBox.show_multi_selection()` shows a "Multiple signals selected." placeholder (for multi-select state); `clear()` resets back to "No signal selected.".
 
 **`ActiveSignalsTable`** public API:
 - `add_row(active)` / `remove_row(active)` / `clear()` — row management; identity-based lookup (`is`) avoids numpy `__eq__` ambiguity on `SignalData`
@@ -372,10 +376,13 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `set_cursor_column_headers(c3, c4)` — updates C1/C2 column header text (e.g. "Cursor L" / "Cursor R")
 - `set_delta_column_header(text)` — updates Δ column header; set to `"Δt = X s"` in TWO mode, `"Δ"` otherwise
 - `update_cursor_values(active, c1, c2, delta)` — fills cursor cells by row
-- Signals: `selection_changed(object)`, `remove_requested(object)`, `remove_all_requested()`, `color_change_requested(object, QColor)`, `signals_dropped(list)`, `step_mode_toggle_requested(object)` (right-click context menu), `order_changed(list[ActiveSignal])` (emitted after row drag-and-drop reorder with the full new signal order)
+- Selection: `ExtendedSelection` mode — Ctrl+click / Shift+click for multi-select; right-clicking a row already in the selection keeps the selection intact (`_ActiveTable` subclass overrides `mousePressEvent`)
+- Signals: `selection_changed(object)` (single signal or `None`), `multi_selection_active(bool)` (True when >1 rows selected), `remove_requested(list[ActiveSignal])`, `remove_all_requested()`, `color_change_requested(list[ActiveSignal], QColor)`, `step_mode_set_requested(list[ActiveSignal], bool)` (context menu), `signals_dropped(list)`, `order_changed(list[ActiveSignal])`
+- Remove button, Del/Backspace key, and context menu "Remove Signal(s)" all remove the entire selection
+- Color swatch click: applies to all selected signals when the clicked signal is in the selection; single-signal otherwise
+- Context menu: "Remove Signal(s)", separator, "Enable Step Mode (for all)", "Disable Step Mode (for all)"
 - `ColorSwatch` (from `view/widgets/`): flat `QPushButton` with styled background; click → `QColorDialog` → updates swatch + emits `color_change_requested`
-- Row drag-and-drop reorder: drag initiated inside the table moves a row; `_apply_reorder` is deferred via `QTimer.singleShot(0)` so it runs after `startDrag()` returns; emits `order_changed` with the new `_signals` list
-- Uses `selectionModel().selectedRows()` (not `currentRow()`) so `clearSelection()` correctly emits `None`
+- Row drag-and-drop reorder: selected block moves as a unit; `_apply_reorder` is deferred via `QTimer.singleShot(0)` so it runs after `startDrag()` returns; emits `order_changed` with the new `_signals` list
 - Drop target: event filter on `_table.viewport()` accepts `application/x-mdf-viewer-signals` MIME data and emits `signals_dropped`
 
 **`Settings`** (`src/mdf_viewer/settings.py`):
@@ -434,7 +441,7 @@ See [`docs/architecture.md`](docs/architecture.md) — decision log is maintaine
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (564 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (582 passing) and `python -m mdf_viewer` both work.
 - `cryptography` must be installed separately on macOS: `.venv/bin/pip install cryptography`
 
 ### Changelog
