@@ -239,7 +239,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-25:** v2.0.1 released — 564 tests passing. v2.1 "Cursor Stuff" complete: #59, #62, #63, #25, #26, #29, and #39 closed.
+**As of 2026-06-25:** v2.0.1 released — 564 tests passing. Cursor Stuff work (#59, #62, #63, #25, #26, #29, #39) complete and merged to main; next release will be v2.1.1.
 
 ### Implemented
 
@@ -441,7 +441,7 @@ See [`docs/architecture.md`](docs/architecture.md) — decision log is maintaine
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
 
 ### Next steps
-v2.1 "Cursor Stuff" is complete — all issues closed. Ready to tag v2.1 and begin v2.2 "Signal Stuff".
+Cursor Stuff features are merged to main; version stays at 2.0.1 until a release build can be produced (requires Windows). Next milestone is v2.1.1 — keep adding features to main.
 
 ### Security — secrets that must never be committed
 
