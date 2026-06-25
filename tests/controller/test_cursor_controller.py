@@ -12,8 +12,8 @@ from mdf_viewer.controller.cursor_controller import (
     CursorController,
     CursorMode,
     _fmt,
-    _interpolate,
 )
+from mdf_viewer.model.interpolate import interpolate as _interpolate
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
 from mdf_viewer.view_model.active_signal import ActiveSignal

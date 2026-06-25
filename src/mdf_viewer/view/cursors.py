@@ -22,6 +22,7 @@ from PyQt6.QtCore import QObject
 from PyQt6.QtGui import QFont
 
 from mdf_viewer.controller.cursor_controller import CursorMode
+from mdf_viewer.model.interpolate import interpolate as _interpolate
 
 if TYPE_CHECKING:
     from mdf_viewer.view_model.active_signal import ActiveSignal
@@ -410,27 +411,3 @@ class CursorView(QObject):
         else:
             self._dt_chevron.setVisible(False)
 
-
-# ---------------------------------------------------------------------------
-# Shared helper (also used by CursorController)
-# ---------------------------------------------------------------------------
-
-def _interpolate(active: ActiveSignal, x: float) -> float | None:
-    """Linearly interpolate the signal value at timestamp *x*."""
-    import numpy as np
-    ts = active.data.timestamps
-    ys = active.data.samples
-    if len(ts) == 0 or x < ts[0] or x > ts[-1]:
-        return None
-    idx = int(np.searchsorted(ts, x))
-    if idx == 0:
-        return float(ys[0])
-    if idx >= len(ts):
-        return float(ys[-1])
-    y0 = float(ys[idx - 1])
-    if active.step_mode:
-        return y0
-    t0, t1 = float(ts[idx - 1]), float(ts[idx])
-    y1 = float(ys[idx])
-    alpha = (x - t0) / (t1 - t0) if t1 != t0 else 0.0
-    return y0 + alpha * (y1 - y0)
