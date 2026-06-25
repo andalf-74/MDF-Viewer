@@ -557,3 +557,37 @@ def test_set_delta_column_header_resets_to_default(table: ActiveSignalsTable) ->
     item = table._table.horizontalHeaderItem(4)
     assert item is not None
     assert item.text() == "Δ"
+
+
+# ---------------------------------------------------------------------------
+# multi_selection_changed
+# ---------------------------------------------------------------------------
+
+def test_multi_selection_changed_emitted_on_multi_select(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot
+) -> None:
+    table, sigs = populated
+    with qtbot.waitSignal(table.multi_selection_changed, timeout=1000) as blocker:
+        sm = table._table.selectionModel()
+        sm.clearSelection()
+        for row in (0, 1):
+            sm.select(
+                table._table.model().index(row, 0),
+                sm.SelectionFlag.Select | sm.SelectionFlag.Rows,
+            )
+    assert set(blocker.args[0]) == {sigs[0], sigs[1]}
+
+
+def test_multi_selection_changed_not_emitted_on_single_select(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot
+) -> None:
+    table, sigs = populated
+    emitted: list = []
+    table.multi_selection_changed.connect(emitted.append)
+    sm = table._table.selectionModel()
+    sm.clearSelection()
+    sm.select(
+        table._table.model().index(0, 0),
+        sm.SelectionFlag.Select | sm.SelectionFlag.Rows,
+    )
+    assert emitted == []

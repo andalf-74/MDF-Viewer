@@ -63,6 +63,8 @@ class ActiveSignalsTable(QWidget):
     selection_changed = pyqtSignal(object)
     # True when >1 rows are selected; False otherwise
     multi_selection_active = pyqtSignal(bool)
+    # list[ActiveSignal] — emitted alongside multi_selection_active(True) with the full selection
+    multi_selection_changed = pyqtSignal(list)
     # list[ActiveSignal] — emitted when Remove Signal is clicked / Del pressed / context menu
     remove_requested = pyqtSignal(list)
     # emitted when Remove All is clicked
@@ -222,8 +224,10 @@ class ActiveSignalsTable(QWidget):
             self.selection_changed.emit(self._signals[valid[0].row()])
             self.multi_selection_active.emit(False)
         else:
+            selected = [self._signals[r.row()] for r in valid]
             self.selection_changed.emit(None)
             self.multi_selection_active.emit(True)
+            self.multi_selection_changed.emit(selected)
 
     def _on_remove_clicked(self) -> None:
         signals = self._selected_signals()

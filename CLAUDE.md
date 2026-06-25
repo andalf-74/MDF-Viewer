@@ -239,7 +239,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-25:** v2.0.1 released — 582 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff starts (#56, #65, #66) merged to main; next release will be v2.1.1.
+**As of 2026-06-25:** v2.0.1 released — 622 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45) merged to main; next release will be v2.1.1.
 
 ### Implemented
 
@@ -253,15 +253,15 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `view/signal_browser.py` | `SignalBrowser` — TreeView, multi-select, Add Signal button, drag | 21 |
 | `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, status bar, wiring | 31 |
 | `view/measurement_info_box.py` | `MeasurementInfoBox` — file metadata, QFormLayout + placeholder | 18 |
-| `view/signal_info_box.py` | `SignalInfoBox` — signal metadata, QFormLayout + placeholder | 18 |
+| `view/signal_info_box.py` | `SignalInfoBox` — Info tab (metadata) + Properties tab (display mode, marker shape); QTabWidget | 35 |
 | `view/widgets/color_swatch.py` | `ColorSwatch` — flat `QPushButton` color indicator; reusable across views | — |
-| `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons, drop target; multi-select | 42 |
-| `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target, zoom state snapshot | 35 |
+| `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons, drop target; multi-select | 44 |
+| `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target, zoom state snapshot | 43 |
 | `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic, delta-time line + label, off-screen chevron indicators | 43 |
-| `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color) | — |
+| `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color + display mode + marker shape) | — |
 | `view_model/zoom_state.py` | `ZoomState` dataclass — snapshot of X range + per-signal Y ranges | — |
 | `controller/interfaces.py` | Protocol contracts for all controller-view dependencies | — |
-| `controller/app_controller.py` | `AppController` — coordinates all layers | 39 |
+| `controller/app_controller.py` | `AppController` — coordinates all layers | 57 |
 | `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation, delta-time | 41 |
 | `controller/zoom_controller.py` | `ZoomController` — zoom undo/redo, gesture coalescing, stable-state pre-capture | 27 |
 | `settings.py` | `Settings` — JSON persistence for recent files + preferences | 36 |
@@ -286,7 +286,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - Selection mode: `ExtendedSelection` — Ctrl+click and Shift+click select multiple channels; the Add Signal button emits all selected channels at once
 - Drag: `_DragTreeView` subclass encodes selected `(group_index, channel_index)` pairs as JSON in `application/x-mdf-viewer-signals` MIME data; drop targets are `PlotArea` and `ActiveSignalsTable`
 
-**`ActiveSignal`** fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in. `__hash__ = object.__hash__` and `__eq__ = object.__eq__` — identity semantics throughout to avoid numpy `__eq__` ambiguity (list `in` / `remove` also use `__eq__`).
+**`ActiveSignal`** fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `step_mode: bool`; `display_mode: str` (`"line"` / `"line_marker"` / `"marker"`, default `"line"`); `marker_shape: str` (`"circle"` / `"square"` / `"diamond"` / `"cross"`, default `"circle"`); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in. `__hash__ = object.__hash__` and `__eq__ = object.__eq__` — identity semantics throughout to avoid numpy `__eq__` ambiguity (list `in` / `remove` also use `__eq__`).
 
 **`AppController`** public API:
 - `load_file(path)` — clears all state, opens file, populates browser + info box; resets color counter, cursor system, and zoom history; calls `settings.add_recent(path)` on success only; UI cleared before `open()` so state is clean on failure
@@ -299,9 +299,12 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `recolor_signal(active, color)` — updates curve + axis color via `PlotArea.recolor_signal()` and cursor labels via `cursor_ctrl.recolor_signal()`
 - `recolor_signals(actives, color)` — loops `recolor_signal()` for each; connected to `ActiveSignalsTable.color_change_requested`
 - `on_multi_selection(multi)` — called when table switches to >1 selected rows; calls `signal_info.show_multi_selection()` when True; connected to `ActiveSignalsTable.multi_selection_active`
+- `set_multi_selected(actives)` — stores full multi-selection list in `_selected_signals`; computes shared display_mode/marker_shape (None when mismatched); calls `signal_info.set_properties()` and `enable_properties(True)`; connected to `ActiveSignalsTable.multi_selection_changed`
+- `on_display_mode_requested(mode)` — applies `display_mode` to all `_selected_signals`; calls `PlotArea.set_display_mode()`; connected to `SignalInfoBox.display_mode_requested`
+- `on_marker_shape_requested(shape)` — applies `marker_shape` to all `_selected_signals`; calls `PlotArea.set_display_mode()` only when signal is not in "line" mode; connected to `SignalInfoBox.marker_shape_requested`
 - `reorder_signals(ordered)` — updates `_active` list order to match new table row order; calls `cursor_ctrl.refresh()`; connected to `ActiveSignalsTable.order_changed`
 - `on_y_grid_toggled(enabled)` — tracks Y-grid state; turns grid off on the previously selected signal and on for the newly selected one; connected to `PlotArea.y_grid_toggled`
-- `set_selected_signal(active | None)` — drives the Signal Info Box; also manages per-signal Y-grid when `_y_grid_enabled`
+- `set_selected_signal(active | None)` — drives the Signal Info Box (metadata + properties tab); also manages per-signal Y-grid when `_y_grid_enabled`; updates `_selected_signals = [active]` or `[]`
 - `refresh_cursors()` — calls `cursor_ctrl.refresh()`; used by `PreferencesDialog` after cursor preference changes
 - `set_cursor_controller(cc)` — optional; wired from `app.py` after construction
 - `set_zoom_controller(zc)` — optional; wired from `app.py` after construction
@@ -368,7 +371,11 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 **`app.py`**: constructs `MainWindow`, reads view attrs, builds `MdfLoader` + `Settings` + `AppController`, constructs `CursorView(plot_area.plot_item)` + `CursorController` (with `get_active_signals=lambda: controller.active_signals`), constructs `ZoomController(plot_area, get_active_signals=lambda: controller.active_signals, get_max_steps=lambda: settings.max_undo_steps)`, wires all together via `controller.set_cursor_controller(cursor_ctrl)`, `controller.set_zoom_controller(zoom_ctrl)`, and `window.set_controller(controller)`; calls `set_recent_files_provider(settings.get_and_prune)` and `window.set_settings(settings)`. License is loaded once here via `license_manager.load_stored()` and applied via `window.set_license(license_info, license_manager)`. After `window.show()`: calls `window.trigger_startup_update_check()` if `settings.check_for_updates` is `True`. If `sys.argv[1]` is a file path (e.g. via `.mf4` file association), loads it immediately after `window.show()`.
 
-**`MeasurementInfoBox`** / **`SignalInfoBox`**: both use a `QStackedWidget` — page 0 is a centred placeholder label, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` / `set_metadata` populates the form and switches to page 1; `clear()` switches back. Optional fields (empty string / `None`) are omitted. MDF4 XML tags in comment fields are stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`. `SignalInfoBox` shows a "Data type" row (e.g. `uint8`, `float64`) when `SignalMetadata.data_type` is populated. `SignalInfoBox.show_multi_selection()` shows a "Multiple signals selected." placeholder (for multi-select state); `clear()` resets back to "No signal selected.".
+**`MeasurementInfoBox`** uses a `QStackedWidget` — page 0 is a centred placeholder, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` populates the form; `clear()` switches back. Optional fields omitted; MDF4 XML tags stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`.
+
+**`SignalInfoBox`** uses a `QTabWidget` with two tabs:
+- **Info tab** — `QStackedWidget`: page 0 placeholder ("No signal selected." / "Multiple signals selected."), page 1 `QScrollArea` + `QFormLayout` with metadata rows. `set_metadata(meta)` populates and shows the form; `show_multi_selection()` shows the multi-select placeholder; `clear()` shows "No signal selected." and disables the Properties tab.
+- **Properties tab** (`_SignalPropertiesWidget`) — display mode `QComboBox` ("Line" / "Line & Marker" / "Marker Only") and marker shape `QComboBox` ("Circle" / "Square" / "Diamond" / "Cross"); shape combo disabled when mode is "Line". `setCurrentIndex(-1)` used for mismatched multi-select values. Signals: `display_mode_requested(str)`, `marker_shape_requested(str)` — forwarded to `SignalInfoBox` signals. `set_properties(mode | None, shape | None)` — populates dropdowns, blocks signals during update. `enable_properties(bool)` — enables/disables the Properties tab via `QTabWidget.setTabEnabled`.
 
 **`ActiveSignalsTable`** public API:
 - `add_row(active)` / `remove_row(active)` / `clear()` — row management; identity-based lookup (`is`) avoids numpy `__eq__` ambiguity on `SignalData`
@@ -377,7 +384,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `set_delta_column_header(text)` — updates Δ column header; set to `"Δt = X s"` in TWO mode, `"Δ"` otherwise
 - `update_cursor_values(active, c1, c2, delta)` — fills cursor cells by row
 - Selection: `ExtendedSelection` mode — Ctrl+click / Shift+click for multi-select; right-clicking a row already in the selection keeps the selection intact (`_ActiveTable` subclass overrides `mousePressEvent`)
-- Signals: `selection_changed(object)` (single signal or `None`), `multi_selection_active(bool)` (True when >1 rows selected), `remove_requested(list[ActiveSignal])`, `remove_all_requested()`, `color_change_requested(list[ActiveSignal], QColor)`, `step_mode_set_requested(list[ActiveSignal], bool)` (context menu), `signals_dropped(list)`, `order_changed(list[ActiveSignal])`
+- Signals: `selection_changed(object)` (single signal or `None`), `multi_selection_active(bool)` (True when >1 rows selected), `multi_selection_changed(list[ActiveSignal])` (emitted alongside `multi_selection_active(True)` with the full selection list), `remove_requested(list[ActiveSignal])`, `remove_all_requested()`, `color_change_requested(list[ActiveSignal], QColor)`, `step_mode_set_requested(list[ActiveSignal], bool)` (context menu), `signals_dropped(list)`, `order_changed(list[ActiveSignal])`
 - Remove button, Del/Backspace key, and context menu "Remove Signal(s)" all remove the entire selection
 - Color swatch click: applies to all selected signals when the clicked signal is in the selection; single-signal otherwise
 - Context menu: "Remove Signal(s)", separator, "Enable Step Mode (for all)", "Disable Step Mode (for all)"
@@ -405,10 +412,11 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - Constructor accepts an optional `path` override (used in tests via `tmp_path`)
 
 **`PlotArea`** public API:
-- `add_signal(active)` — creates `ViewBox` + `AxisItem('right')` + `PlotDataItem`; sets `active.curve` and `active.view_box`; no-op for duplicates; connects `vb.sigRangeChanged` AFTER `enableAutoRange()` so the initial auto-range is not captured as a zoom step
+- `add_signal(active)` — creates `ViewBox` + `AxisItem('right')` + `PlotDataItem`; sets `active.curve` and `active.view_box`; respects `active.display_mode` and `active.marker_shape` at creation; no-op for duplicates; connects `vb.sigRangeChanged` AFTER `enableAutoRange()` so the initial auto-range is not captured as a zoom step
 - `remove_signal(active)` — removes curve/ViewBox/axis from scene and layout; clears `active.curve` and `active.view_box`; no-op for unknowns
-- `recolor_signal(active, color)` — updates curve pen, axis pen, axis text pen, and `active.color`; no-op for unknowns
-- `set_step_mode(active, enabled)` — switches curve between linear and staircase (`pg.PlotDataItem(stepMode="right")`) rendering; no-op for unknowns
+- `recolor_signal(active, color)` — updates curve pen, symbol colors, axis pen, axis text pen, and `active.color`; handles marker-only pen (NoPen) correctly; no-op for unknowns
+- `set_step_mode(active, enabled)` — switches curve between linear and staircase (`pg.PlotDataItem(stepMode="left")`) rendering; no-op for unknowns
+- `set_display_mode(active, mode, shape)` — switches between `"line"` / `"line_marker"` / `"marker"` rendering; updates curve pen and symbol (`_PG_SYMBOL` map: `circle→"o"`, `square→"s"`, `diamond→"d"`, `cross→"+"`); marker size from `_symbol_size(line_width)` = `max(6, width*4)`; no-op for unknowns
 - `set_y_grid(active, enabled)` — shows or hides horizontal Y-grid lines on a signal's `ViewBox`; no-op for unknowns
 - `zoom_to_fit()` — full X range from timestamps, auto Y per signal; no-op when empty
 - `zoom_to_x_range(x_min, x_max)` — sets the shared X axis to the given range without touching Y axes; used by `AppController.zoom_to_cursors()`
@@ -441,7 +449,7 @@ See [`docs/architecture.md`](docs/architecture.md) — decision log is maintaine
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (582 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (622 passing) and `python -m mdf_viewer` both work.
 - `cryptography` must be installed separately on macOS: `.venv/bin/pip install cryptography`
 
 ### Changelog

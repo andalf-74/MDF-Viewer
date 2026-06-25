@@ -561,3 +561,60 @@ def test_swimlanes_skips_unknown_signals(plot: PlotArea) -> None:
     stranger = _make_active("x")
     # Passing an unknown signal in the list must not raise
     assert plot.swimlanes([a, stranger]) is True
+
+
+
+# ---------------------------------------------------------------------------
+# set_display_mode
+# ---------------------------------------------------------------------------
+
+def test_set_display_mode_noop_for_unknown(plot: PlotArea) -> None:
+    stranger = _make_active("x")
+    plot.set_display_mode(stranger, "marker", "circle")  # must not raise
+
+
+def test_set_display_mode_to_marker_removes_pen(plot: PlotArea) -> None:
+    from PyQt6.QtCore import Qt
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_display_mode(active, "marker", "circle")
+    # setPen(None) stores QPen(NoPen), not Python None
+    assert active.curve.opts["pen"].style() == Qt.PenStyle.NoPen
+
+
+def test_set_display_mode_to_line_restores_pen(plot: PlotArea) -> None:
+    from PyQt6.QtCore import Qt
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_display_mode(active, "marker", "circle")
+    plot.set_display_mode(active, "line", "circle")
+    assert active.curve.opts["pen"].style() != Qt.PenStyle.NoPen
+
+
+def test_set_display_mode_line_clears_symbol(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_display_mode(active, "line_marker", "circle")
+    plot.set_display_mode(active, "line", "circle")
+    assert active.curve.opts["symbol"] is None
+
+
+def test_set_display_mode_line_marker_sets_symbol(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_display_mode(active, "line_marker", "square")
+    assert active.curve.opts["symbol"] == "s"
+
+
+def test_set_display_mode_marker_only_sets_symbol(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_display_mode(active, "marker", "diamond")
+    assert active.curve.opts["symbol"] == "d"
+
+
+def test_set_display_mode_cross_uses_correct_pg_symbol(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_display_mode(active, "marker", "cross")
+    assert active.curve.opts["symbol"] == "+"

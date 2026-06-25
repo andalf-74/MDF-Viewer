@@ -308,3 +308,98 @@ def test_sbox_clear_removes_form_rows(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta())
     sbox.clear()
     assert sbox._form.rowCount() == 0
+
+
+# ---------------------------------------------------------------------------
+# SignalInfoBox – Properties tab
+# ---------------------------------------------------------------------------
+
+def test_sbox_has_two_tabs(sbox: SignalInfoBox) -> None:
+    assert sbox._tabs.count() == 2
+
+
+def test_sbox_properties_tab_disabled_initially(sbox: SignalInfoBox) -> None:
+    assert not sbox._tabs.isTabEnabled(1)
+
+
+def test_sbox_enable_properties_enables_tab(sbox: SignalInfoBox) -> None:
+    sbox.enable_properties(True)
+    assert sbox._tabs.isTabEnabled(1)
+
+
+def test_sbox_enable_properties_disables_tab(sbox: SignalInfoBox) -> None:
+    sbox.enable_properties(True)
+    sbox.enable_properties(False)
+    assert not sbox._tabs.isTabEnabled(1)
+
+
+def test_sbox_clear_disables_properties_tab(sbox: SignalInfoBox) -> None:
+    sbox.enable_properties(True)
+    sbox.clear()
+    assert not sbox._tabs.isTabEnabled(1)
+
+
+def test_sbox_set_properties_sets_line_mode(sbox: SignalInfoBox) -> None:
+    sbox.set_properties("line", "circle")
+    assert sbox._props_widget._mode_combo.currentIndex() == 0
+
+
+def test_sbox_set_properties_sets_line_marker_mode(sbox: SignalInfoBox) -> None:
+    sbox.set_properties("line_marker", "circle")
+    assert sbox._props_widget._mode_combo.currentIndex() == 1
+
+
+def test_sbox_set_properties_sets_marker_only_mode(sbox: SignalInfoBox) -> None:
+    sbox.set_properties("marker", "circle")
+    assert sbox._props_widget._mode_combo.currentIndex() == 2
+
+
+def test_sbox_set_properties_none_mode_shows_blank(sbox: SignalInfoBox) -> None:
+    sbox.set_properties(None, "circle")
+    assert sbox._props_widget._mode_combo.currentIndex() == -1
+
+
+def test_sbox_set_properties_sets_shape(sbox: SignalInfoBox) -> None:
+    sbox.set_properties("line_marker", "diamond")
+    assert sbox._props_widget._shape_combo.currentIndex() == 2  # diamond is index 2
+
+
+def test_sbox_set_properties_none_shape_shows_blank(sbox: SignalInfoBox) -> None:
+    sbox.set_properties("line_marker", None)
+    assert sbox._props_widget._shape_combo.currentIndex() == -1
+
+
+def test_sbox_set_properties_line_mode_disables_shape(sbox: SignalInfoBox) -> None:
+    sbox.enable_properties(True)  # enable tab so parent isn't disabled
+    sbox.set_properties("line", "circle")
+    assert not sbox._props_widget._shape_combo.isEnabled()
+
+
+def test_sbox_set_properties_marker_mode_enables_shape(sbox: SignalInfoBox) -> None:
+    sbox.enable_properties(True)  # enable tab so parent isn't disabled
+    sbox.set_properties("marker", "circle")
+    assert sbox._props_widget._shape_combo.isEnabled()
+
+
+def test_sbox_display_mode_requested_emitted(sbox: SignalInfoBox, qtbot: QtBot) -> None:
+    sbox.set_properties("line", "circle")
+    with qtbot.waitSignal(sbox.display_mode_requested, timeout=1000) as blocker:
+        sbox._props_widget._mode_combo.setCurrentIndex(1)  # line_marker
+    assert blocker.args == ["line_marker"]
+
+
+def test_sbox_marker_shape_requested_emitted(sbox: SignalInfoBox, qtbot: QtBot) -> None:
+    sbox.set_properties("line_marker", "circle")
+    with qtbot.waitSignal(sbox.marker_shape_requested, timeout=1000) as blocker:
+        sbox._props_widget._shape_combo.setCurrentIndex(1)  # square
+    assert blocker.args == ["square"]
+
+
+def test_sbox_no_signal_emitted_when_setting_programmatically(
+    sbox: SignalInfoBox, qtbot: QtBot
+) -> None:
+    emitted: list = []
+    sbox.display_mode_requested.connect(emitted.append)
+    sbox.marker_shape_requested.connect(emitted.append)
+    sbox.set_properties("line_marker", "diamond")
+    assert emitted == []

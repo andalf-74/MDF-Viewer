@@ -40,6 +40,8 @@ class ActiveSignal:
     metadata: SignalMetadata
     color: QColor | tuple[int, int, int]
     step_mode: bool = False
+    display_mode: str = "line"    # "line" | "line_marker" | "marker"
+    marker_shape: str = "circle"  # "circle" | "square" | "diamond" | "cross"
     curve: Any = field(default=None)     # pyqtgraph.PlotDataItem
     view_box: Any = field(default=None)  # pyqtgraph.ViewBox
 

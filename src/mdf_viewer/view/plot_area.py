@@ -29,6 +29,17 @@ if TYPE_CHECKING:
 
 _MDF_SUFFIXES = {'.mf4', '.mdf', '.dat'}
 
+_PG_SYMBOL: dict[str, str] = {
+    "circle": "o",
+    "square": "s",
+    "diamond": "d",
+    "cross": "+",
+}
+
+
+def _symbol_size(line_width: int) -> int:
+    return max(6, line_width * 4)
+
 
 class _ViewBox(pg.ViewBox):
     """ViewBox with fixed mouse behaviour for MDF-Viewer.
@@ -182,7 +193,8 @@ class PlotArea(QWidget):
             return
 
         color = active.color
-        pen = pg.mkPen(color=color, width=2)
+        line_width = 2
+        pen = pg.mkPen(color=color, width=line_width) if active.display_mode != "marker" else None
 
         vb = _ViewBox()
         self._pi.scene().addItem(vb)
@@ -201,9 +213,22 @@ class PlotArea(QWidget):
         )
         self._pi.layout.addItem(axis, 2, col)
 
+        if active.display_mode != "line":
+            sym = _PG_SYMBOL.get(active.marker_shape, "o")
+            sym_size = _symbol_size(line_width)
+            sym_pen = pg.mkPen(color=color)
+            sym_brush = pg.mkBrush(color=color)
+        else:
+            sym = sym_pen = sym_brush = None
+            sym_size = 0
+
         curve = pg.PlotDataItem(
             pen=pen,
             stepMode="left" if active.step_mode else False,
+            symbol=sym,
+            symbolPen=sym_pen,
+            symbolBrush=sym_brush,
+            symbolSize=sym_size,
         )
         curve.setClipToView(True)
         curve.setDownsampling(auto=True, method="peak")
@@ -240,12 +265,37 @@ class PlotArea(QWidget):
         if active not in self._data:
             return
         spd = self._data[active]
-        pen = pg.mkPen(color=color, width=2)
+        pen = pg.mkPen(color=color, width=2) if active.display_mode != "marker" else None
         spd.curve.setPen(pen)
+        if active.display_mode != "line":
+            spd.curve.setSymbolPen(pg.mkPen(color=color))
+            spd.curve.setSymbolBrush(pg.mkBrush(color=color))
         spd.axis.setPen(pg.mkPen(color=color))
         spd.axis.setTextPen(pg.mkPen(color=color))
         active.color = color
         spd.view_box.update()
+
+    def set_display_mode(self, active: ActiveSignal, mode: str, shape: str) -> None:
+        """Switch a signal between line / line+marker / marker rendering. No-op if not present."""
+        if active not in self._data:
+            return
+        spd = self._data[active]
+        color = active.color
+        line_width = 2
+        pen = pg.mkPen(color=color, width=line_width) if mode != "marker" else None
+        if mode == "line":
+            symbol = sym_pen = sym_brush = None
+            sym_size = 0
+        else:
+            symbol = _PG_SYMBOL.get(shape, "o")
+            sym_size = _symbol_size(line_width)
+            sym_pen = pg.mkPen(color=color)
+            sym_brush = pg.mkBrush(color=color)
+        spd.curve.setPen(pen)
+        spd.curve.setSymbol(symbol)
+        spd.curve.setSymbolPen(sym_pen)
+        spd.curve.setSymbolBrush(sym_brush)
+        spd.curve.setSymbolSize(sym_size)
 
     def set_y_grid(self, active: ActiveSignal, enabled: bool) -> None:
         """Enable or disable the Y-grid on a signal's axis. No-op if not present."""

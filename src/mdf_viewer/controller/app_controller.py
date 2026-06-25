@@ -64,6 +64,7 @@ class AppController:
 
         self._active: list[ActiveSignal] = []
         self._selected: ActiveSignal | None = None
+        self._selected_signals: list[ActiveSignal] = []
         self._color_index: int = 0
         self._cursor_ctrl = None  # set by set_cursor_controller()
         self._zoom_ctrl = None    # set by set_zoom_controller()
@@ -256,6 +257,35 @@ class AppController:
         if multi:
             self._signal_info.show_multi_selection()
 
+    def set_multi_selected(self, actives: list) -> None:
+        """Update the full multi-selection list and populate the Properties tab."""
+        self._selected_signals = list(actives)
+        if not actives:
+            return
+        modes = {a.display_mode for a in actives}
+        shapes = {a.marker_shape for a in actives}
+        mode = next(iter(modes)) if len(modes) == 1 else None
+        shape = next(iter(shapes)) if len(shapes) == 1 else None
+        self._signal_info.set_properties(mode, shape)
+        self._signal_info.enable_properties(True)
+
+    def on_display_mode_requested(self, mode: str) -> None:
+        """Apply a display mode change to all currently selected signals."""
+        for active in self._selected_signals:
+            if active not in self._active:
+                continue
+            active.display_mode = mode
+            self._plot.set_display_mode(active, mode, active.marker_shape)
+
+    def on_marker_shape_requested(self, shape: str) -> None:
+        """Apply a marker shape change to all currently selected signals."""
+        for active in self._selected_signals:
+            if active not in self._active:
+                continue
+            active.marker_shape = shape
+            if active.display_mode != "line":
+                self._plot.set_display_mode(active, active.display_mode, shape)
+
     def remove_signal(self, active_signal: ActiveSignal) -> None:
         """Remove one signal from the plot and the table.
 
@@ -317,10 +347,13 @@ class AppController:
             if active_signal is not None:
                 self._plot.set_y_grid(active_signal, True)
         self._selected = active_signal
+        self._selected_signals = [active_signal] if active_signal is not None else []
         if active_signal is None:
             self._signal_info.clear()
         else:
             self._signal_info.set_metadata(active_signal.metadata)
+            self._signal_info.set_properties(active_signal.display_mode, active_signal.marker_shape)
+            self._signal_info.enable_properties(True)
 
     # ------------------------------------------------------------------
     # Read-only state accessors

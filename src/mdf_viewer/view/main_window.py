@@ -144,6 +144,15 @@ class MainWindow(QMainWindow):
         self.active_signals_table.multi_selection_active.connect(
             controller.on_multi_selection
         )
+        self.active_signals_table.multi_selection_changed.connect(
+            controller.set_multi_selected
+        )
+        self.signal_info_box.display_mode_requested.connect(
+            controller.on_display_mode_requested
+        )
+        self.signal_info_box.marker_shape_requested.connect(
+            controller.on_marker_shape_requested
+        )
         self.active_signals_table.color_change_requested.connect(
             controller.recolor_signals
         )

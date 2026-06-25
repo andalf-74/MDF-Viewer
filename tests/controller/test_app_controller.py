@@ -732,3 +732,167 @@ def test_reorder_signals_preserves_identity(ctrl: AppController, deps: dict) -> 
     ctrl.reorder_signals([original])
     assert ctrl._active[0] is original
 
+
+# ---------------------------------------------------------------------------
+# set_selected_signal — Properties tab integration
+# ---------------------------------------------------------------------------
+
+def test_set_selected_signal_calls_set_properties(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    deps["signal_info"].set_properties.assert_called_once_with(
+        sig.display_mode, sig.marker_shape
+    )
+
+
+def test_set_selected_signal_enables_properties(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    deps["signal_info"].enable_properties.assert_called_with(True)
+
+
+def test_set_selected_signal_none_disables_properties(ctrl: AppController, deps: dict) -> None:
+    ctrl.set_selected_signal(None)
+    # clear() is called; enable_properties is NOT called for None
+    deps["signal_info"].clear.assert_called()
+    for c in deps["signal_info"].enable_properties.call_args_list:
+        assert c != call(True)
+
+
+def test_set_selected_signal_updates_selected_signals_list(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    assert ctrl._selected_signals == [sig]
+
+
+def test_set_selected_signal_none_clears_selected_signals_list(ctrl: AppController) -> None:
+    ctrl.set_selected_signal(None)
+    assert ctrl._selected_signals == []
+
+
+# ---------------------------------------------------------------------------
+# set_multi_selected
+# ---------------------------------------------------------------------------
+
+def test_set_multi_selected_stores_signals(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=1)),
+        (_make_signal_data(), _make_metadata("b", ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    actives = ctrl.active_signals
+    ctrl.set_multi_selected(actives)
+    assert ctrl._selected_signals == actives
+
+
+def test_set_multi_selected_calls_set_properties_with_matching_mode(
+    ctrl: AppController, deps: dict
+) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=1)),
+        (_make_signal_data(), _make_metadata("b", ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    actives = ctrl.active_signals
+    # Both default to "line" / "circle"
+    ctrl.set_multi_selected(actives)
+    deps["signal_info"].set_properties.assert_called_with("line", "circle")
+
+
+def test_set_multi_selected_passes_none_for_mismatched_mode(
+    ctrl: AppController, deps: dict
+) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=1)),
+        (_make_signal_data(), _make_metadata("b", ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    actives = ctrl.active_signals
+    actives[0].display_mode = "line"
+    actives[1].display_mode = "marker"
+    ctrl.set_multi_selected(actives)
+    deps["signal_info"].set_properties.assert_called_with(None, "circle")
+
+
+def test_set_multi_selected_enables_properties_tab(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    ctrl.set_multi_selected(ctrl.active_signals)
+    deps["signal_info"].enable_properties.assert_called_with(True)
+
+
+# ---------------------------------------------------------------------------
+# on_display_mode_requested
+# ---------------------------------------------------------------------------
+
+def test_on_display_mode_requested_updates_active(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    ctrl.on_display_mode_requested("line_marker")
+    assert sig.display_mode == "line_marker"
+
+
+def test_on_display_mode_requested_calls_plot(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    ctrl.on_display_mode_requested("marker")
+    deps["plot"].set_display_mode.assert_called_once_with(sig, "marker", sig.marker_shape)
+
+
+def test_on_display_mode_requested_skips_unknown(ctrl: AppController, deps: dict) -> None:
+    t = np.array([0.0, 1.0])
+    unknown = ActiveSignal(
+        data=SignalData(timestamps=t, samples=t),
+        metadata=_make_metadata(),
+        color=QColor(0, 0, 255),
+    )
+    ctrl._selected_signals = [unknown]
+    ctrl.on_display_mode_requested("marker")  # must not raise
+    deps["plot"].set_display_mode.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# on_marker_shape_requested
+# ---------------------------------------------------------------------------
+
+def test_on_marker_shape_requested_updates_active(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    sig.display_mode = "line_marker"
+    ctrl.set_selected_signal(sig)
+    ctrl.on_marker_shape_requested("diamond")
+    assert sig.marker_shape == "diamond"
+
+
+def test_on_marker_shape_requested_calls_plot_when_not_line(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    sig.display_mode = "line_marker"
+    ctrl.set_selected_signal(sig)
+    deps["plot"].reset_mock()
+    ctrl.on_marker_shape_requested("square")
+    deps["plot"].set_display_mode.assert_called_once_with(sig, "line_marker", "square")
+
+
+def test_on_marker_shape_requested_no_plot_call_in_line_mode(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    sig.display_mode = "line"
+    ctrl.set_selected_signal(sig)
+    deps["plot"].reset_mock()
+    ctrl.on_marker_shape_requested("square")
+    deps["plot"].set_display_mode.assert_not_called()
+
