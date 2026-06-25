@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
+from mdf_viewer.view.widgets import ColorSwatch
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
 _COL_COLOR = 0
@@ -75,7 +76,7 @@ class ActiveSignalsTable(QWidget):
         self._signals.append(active)
 
         # Color swatch
-        swatch = _ColorSwatch(active.color)
+        swatch = ColorSwatch(active.color)
         swatch.clicked.connect(
             lambda checked=False, a=active: self._on_color_swatch_clicked(a)
         )
@@ -227,7 +228,7 @@ class ActiveSignalsTable(QWidget):
         row = self._find_row(active)
         if row is not None:
             swatch = self._table.cellWidget(row, _COL_COLOR)
-            if isinstance(swatch, _ColorSwatch):
+            if isinstance(swatch, ColorSwatch):
                 swatch.set_color(new_color)
         self.color_change_requested.emit(active, new_color)
 
@@ -327,7 +328,7 @@ class ActiveSignalsTable(QWidget):
         for active in self._signals:
             row = self._table.rowCount()
             self._table.insertRow(row)
-            swatch = _ColorSwatch(active.color)
+            swatch = ColorSwatch(active.color)
             swatch.clicked.connect(
                 lambda checked=False, a=active: self._on_color_swatch_clicked(a)
             )
@@ -357,25 +358,3 @@ def _ro_item(text: str) -> QTableWidgetItem:
     item = QTableWidgetItem(text)
     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
     return item
-
-
-class _ColorSwatch(QPushButton):
-    """A flat, clickable colored rectangle used as a signal color indicator."""
-
-    def __init__(self, color: QColor, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setFixedSize(20, 16)
-        self.setFlat(True)
-        self.set_color(color)
-
-    def set_color(self, color: QColor) -> None:
-        self._color = color
-        self.setStyleSheet(
-            f"background-color: {color.name()};"
-            "border: 1px solid #666;"
-            "border-radius: 2px;"
-        )
-
-    @property
-    def color(self) -> QColor:
-        return self._color

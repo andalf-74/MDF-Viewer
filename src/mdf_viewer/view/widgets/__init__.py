@@ -1,1 +1,5 @@
-"""Small reusable view widgets (e.g. the clickable color swatch)."""
+"""Small reusable view widgets."""
+
+from mdf_viewer.view.widgets.color_swatch import ColorSwatch
+
+__all__ = ["ColorSwatch"]

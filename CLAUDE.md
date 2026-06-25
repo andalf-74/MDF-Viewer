@@ -248,11 +248,13 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `errors.py` | `MdfLoadError` — shared error type imported by model and view | — |
 | `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` | 31 |
 | `model/signal_data.py` | `SignalData` dataclass | 2 |
+| `model/interpolate.py` | `interpolate(active, x)` — shared linear interpolation helper used by `CursorController` and `CursorView` | — |
 | `view/_mime.py` | Shared MIME type constant for signal drag-and-drop | — |
 | `view/signal_browser.py` | `SignalBrowser` — TreeView, multi-select, Add Signal button, drag | 21 |
 | `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, status bar, wiring | 31 |
 | `view/measurement_info_box.py` | `MeasurementInfoBox` — file metadata, QFormLayout + placeholder | 18 |
 | `view/signal_info_box.py` | `SignalInfoBox` — signal metadata, QFormLayout + placeholder | 18 |
+| `view/widgets/color_swatch.py` | `ColorSwatch` — flat `QPushButton` color indicator; reusable across views | — |
 | `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons, drop target | 32 |
 | `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target, zoom state snapshot | 35 |
 | `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic, delta-time line + label, off-screen chevron indicators | 43 |
@@ -371,7 +373,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `set_delta_column_header(text)` — updates Δ column header; set to `"Δt = X s"` in TWO mode, `"Δ"` otherwise
 - `update_cursor_values(active, c1, c2, delta)` — fills cursor cells by row
 - Signals: `selection_changed(object)`, `remove_requested(object)`, `remove_all_requested()`, `color_change_requested(object, QColor)`, `signals_dropped(list)`, `step_mode_toggle_requested(object)` (right-click context menu), `order_changed(list[ActiveSignal])` (emitted after row drag-and-drop reorder with the full new signal order)
-- `_ColorSwatch`: flat `QPushButton` with styled background; click → `QColorDialog` → updates swatch + emits `color_change_requested`
+- `ColorSwatch` (from `view/widgets/`): flat `QPushButton` with styled background; click → `QColorDialog` → updates swatch + emits `color_change_requested`
 - Row drag-and-drop reorder: drag initiated inside the table moves a row; `_apply_reorder` is deferred via `QTimer.singleShot(0)` so it runs after `startDrag()` returns; emits `order_changed` with the new `_signals` list
 - Uses `selectionModel().selectedRows()` (not `currentRow()`) so `clearSelection()` correctly emits `None`
 - Drop target: event filter on `_table.viewport()` accepts `application/x-mdf-viewer-signals` MIME data and emits `signals_dropped`

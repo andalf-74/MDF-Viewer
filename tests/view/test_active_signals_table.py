@@ -14,7 +14,8 @@ from pytestqt.qtbot import QtBot
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
 from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
-from mdf_viewer.view.active_signals_table import ActiveSignalsTable, _ColorSwatch
+from mdf_viewer.view.active_signals_table import ActiveSignalsTable
+from mdf_viewer.view.widgets import ColorSwatch as _ColorSwatch
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
 
@@ -427,7 +428,6 @@ def test_order_changed_emitted_on_row_reorder(
 def test_rebuild_rows_restores_color_swatches(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]]
 ) -> None:
-    from mdf_viewer.view.active_signals_table import _ColorSwatch
     table, sigs = populated
     table._rebuild_rows()
     for r in range(table._table.rowCount()):
