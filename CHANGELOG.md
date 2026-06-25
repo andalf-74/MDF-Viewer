@@ -5,6 +5,19 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Per-signal display mode and marker shapes (#45). Each signal can be shown as
+  a line only (default), a line with markers at each sample, or markers only
+  (scatter plot). Four marker shapes are available: circle, square, diamond,
+  cross. Marker size scales with line thickness. Settings are per-signal and
+  controlled via a new "Properties" tab in the Signal Info Box. With multiple
+  signals selected, changes apply to all selected signals; mismatched values
+  are shown as blank fields.
+- Multi-select in the Active Signals Table (#56). Ctrl+click and Shift+click
+  select multiple rows. Remove, color change, and step-mode toggle all apply
+  to the entire selection. Right-click on a selected row keeps the selection
+  intact and shows a context menu with "Remove Signal(s)", "Enable Step Mode",
+  and "Disable Step Mode". Row drag-and-drop reordering now moves the entire
+  selected block as a unit.
 - Zoom undo/redo (#39). `Ctrl+Z` / `Ctrl+Shift+Z` step through zoom history;
   also available under the new Edit menu. Covers all pan, scroll, drag-rect,
   and toolbar zoom actions. Continuous gestures are coalesced into a single

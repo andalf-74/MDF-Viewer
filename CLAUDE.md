@@ -246,25 +246,25 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | Module | Description | Tests |
 |--------|-------------|-------|
 | `errors.py` | `MdfLoadError` — shared error type imported by model and view | — |
-| `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` | 31 |
+| `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` | 32 |
 | `model/signal_data.py` | `SignalData` dataclass | 2 |
 | `model/interpolate.py` | `interpolate(active, x)` — shared linear interpolation helper used by `CursorController` and `CursorView` | — |
 | `view/_mime.py` | Shared MIME type constant for signal drag-and-drop | — |
-| `view/signal_browser.py` | `SignalBrowser` — TreeView, multi-select, Add Signal button, drag | 21 |
-| `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, status bar, wiring | 31 |
-| `view/measurement_info_box.py` | `MeasurementInfoBox` — file metadata, QFormLayout + placeholder | 18 |
-| `view/signal_info_box.py` | `SignalInfoBox` — Info tab (metadata) + Properties tab (display mode, marker shape); QTabWidget | 35 |
+| `view/signal_browser.py` | `SignalBrowser` — TreeView, multi-select, Add Signal button, drag | 43 |
+| `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, status bar, wiring | 48 |
+| `view/measurement_info_box.py` | `MeasurementInfoBox` — file metadata, QFormLayout + placeholder | 21 |
+| `view/signal_info_box.py` | `SignalInfoBox` — Info tab (metadata) + Properties tab (display mode, marker shape); QTabWidget | 34 |
 | `view/widgets/color_swatch.py` | `ColorSwatch` — flat `QPushButton` color indicator; reusable across views | — |
-| `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons, drop target; multi-select | 44 |
-| `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target, zoom state snapshot | 43 |
-| `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic, delta-time line + label, off-screen chevron indicators | 43 |
+| `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons, drop target; multi-select | 54 |
+| `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target, zoom state snapshot | 62 |
+| `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic, delta-time line + label, off-screen chevron indicators | 33 |
 | `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color + display mode + marker shape) | — |
 | `view_model/zoom_state.py` | `ZoomState` dataclass — snapshot of X range + per-signal Y ranges | — |
 | `controller/interfaces.py` | Protocol contracts for all controller-view dependencies | — |
-| `controller/app_controller.py` | `AppController` — coordinates all layers | 57 |
-| `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation, delta-time | 41 |
+| `controller/app_controller.py` | `AppController` — coordinates all layers | 84 |
+| `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation, delta-time | 93 |
 | `controller/zoom_controller.py` | `ZoomController` — zoom undo/redo, gesture coalescing, stable-state pre-capture | 27 |
-| `settings.py` | `Settings` — JSON persistence for recent files + preferences | 36 |
+| `settings.py` | `Settings` — JSON persistence for recent files + preferences | 43 |
 | `update_checker.py` | `fetch_latest_release()`, `is_newer()`, `ReleaseInfo`, `UpdateCheckError` — GitHub releases API, no Qt | 13 |
 | `license/license_info.py` | `LicenseInfo` dataclass, `Tier` enum, `FORMAT_VERSION`, embedded public key | — |
 | `license/license_manager.py` | `LicenseManager` — verify, import, load_stored, export_license; `LicenseError` | 29 |
