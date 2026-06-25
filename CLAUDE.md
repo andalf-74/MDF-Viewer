@@ -29,7 +29,7 @@ The prototype's core problem was that data classes, viewer, and plotter were too
 Three distinct signal classes have been identified from the prototype:
 
 - **SignalData** – Raw timestamps and sample values. No UI knowledge whatsoever.
-- **SignalMetadata** – Descriptive information about a signal: name, unit, min/max, sample count, comment, and any other MDF metadata fields.
+- **SignalMetadata** – Descriptive information about a signal: name, unit, min/max, sample count, raster, comment, and any other MDF metadata fields.
 - **ActiveSignal** – Represents a signal that has been added to the plot. Knows its curve object, ViewBox, and color. Bridge between Model and View.
 
 ---
@@ -239,7 +239,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-25:** v2.0.1 released — 622 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45) merged to main; next release will be v2.1.1.
+**As of 2026-06-26:** v2.0.1 released — 638 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45, #44) merged to main; next release will be v2.1.1.
 
 ### Implemented
 
@@ -253,7 +253,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 | `view/signal_browser.py` | `SignalBrowser` — TreeView, multi-select, Add Signal button, drag | 43 |
 | `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, status bar, wiring | 48 |
 | `view/measurement_info_box.py` | `MeasurementInfoBox` — file metadata, QFormLayout + placeholder | 21 |
-| `view/signal_info_box.py` | `SignalInfoBox` — Info tab (metadata) + Properties tab (display mode, marker shape); QTabWidget | 34 |
+| `view/signal_info_box.py` | `SignalInfoBox` — Info tab (metadata, incl. raster) + Properties tab (display mode, marker shape); QTabWidget | 41 |
 | `view/widgets/color_swatch.py` | `ColorSwatch` — flat `QPushButton` color indicator; reusable across views | — |
 | `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons, drop target; multi-select | 54 |
 | `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target, zoom state snapshot | 62 |
@@ -276,7 +276,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 - `open(path)` / `close()` / `is_open`
 - `measurement_info()` → `MeasurementInfo`
 - `channel_tree()` → `list[ChannelGroupInfo]`
-- `load_signal(group_index, channel_index)` → `(SignalData, SignalMetadata)` — captures raw asammdf dtype before float64 conversion; sets `SignalMetadata.data_type` and `is_integer`; if float64 conversion fails (enum/string samples), retries with `raw=True` to get the underlying integer encoding; raises `MdfLoadError` only if raw values are also non-numeric
+- `load_signal(group_index, channel_index)` → `(SignalData, SignalMetadata)` — captures raw asammdf dtype before float64 conversion; sets `SignalMetadata.data_type` and `is_integer`; computes `SignalMetadata.raster_s` via `_compute_raster()` (p99 interval deviation ≤ 5 % → fixed rate in seconds, else `None`); if float64 conversion fails (enum/string samples), retries with `raw=True` to get the underlying integer encoding; raises `MdfLoadError` only if raw values are also non-numeric
 
 **`SignalBrowser`** public API:
 - `populate(groups: list[ChannelGroupInfo])` — rebuilds the tree, groups expanded, filter cleared
@@ -374,7 +374,7 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 **`MeasurementInfoBox`** uses a `QStackedWidget` — page 0 is a centred placeholder, page 1 is a `QScrollArea` + `QFormLayout`. `set_info` populates the form; `clear()` switches back. Optional fields omitted; MDF4 XML tags stripped by regex. `_clear_form`, `_add_row`, `_clean_text` shared via import from `measurement_info_box`.
 
 **`SignalInfoBox`** uses a `QTabWidget` with two tabs:
-- **Info tab** — `QStackedWidget`: page 0 placeholder ("No signal selected." / "Multiple signals selected."), page 1 `QScrollArea` + `QFormLayout` with metadata rows. `set_metadata(meta)` populates and shows the form; `show_multi_selection()` shows the multi-select placeholder; `clear()` shows "No signal selected." and disables the Properties tab.
+- **Info tab** — `QStackedWidget`: page 0 placeholder ("No signal selected." / "Multiple signals selected."), page 1 `QScrollArea` + `QFormLayout` with metadata rows (name, unit, data type, samples, raster, min, max, comment). `set_metadata(meta)` populates and shows the form; `show_multi_selection()` shows the multi-select placeholder; `clear()` shows "No signal selected." and disables the Properties tab. Raster row shown only when `sample_count ≥ 2`; displays the interval in ms (≤ 500 ms) or s (> 500 ms), or "variable" when `raster_s` is `None`.
 - **Properties tab** (`_SignalPropertiesWidget`) — display mode `QComboBox` ("Line" / "Line & Marker" / "Marker Only") and marker shape `QComboBox` ("Circle" / "Square" / "Diamond" / "Cross"); shape combo disabled when mode is "Line". `setCurrentIndex(-1)` used for mismatched multi-select values. Signals: `display_mode_requested(str)`, `marker_shape_requested(str)` — forwarded to `SignalInfoBox` signals. `set_properties(mode | None, shape | None)` — populates dropdowns, blocks signals during update. `enable_properties(bool)` — enables/disables the Properties tab via `QTabWidget.setTabEnabled`.
 
 **`ActiveSignalsTable`** public API:
@@ -449,7 +449,7 @@ See [`docs/architecture.md`](docs/architecture.md) — decision log is maintaine
 
 ### Environment
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (622 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (638 passing) and `python -m mdf_viewer` both work.
 - `cryptography` must be installed separately on macOS: `.venv/bin/pip install cryptography`
 
 ### Changelog

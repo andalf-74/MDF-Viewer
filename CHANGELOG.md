@@ -5,6 +5,12 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Measurement raster shown in Signal Info Box (#44). A "Raster" row appears
+  in the Info tab for any signal with at least two samples. Fixed-rate signals
+  show the mean interval (ms up to 500 ms, seconds above); variable-rate
+  signals show "variable". Fixed-rate detection uses the 99th-percentile
+  interval deviation with a 5 % tolerance, so occasional ECU jitter or
+  timestamp quantization does not misclassify fixed-rate signals.
 - Per-signal display mode and marker shapes (#45). Each signal can be shown as
   a line only (default), a line with markers at each sample, or markers only
   (scatter plot). Four marker shapes are available: circle, square, diamond,
