@@ -4,6 +4,8 @@ Columns: color swatch | name | cursor 1 value | cursor 2 value | delta.
 Cursor-value columns are hidden until cursors are activated.
 Buttons: Remove Signal, Remove All.
 Selection in this table drives the Signal Info Box via selection_changed.
+Multi-select is supported (ExtendedSelection). Right-clicking a row that is
+already part of the selection does not change the selection.
 """
 
 from __future__ import annotations
@@ -11,7 +13,7 @@ from __future__ import annotations
 import json
 
 from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QKeyEvent
+from PyQt6.QtGui import QAction, QColor, QKeyEvent, QMouseEvent
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QColorDialog,
@@ -40,19 +42,35 @@ _CURSOR_COLS = (_COL_C1, _COL_C2, _COL_DELTA)
 _HEADERS = ("", "Signal", "Cursor 1", "Cursor 2", "Δ")
 
 
+class _ActiveTable(QTableWidget):
+    """QTableWidget that keeps the selection intact on right-click when the
+    clicked row is already selected (Finder/Explorer behaviour)."""
+
+    def mousePressEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.RightButton:
+            idx = self.indexAt(event.position().toPoint())
+            if idx.isValid():
+                selected = {r.row() for r in self.selectionModel().selectedRows()}
+                if idx.row() in selected:
+                    return  # keep current selection; context menu fires separately
+        super().mousePressEvent(event)
+
+
 class ActiveSignalsTable(QWidget):
     """Table of active signals with color swatch, name, cursor values, and delta."""
 
-    # active_signal (or None) — emitted when row selection changes
+    # active_signal (or None) — emitted when row selection changes to 0 or 1 rows
     selection_changed = pyqtSignal(object)
-    # active_signal — emitted when Remove Signal is clicked
-    remove_requested = pyqtSignal(object)
+    # True when >1 rows are selected; False otherwise
+    multi_selection_active = pyqtSignal(bool)
+    # list[ActiveSignal] — emitted when Remove Signal is clicked / Del pressed / context menu
+    remove_requested = pyqtSignal(list)
     # emitted when Remove All is clicked
     remove_all_requested = pyqtSignal()
-    # active_signal, new QColor — emitted when user picks a new color
-    color_change_requested = pyqtSignal(object, QColor)
-    # active_signal — emitted when user selects Toggle Step Mode from context menu
-    step_mode_toggle_requested = pyqtSignal(object)
+    # list[ActiveSignal], new QColor — emitted when user picks a new color
+    color_change_requested = pyqtSignal(list, QColor)
+    # list[ActiveSignal], bool enabled — emitted from context menu step-mode actions
+    step_mode_set_requested = pyqtSignal(list, bool)
     # list of (group_index, channel_index) — emitted when signals are dropped onto the table
     signals_dropped = pyqtSignal(list)
     # list[ActiveSignal] in new order — emitted after a row drag-and-drop reorder
@@ -61,8 +79,8 @@ class ActiveSignalsTable(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._signals: list[ActiveSignal] = []
-        self._drag_src_row: int = -1
-        self._pending_reorder: tuple[int, int] | None = None
+        self._drag_src_rows: list[int] = []
+        self._pending_reorder: tuple[list[int], int] | None = None
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -75,17 +93,12 @@ class ActiveSignalsTable(QWidget):
         self._table.insertRow(row)
         self._signals.append(active)
 
-        # Color swatch
         swatch = ColorSwatch(active.color)
         swatch.clicked.connect(
             lambda checked=False, a=active: self._on_color_swatch_clicked(a)
         )
         self._table.setCellWidget(row, _COL_COLOR, swatch)
-
-        # Signal name
         self._table.setItem(row, _COL_NAME, _ro_item(active.metadata.name))
-
-        # Cursor value placeholders (hidden until cursors activated)
         for col in _CURSOR_COLS:
             self._table.setItem(row, col, _ro_item(""))
 
@@ -94,15 +107,11 @@ class ActiveSignalsTable(QWidget):
         row = self._find_row(active)
         if row is None:
             return
-        # Remove from the table first: removeRow() can synchronously emit
-        # itemSelectionChanged, whose handler indexes into _signals.
         self._table.removeRow(row)
         self._signals.pop(row)
 
     def clear(self) -> None:
         """Remove all rows."""
-        # Clear the table first: setRowCount(0) can synchronously emit
-        # itemSelectionChanged, whose handler indexes into _signals.
         self._table.setRowCount(0)
         self._signals.clear()
 
@@ -145,9 +154,9 @@ class ActiveSignalsTable(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        self._table = QTableWidget(0, _NUM_COLS)
+        self._table = _ActiveTable(0, _NUM_COLS)
         self._table.setHorizontalHeaderLabels(_HEADERS)
-        self._table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self._table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self._table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self._table.verticalHeader().setVisible(False)
@@ -168,7 +177,6 @@ class ActiveSignalsTable(QWidget):
             self._table.setColumnWidth(col, 80)
         hdr.setStretchLastSection(False)
 
-        # Cursor columns hidden until activated
         for col in _CURSOR_COLS:
             self._table.setColumnHidden(col, True)
 
@@ -204,34 +212,38 @@ class ActiveSignalsTable(QWidget):
 
     def _on_selection_changed(self) -> None:
         rows = self._table.selectionModel().selectedRows()
-        if rows and rows[0].row() < len(self._signals):
-            row = rows[0].row()
-            self._remove_btn.setEnabled(True)
-            self.selection_changed.emit(self._signals[row])
-        else:
-            self._remove_btn.setEnabled(False)
+        valid = [r for r in rows if r.row() < len(self._signals)]
+        count = len(valid)
+        self._remove_btn.setEnabled(count > 0)
+        if count == 0:
             self.selection_changed.emit(None)
+            self.multi_selection_active.emit(False)
+        elif count == 1:
+            self.selection_changed.emit(self._signals[valid[0].row()])
+            self.multi_selection_active.emit(False)
+        else:
+            self.selection_changed.emit(None)
+            self.multi_selection_active.emit(True)
 
     def _on_remove_clicked(self) -> None:
-        rows = self._table.selectionModel().selectedRows()
-        if rows:
-            self.remove_requested.emit(self._signals[rows[0].row()])
+        signals = self._selected_signals()
+        if signals:
+            self.remove_requested.emit(signals)
 
     def _on_color_swatch_clicked(self, active: ActiveSignal) -> None:
         QColorDialog.setCustomColor(0, active.color)
-        new_color = QColorDialog.getColor(
-            active.color, self, "Choose Signal Color"
-        )
+        new_color = QColorDialog.getColor(active.color, self, "Choose Signal Color")
         if not new_color.isValid():
             return
-        # Update swatch immediately; emit for controller/plot to react
-        row = self._find_row(active)
-        if row is not None:
-            swatch = self._table.cellWidget(row, _COL_COLOR)
-            if isinstance(swatch, ColorSwatch):
-                swatch.set_color(new_color)
-        self.color_change_requested.emit(active, new_color)
-
+        selected = self._selected_signals()
+        targets = selected if len(selected) > 1 and active in selected else [active]
+        for sig in targets:
+            row = self._find_row(sig)
+            if row is not None:
+                swatch = self._table.cellWidget(row, _COL_COLOR)
+                if isinstance(swatch, ColorSwatch):
+                    swatch.set_color(new_color)
+        self.color_change_requested.emit(targets, new_color)
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
@@ -243,12 +255,33 @@ class ActiveSignalsTable(QWidget):
         index = self._table.indexAt(pos)
         if not index.isValid() or index.row() >= len(self._signals):
             return
-        active = self._signals[index.row()]
+        selected = self._selected_signals()
+        if not selected:
+            selected = [self._signals[index.row()]]
+        n = len(selected)
         menu = QMenu(self)
-        label = "Disable Step Mode" if active.step_mode else "Enable Step Mode"
-        action = QAction(label, self)
-        action.triggered.connect(lambda: self.step_mode_toggle_requested.emit(active))
-        menu.addAction(action)
+
+        remove_label = f"Remove {n} Signals" if n > 1 else "Remove Signal"
+        remove_action = QAction(remove_label, self)
+        remove_action.triggered.connect(lambda: self.remove_requested.emit(selected))
+        menu.addAction(remove_action)
+
+        menu.addSeparator()
+
+        enable_label = "Enable Step Mode for all" if n > 1 else "Enable Step Mode"
+        enable_action = QAction(enable_label, self)
+        enable_action.triggered.connect(
+            lambda: self.step_mode_set_requested.emit(selected, True)
+        )
+        menu.addAction(enable_action)
+
+        disable_label = "Disable Step Mode for all" if n > 1 else "Disable Step Mode"
+        disable_action = QAction(disable_label, self)
+        disable_action.triggered.connect(
+            lambda: self.step_mode_set_requested.emit(selected, False)
+        )
+        menu.addAction(disable_action)
+
         menu.exec(self._table.viewport().mapToGlobal(pos))
 
     def eventFilter(self, watched, event):
@@ -260,9 +293,9 @@ class ActiveSignalsTable(QWidget):
                     event.acceptProposedAction()
                     return True
                 if mime.hasFormat("application/x-qabstractitemmodeldatalist"):
-                    # Capture source row now — currentRow() changes during drag.
-                    # Accept with MoveAction so the cursor shows a move icon.
-                    self._drag_src_row = self._table.currentRow()
+                    self._drag_src_rows = sorted(
+                        r.row() for r in self._table.selectionModel().selectedRows()
+                    )
                     event.setDropAction(Qt.DropAction.MoveAction)
                     event.accept()
                     return True
@@ -290,21 +323,17 @@ class ActiveSignalsTable(QWidget):
                 if mime.hasFormat("application/x-qabstractitemmodeldatalist"):
                     self._on_row_reorder(event)
                     return True
-                return True  # consume unknown drops without acting
+                return True
         return super().eventFilter(watched, event)
 
     def _on_row_reorder(self, event) -> None:
-        src_row = self._drag_src_row
+        src_rows = self._drag_src_rows
         target = self._table.indexAt(event.position().toPoint())
         dst_row = target.row() if target.isValid() else self._table.rowCount() - 1
-        if src_row < 0 or dst_row < 0 or src_row == dst_row:
+        if not src_rows or dst_row < 0 or dst_row in src_rows:
             event.ignore()
             return
-        self._pending_reorder = (src_row, dst_row)
-        # IgnoreAction: startDrag() only removes the source row when the
-        # returned action is MoveAction — IgnoreAction skips that deletion.
-        # The actual reorder is deferred until after startDrag() fully returns,
-        # so _rebuild_rows runs on a clean table with no Qt post-drop side-effects.
+        self._pending_reorder = (src_rows, dst_row)
         event.setDropAction(Qt.DropAction.IgnoreAction)
         event.accept()
         QTimer.singleShot(0, self._apply_reorder)
@@ -312,16 +341,23 @@ class ActiveSignalsTable(QWidget):
     def _apply_reorder(self) -> None:
         if self._pending_reorder is None:
             return
-        src_row, dst_row = self._pending_reorder
+        src_rows, dst_row = self._pending_reorder
         self._pending_reorder = None
-        if src_row >= len(self._signals) or dst_row >= len(self._signals):
+        if not src_rows or any(r >= len(self._signals) for r in src_rows):
             return
-        active = self._signals.pop(src_row)
-        self._signals.insert(dst_row, active)
-        self._rebuild_rows(select_row=dst_row)
+        if dst_row >= len(self._signals):
+            return
+        moving = [self._signals[r] for r in src_rows]
+        for r in reversed(src_rows):
+            self._signals.pop(r)
+        items_before = sum(1 for r in src_rows if r < dst_row)
+        adjusted_dst = max(0, dst_row - items_before)
+        self._signals[adjusted_dst:adjusted_dst] = moving
+        select_rows = list(range(adjusted_dst, adjusted_dst + len(moving)))
+        self._rebuild_rows(select_rows=select_rows)
         self.order_changed.emit(list(self._signals))
 
-    def _rebuild_rows(self, select_row: int | None = None) -> None:
+    def _rebuild_rows(self, select_rows: list[int] | None = None) -> None:
         """Rebuild the entire table from _signals (used after row reorder)."""
         self._table.blockSignals(True)
         self._table.setRowCount(0)
@@ -337,9 +373,20 @@ class ActiveSignalsTable(QWidget):
             for col in _CURSOR_COLS:
                 self._table.setItem(row, col, _ro_item(""))
         self._table.blockSignals(False)
-        if select_row is not None:
-            self._table.selectRow(select_row)
+        if select_rows:
+            sm = self._table.selectionModel()
+            sm.clearSelection()
+            for row in select_rows:
+                sm.select(
+                    self._table.model().index(row, 0),
+                    sm.SelectionFlag.Select | sm.SelectionFlag.Rows,
+                )
         self._table.viewport().update()
+
+    def _selected_signals(self) -> list[ActiveSignal]:
+        """Return all currently selected ActiveSignals, in row order."""
+        rows = sorted(r.row() for r in self._table.selectionModel().selectedRows())
+        return [self._signals[r] for r in rows if r < len(self._signals)]
 
     def _find_row(self, active: ActiveSignal) -> int | None:
         """Return the row index of *active* using identity, or None."""

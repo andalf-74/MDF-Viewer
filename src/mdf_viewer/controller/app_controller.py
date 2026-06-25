@@ -225,6 +225,37 @@ class AppController:
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.recolor_signal(active_signal, color)
 
+    def recolor_signals(self, actives: list, color: QColor) -> None:
+        """Recolor multiple signals to the same color."""
+        for active in actives:
+            self.recolor_signal(active, color)
+
+    def remove_signals(self, actives: list) -> None:
+        """Remove multiple signals from the plot and the table."""
+        for active in list(actives):
+            if active not in self._active:
+                continue
+            if self._cursor_ctrl is not None:
+                self._cursor_ctrl.on_signal_removed(active)
+            self._plot.remove_signal(active)
+            self._active.remove(active)
+            self._table.remove_row(active)
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.refresh()
+
+    def set_step_modes(self, actives: list, enabled: bool) -> None:
+        """Set step mode to a specific state for each signal in *actives*."""
+        for active in actives:
+            if active not in self._active:
+                continue
+            active.step_mode = enabled
+            self._plot.set_step_mode(active, enabled)
+
+    def on_multi_selection(self, multi: bool) -> None:
+        """Called when the table switches between single and multi-row selection."""
+        if multi:
+            self._signal_info.show_multi_selection()
+
     def remove_signal(self, active_signal: ActiveSignal) -> None:
         """Remove one signal from the plot and the table.
 

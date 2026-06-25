@@ -450,7 +450,7 @@ def test_zoom_cursors_delegates_to_controller(
     mock_controller.zoom_to_cursors.assert_called_once()
 
 
-def test_color_change_calls_recolor_signal(
+def test_color_change_calls_recolor_signals(
     wired: MainWindow, mock_controller: MagicMock, qtbot: QtBot
 ) -> None:
     from PyQt6.QtGui import QColor
@@ -467,6 +467,6 @@ def test_color_change_calls_recolor_signal(
     )
     new_color = QColor(0, 255, 0)
 
-    wired.active_signals_table.color_change_requested.emit(active, new_color)
+    wired.active_signals_table.color_change_requested.emit([active], new_color)
 
-    mock_controller.recolor_signal.assert_called_once_with(active, new_color)
+    mock_controller.recolor_signals.assert_called_once_with([active], new_color)

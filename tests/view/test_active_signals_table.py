@@ -226,7 +226,7 @@ def test_remove_button_emits_remove_requested(
     t._table.setCurrentIndex(t._table.model().index(1, 1))
     with qtbot.waitSignal(t.remove_requested, timeout=500) as blocker:
         t._remove_btn.click()
-    assert blocker.args[0] is sigs[1]
+    assert blocker.args[0] == [sigs[1]]
 
 
 def test_remove_all_button_emits_remove_all_requested(
@@ -263,7 +263,7 @@ def test_color_change_emits_signal(populated: tuple, qtbot: QtBot) -> None:
     ):
         with qtbot.waitSignal(t.color_change_requested, timeout=500) as blocker:
             t._on_color_swatch_clicked(sigs[0])
-    assert blocker.args[0] is sigs[0]
+    assert blocker.args[0] == [sigs[0]]
     assert blocker.args[1] == new_color
 
 
@@ -302,13 +302,122 @@ def test_delete_key_emits_remove_requested(populated: tuple, qtbot: QtBot) -> No
     t._table.selectRow(0)
     with qtbot.waitSignal(t.remove_requested) as blocker:
         qtbot.keyClick(t, Qt.Key.Key_Delete)
-    assert blocker.args[0] is sigs[0]
+    assert blocker.args[0] == [sigs[0]]
 
 
 def test_delete_key_no_selection_does_not_emit(table: ActiveSignalsTable, qtbot: QtBot) -> None:
     from PyQt6.QtCore import Qt
     with qtbot.assertNotEmitted(table.remove_requested):
         qtbot.keyClick(table, Qt.Key.Key_Delete)
+
+
+# ---------------------------------------------------------------------------
+# Multi-select
+# ---------------------------------------------------------------------------
+
+def test_multi_select_selection_changed_emits_none(
+    populated: tuple, qtbot: QtBot
+) -> None:
+    t, sigs = populated
+    t._table.selectRow(0)
+    t._table.selectionModel().select(
+        t._table.model().index(2, 0),
+        t._table.selectionModel().SelectionFlag.Select | t._table.selectionModel().SelectionFlag.Rows,
+    )
+    with qtbot.waitSignal(t.selection_changed, timeout=500) as blocker:
+        t._on_selection_changed()
+    assert blocker.args[0] is None
+
+
+def test_multi_select_emits_multi_selection_active_true(
+    populated: tuple, qtbot: QtBot
+) -> None:
+    t, sigs = populated
+    t._table.selectRow(0)
+    t._table.selectionModel().select(
+        t._table.model().index(2, 0),
+        t._table.selectionModel().SelectionFlag.Select | t._table.selectionModel().SelectionFlag.Rows,
+    )
+    with qtbot.waitSignal(t.multi_selection_active, timeout=500) as blocker:
+        t._on_selection_changed()
+    assert blocker.args[0] is True
+
+
+def test_single_select_emits_multi_selection_active_false(
+    populated: tuple, qtbot: QtBot
+) -> None:
+    t, sigs = populated
+    with qtbot.waitSignal(t.multi_selection_active, timeout=500) as blocker:
+        t._table.selectRow(1)
+    assert blocker.args[0] is False
+
+
+def test_remove_button_multi_select_emits_all(
+    populated: tuple, qtbot: QtBot
+) -> None:
+    t, sigs = populated
+    t._table.selectRow(0)
+    t._table.selectionModel().select(
+        t._table.model().index(2, 0),
+        t._table.selectionModel().SelectionFlag.Select | t._table.selectionModel().SelectionFlag.Rows,
+    )
+    with qtbot.waitSignal(t.remove_requested, timeout=500) as blocker:
+        t._remove_btn.click()
+    assert blocker.args[0] == [sigs[0], sigs[2]]
+
+
+def test_delete_key_multi_select_emits_all(
+    populated: tuple, qtbot: QtBot
+) -> None:
+    from PyQt6.QtCore import Qt
+    t, sigs = populated
+    t._table.selectRow(0)
+    t._table.selectionModel().select(
+        t._table.model().index(1, 0),
+        t._table.selectionModel().SelectionFlag.Select | t._table.selectionModel().SelectionFlag.Rows,
+    )
+    with qtbot.waitSignal(t.remove_requested) as blocker:
+        qtbot.keyClick(t, Qt.Key.Key_Delete)
+    assert blocker.args[0] == [sigs[0], sigs[1]]
+
+
+def test_color_swatch_multi_select_emits_all_selected(
+    populated: tuple, qtbot: QtBot
+) -> None:
+    t, sigs = populated
+    t._table.selectRow(0)
+    t._table.selectionModel().select(
+        t._table.model().index(2, 0),
+        t._table.selectionModel().SelectionFlag.Select | t._table.selectionModel().SelectionFlag.Rows,
+    )
+    new_color = QColor(10, 20, 30)
+    with patch(
+        "mdf_viewer.view.active_signals_table.QColorDialog.getColor",
+        return_value=new_color,
+    ):
+        with qtbot.waitSignal(t.color_change_requested, timeout=500) as blocker:
+            t._on_color_swatch_clicked(sigs[0])
+    assert blocker.args[0] == [sigs[0], sigs[2]]
+    assert blocker.args[1] == new_color
+
+
+def test_color_swatch_unselected_signal_ignores_selection(
+    populated: tuple, qtbot: QtBot
+) -> None:
+    t, sigs = populated
+    t._table.selectRow(0)
+    t._table.selectionModel().select(
+        t._table.model().index(2, 0),
+        t._table.selectionModel().SelectionFlag.Select | t._table.selectionModel().SelectionFlag.Rows,
+    )
+    new_color = QColor(10, 20, 30)
+    with patch(
+        "mdf_viewer.view.active_signals_table.QColorDialog.getColor",
+        return_value=new_color,
+    ):
+        with qtbot.waitSignal(t.color_change_requested, timeout=500) as blocker:
+            t._on_color_swatch_clicked(sigs[1])  # sigs[1] not in selection
+    assert blocker.args[0] == [sigs[1]]
 
 
 # ---------------------------------------------------------------------------
@@ -407,7 +516,7 @@ def test_rebuild_rows_selects_given_row(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]]
 ) -> None:
     table, _ = populated
-    table._rebuild_rows(select_row=1)
+    table._rebuild_rows(select_rows=[1])
     rows = table._table.selectionModel().selectedRows()
     assert len(rows) == 1
     assert rows[0].row() == 1

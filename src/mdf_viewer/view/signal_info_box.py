@@ -33,9 +33,9 @@ class SignalInfoBox(QWidget):
         self._stack = QStackedWidget()
         layout.addWidget(self._stack)
 
-        placeholder = QLabel("No signal selected.")
-        placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._stack.addWidget(placeholder)  # index 0
+        self._placeholder = QLabel("No signal selected.")
+        self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._stack.addWidget(self._placeholder)  # index 0
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -55,8 +55,14 @@ class SignalInfoBox(QWidget):
             _add_row(self._form, label, value)
         self._stack.setCurrentIndex(1)
 
+    def show_multi_selection(self) -> None:
+        """Show the 'multiple signals selected' placeholder."""
+        self._placeholder.setText("Multiple signals selected.")
+        self._stack.setCurrentIndex(0)
+
     def clear(self) -> None:
         """Remove all rows and show the placeholder."""
+        self._placeholder.setText("No signal selected.")
         _clear_form(self._form)
         self._stack.setCurrentIndex(0)
 

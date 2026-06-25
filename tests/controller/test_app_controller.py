@@ -545,6 +545,147 @@ def test_toggle_step_mode_noop_for_unknown_signal(ctrl: AppController, deps: dic
 
 
 # ---------------------------------------------------------------------------
+# remove_signals
+# ---------------------------------------------------------------------------
+
+def test_remove_signals_removes_all(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=1)),
+        (_make_signal_data(), _make_metadata("b", ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    actives = ctrl.active_signals
+    ctrl.remove_signals(actives)
+    assert ctrl.active_signals == []
+
+
+def test_remove_signals_calls_plot_remove_for_each(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=1)),
+        (_make_signal_data(), _make_metadata("b", ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    actives = list(ctrl.active_signals)
+    deps["plot"].reset_mock()
+    ctrl.remove_signals(actives)
+    assert deps["plot"].remove_signal.call_count == 2
+
+
+def test_remove_signals_refreshes_cursors_once(ctrl: AppController, deps: dict) -> None:
+    cursor_ctrl = MagicMock()
+    ctrl.set_cursor_controller(cursor_ctrl)
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=1)),
+        (_make_signal_data(), _make_metadata("b", ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    cursor_ctrl.reset_mock()
+    ctrl.remove_signals(ctrl.active_signals)
+    assert cursor_ctrl.refresh.call_count == 1
+
+
+def test_remove_signals_skips_unknown(ctrl: AppController, deps: dict) -> None:
+    t = np.array([0.0, 1.0])
+    unknown = ActiveSignal(
+        data=SignalData(timestamps=t, samples=t),
+        metadata=_make_metadata(),
+        color=QColor(0, 0, 255),
+    )
+    ctrl.remove_signals([unknown])  # must not raise
+    deps["plot"].remove_signal.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# recolor_signals
+# ---------------------------------------------------------------------------
+
+def test_recolor_signals_calls_plot_for_each(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=1)),
+        (_make_signal_data(), _make_metadata("b", ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    actives = ctrl.active_signals
+    new_color = QColor(0, 200, 100)
+    deps["plot"].reset_mock()
+    ctrl.recolor_signals(actives, new_color)
+    assert deps["plot"].recolor_signal.call_count == 2
+
+
+# ---------------------------------------------------------------------------
+# set_step_modes
+# ---------------------------------------------------------------------------
+
+def test_set_step_modes_enables_all(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=1)),
+        (_make_signal_data(), _make_metadata("b", ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    actives = ctrl.active_signals
+    ctrl.set_step_modes(actives, True)
+    assert all(a.step_mode for a in actives)
+
+
+def test_set_step_modes_disables_all(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=1)),
+        (_make_signal_data(), _make_metadata("b", ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    actives = ctrl.active_signals
+    ctrl.set_step_modes(actives, True)
+    ctrl.set_step_modes(actives, False)
+    assert not any(a.step_mode for a in actives)
+
+
+def test_set_step_modes_calls_plot_for_each(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=1)),
+        (_make_signal_data(), _make_metadata("b", ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    actives = ctrl.active_signals
+    deps["plot"].reset_mock()
+    ctrl.set_step_modes(actives, True)
+    assert deps["plot"].set_step_mode.call_count == 2
+
+
+def test_set_step_modes_skips_unknown(ctrl: AppController, deps: dict) -> None:
+    t = np.array([0.0, 1.0])
+    unknown = ActiveSignal(
+        data=SignalData(timestamps=t, samples=t),
+        metadata=_make_metadata(),
+        color=QColor(0, 0, 255),
+    )
+    ctrl.set_step_modes([unknown], True)  # must not raise
+    deps["plot"].set_step_mode.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# on_multi_selection
+# ---------------------------------------------------------------------------
+
+def test_on_multi_selection_true_calls_show_multi(ctrl: AppController, deps: dict) -> None:
+    ctrl.on_multi_selection(True)
+    deps["signal_info"].show_multi_selection.assert_called_once()
+
+
+def test_on_multi_selection_false_does_not_call_show_multi(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.on_multi_selection(False)
+    deps["signal_info"].show_multi_selection.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # swimlanes
 # ---------------------------------------------------------------------------
 

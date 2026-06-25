@@ -136,16 +136,19 @@ class MainWindow(QMainWindow):
         self.plot_area.signals_dropped.connect(self._on_add_signals)
         self.plot_area.file_dropped.connect(self._on_file_dropped)
         self.active_signals_table.signals_dropped.connect(self._on_add_signals)
-        self.active_signals_table.remove_requested.connect(controller.remove_signal)
+        self.active_signals_table.remove_requested.connect(controller.remove_signals)
         self.active_signals_table.remove_all_requested.connect(controller.remove_all)
         self.active_signals_table.selection_changed.connect(
             controller.set_selected_signal
         )
-        self.active_signals_table.color_change_requested.connect(
-            controller.recolor_signal
+        self.active_signals_table.multi_selection_active.connect(
+            controller.on_multi_selection
         )
-        self.active_signals_table.step_mode_toggle_requested.connect(
-            controller.toggle_step_mode
+        self.active_signals_table.color_change_requested.connect(
+            controller.recolor_signals
+        )
+        self.active_signals_table.step_mode_set_requested.connect(
+            controller.set_step_modes
         )
         self.active_signals_table.order_changed.connect(controller.reorder_signals)
         self.plot_area.y_grid_toggled.connect(controller.on_y_grid_toggled)
