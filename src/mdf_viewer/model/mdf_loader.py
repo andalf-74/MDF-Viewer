@@ -241,6 +241,7 @@ class MdfLoader:
             channel_index=channel_index,
             data_type=str(raw_dtype),
             is_integer=bool(np.issubdtype(raw_dtype, np.integer)),
+            raster_s=_compute_raster(timestamps),
         )
 
         return data, meta
@@ -257,6 +258,19 @@ class MdfLoader:
 # ---------------------------------------------------------------------------
 # Module-level helpers (no MdfLoader state needed)
 # ---------------------------------------------------------------------------
+
+def _compute_raster(timestamps: np.ndarray) -> float | None:
+    """Return the fixed raster in seconds, or None when variable or indeterminate."""
+    if len(timestamps) < 2:
+        return None
+    intervals = np.diff(timestamps)
+    mean = float(np.mean(intervals))
+    if mean <= 0:
+        return None
+    if float(np.percentile(np.abs(intervals - mean) / mean, 99)) <= 0.05:
+        return mean
+    return None
+
 
 def _channel_group_name(group, gi: int) -> str:
     """Derive a display name for a channel group block."""

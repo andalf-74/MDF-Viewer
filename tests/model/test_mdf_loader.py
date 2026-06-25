@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from mdf_viewer.errors import MdfLoadError
-from mdf_viewer.model.mdf_loader import ChannelGroupInfo, MdfLoader
+from mdf_viewer.model.mdf_loader import ChannelGroupInfo, MdfLoader, _compute_raster
 from mdf_viewer.model.measurement import MeasurementInfo
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
@@ -340,6 +340,75 @@ def test_load_signal_raw_fallback_calls_get_with_raw_true() -> None:
 
     _, kwargs = ldr._mdf.get.call_args
     assert kwargs.get("raw") is True
+
+
+# ---------------------------------------------------------------------------
+# _compute_raster
+# ---------------------------------------------------------------------------
+
+def test_compute_raster_fixed_returns_interval() -> None:
+    t = np.linspace(0.0, 1.0, 101)  # exactly 0.01 s spacing
+    result = _compute_raster(t)
+    assert result is not None
+    assert abs(result - 0.01) < 1e-9
+
+
+def test_compute_raster_variable_returns_none() -> None:
+    t = np.array([0.0, 0.01, 0.1, 0.11, 1.0])  # irregular
+    assert _compute_raster(t) is None
+
+
+def test_compute_raster_single_sample_returns_none() -> None:
+    assert _compute_raster(np.array([0.0])) is None
+
+
+def test_compute_raster_empty_returns_none() -> None:
+    assert _compute_raster(np.array([])) is None
+
+
+def test_compute_raster_within_tolerance_is_fixed() -> None:
+    # intervals within 5% of mean (p99) should be fixed
+    t = np.array([0.0, 0.01, 0.0201, 0.0301])
+    result = _compute_raster(t)
+    assert result is not None
+
+
+def test_compute_raster_single_outlier_still_fixed() -> None:
+    # one rogue interval in 1001 (0.1% of data) should not flip a fixed-rate signal
+    t = np.linspace(0.0, 10.0, 1001)  # 1000 intervals at exactly 0.01 s
+    t_jittered = t.copy()
+    t_jittered[500] += 0.002  # one interval becomes ~20% off
+    result = _compute_raster(t_jittered)
+    assert result is not None
+
+
+def test_compute_raster_truly_variable_returns_none() -> None:
+    # more than 1% of intervals far off → variable (every 5th is 30% off)
+    t = np.linspace(0.0, 10.0, 1001)
+    t_jittered = t.copy()
+    for i in range(0, 1000, 5):
+        t_jittered[i + 1] += 0.003  # 30% deviation, 200 out of 1000 intervals
+    result = _compute_raster(t_jittered)
+    assert result is None
+
+
+def test_compute_raster_two_samples() -> None:
+    t = np.array([0.0, 0.5])
+    result = _compute_raster(t)
+    assert result is not None
+    assert abs(result - 0.5) < 1e-9
+
+
+# ---------------------------------------------------------------------------
+# load_signal – raster
+# ---------------------------------------------------------------------------
+
+def test_load_signal_raster_populated(loader: MdfLoader) -> None:
+    gi, ci = _find_channel_location(loader, "sin")
+    _, meta = loader.load_signal(gi, ci)
+    # linspace(0, 1, 101) → 0.01 s raster
+    assert meta.raster_s is not None
+    assert abs(meta.raster_s - 0.01) < 1e-9
 
 
 def test_load_signal_non_numeric_even_with_raw_raises() -> None:

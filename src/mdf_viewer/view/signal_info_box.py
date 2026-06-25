@@ -184,6 +184,11 @@ def _metadata_rows(meta: SignalMetadata) -> list[tuple[str, str]]:
         rows.append(("Data type", meta.data_type))
     if meta.sample_count is not None:
         rows.append(("Samples", f"{meta.sample_count:,}"))
+    if meta.sample_count is not None and meta.sample_count >= 2:
+        if meta.raster_s is not None:
+            rows.append(("Raster", _format_raster(meta.raster_s)))
+        else:
+            rows.append(("Raster", "variable"))
     if meta.min_value is not None:
         rows.append(("Min", _format_number(meta.min_value)))
     if meta.max_value is not None:
@@ -193,6 +198,13 @@ def _metadata_rows(meta: SignalMetadata) -> list[tuple[str, str]]:
     for key, value in meta.extra.items():
         rows.append((str(key), str(value)))
     return rows
+
+
+def _format_raster(raster_s: float) -> str:
+    ms = raster_s * 1000
+    if ms <= 500:
+        return f"{ms:.4g} ms"
+    return f"{raster_s:.4g} s"
 
 
 def _format_number(value: float) -> str:

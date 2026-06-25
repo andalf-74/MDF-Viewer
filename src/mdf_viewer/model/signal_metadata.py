@@ -27,5 +27,7 @@ class SignalMetadata:
     data_type: str = ""
     # True when data_type is any integer dtype (int8/16/32/64, uint8/16/32/64).
     is_integer: bool = False
+    # Fixed measurement raster in seconds, or None when variable/unknown.
+    raster_s: float | None = None
     # Any additional MDF metadata fields that don't map to the above.
     extra: dict[str, Any] = field(default_factory=dict)

@@ -12,7 +12,7 @@ from mdf_viewer.view.measurement_info_box import (
     MeasurementInfoBox,
     _format_duration,
 )
-from mdf_viewer.view.signal_info_box import SignalInfoBox
+from mdf_viewer.view.signal_info_box import SignalInfoBox, _format_raster
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +276,51 @@ def test_sbox_set_metadata_shows_comment(sbox: SignalInfoBox) -> None:
 def test_sbox_set_metadata_omits_empty_comment(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(comment=""))
     assert "Comment" not in _all_texts(_form_texts(sbox))
+
+
+def test_sbox_set_metadata_shows_fixed_raster(sbox: SignalInfoBox) -> None:
+    sbox.set_metadata(_make_meta(sample_count=100, raster_s=0.01))
+    assert "10 ms" in _all_texts(_form_texts(sbox))
+
+
+def test_sbox_set_metadata_shows_raster_in_seconds_above_500ms(sbox: SignalInfoBox) -> None:
+    sbox.set_metadata(_make_meta(sample_count=100, raster_s=1.0))
+    assert "1 s" in _all_texts(_form_texts(sbox))
+
+
+def test_sbox_set_metadata_shows_variable_raster(sbox: SignalInfoBox) -> None:
+    sbox.set_metadata(_make_meta(sample_count=100, raster_s=None))
+    assert "variable" in _all_texts(_form_texts(sbox))
+
+
+def test_sbox_set_metadata_omits_raster_for_single_sample(sbox: SignalInfoBox) -> None:
+    sbox.set_metadata(_make_meta(sample_count=1, raster_s=None))
+    assert "Raster" not in _all_texts(_form_texts(sbox))
+
+
+def test_sbox_set_metadata_omits_raster_when_sample_count_none(sbox: SignalInfoBox) -> None:
+    sbox.set_metadata(_make_meta(sample_count=None, raster_s=None))
+    assert "Raster" not in _all_texts(_form_texts(sbox))
+
+
+# ---------------------------------------------------------------------------
+# _format_raster
+# ---------------------------------------------------------------------------
+
+def test_format_raster_milliseconds() -> None:
+    assert _format_raster(0.01) == "10 ms"
+
+
+def test_format_raster_boundary_500ms() -> None:
+    assert _format_raster(0.5) == "500 ms"
+
+
+def test_format_raster_above_500ms_shows_seconds() -> None:
+    assert _format_raster(0.501) == "0.501 s"
+
+
+def test_format_raster_large_value_seconds() -> None:
+    assert _format_raster(1.0) == "1 s"
 
 
 def test_sbox_set_metadata_shows_extra_fields(sbox: SignalInfoBox) -> None:
