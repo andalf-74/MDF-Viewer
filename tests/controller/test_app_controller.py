@@ -783,6 +783,40 @@ def test_refresh_z_order_uses_signal_z_order_from_settings(
     )
 
 
+def test_refresh_z_order_pushes_line_boost_from_settings(
+    tmp_path, deps: dict
+) -> None:
+    from mdf_viewer.settings import Settings
+    s = Settings(path=tmp_path / "s.json")
+    s.selected_line_boost = 3
+    ctrl_with_settings = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+        settings=s,
+    )
+    deps["plot"].reset_mock()
+    ctrl_with_settings.refresh_z_order()
+    deps["plot"].set_selected_line_boost.assert_called_with(3)
+
+
+def test_refresh_z_order_pushes_default_boost_without_settings(deps: dict) -> None:
+    ctrl = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+    )
+    deps["plot"].reset_mock()
+    ctrl.refresh_z_order()
+    deps["plot"].set_selected_line_boost.assert_called_with(1)
+
+
 # ---------------------------------------------------------------------------
 # set_selected_signal — Properties tab integration
 # ---------------------------------------------------------------------------

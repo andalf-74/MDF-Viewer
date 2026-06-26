@@ -367,3 +367,47 @@ def test_signal_z_order_defaults_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
     assert Settings(path=path).signal_z_order == "top_first"
+
+
+# selected_line_boost
+
+
+def test_selected_line_boost_default(settings: Settings) -> None:
+    from mdf_viewer.settings import DEFAULT_SELECTED_LINE_BOOST
+    assert settings.selected_line_boost == DEFAULT_SELECTED_LINE_BOOST
+
+
+def test_selected_line_boost_default_is_1(settings: Settings) -> None:
+    assert settings.selected_line_boost == 1
+
+
+def test_selected_line_boost_can_be_changed(settings: Settings) -> None:
+    settings.selected_line_boost = 3
+    assert settings.selected_line_boost == 3
+
+
+def test_selected_line_boost_persists(settings: Settings) -> None:
+    settings.selected_line_boost = 3
+    reloaded = Settings(path=settings._path)
+    assert reloaded.selected_line_boost == 3
+
+
+def test_selected_line_boost_zero_allowed(settings: Settings) -> None:
+    settings.selected_line_boost = 0
+    assert settings.selected_line_boost == 0
+
+
+def test_selected_line_boost_clamps_above_5(settings: Settings) -> None:
+    settings.selected_line_boost = 99
+    assert settings.selected_line_boost == 5
+
+
+def test_selected_line_boost_clamps_below_0(settings: Settings) -> None:
+    settings.selected_line_boost = -1
+    assert settings.selected_line_boost == 0
+
+
+def test_selected_line_boost_defaults_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    assert Settings(path=path).selected_line_boost == 1

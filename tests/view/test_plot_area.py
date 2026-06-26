@@ -863,3 +863,33 @@ def test_set_selected_signals_unselected_z_equals_position(plot: PlotArea) -> No
     plot.set_selected_signals([], all_signals=[a1, a2], top_first=True)
     assert a1.view_box.zValue() == 2
     assert a2.view_box.zValue() == 1
+
+
+# ---------------------------------------------------------------------------
+# set_selected_line_boost
+# ---------------------------------------------------------------------------
+
+def test_set_selected_line_boost_changes_pen_width(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_selected_line_boost(3)
+    plot.set_selected_signals([active])
+    assert active.curve.opts["pen"].width() == active.line_width + 3
+
+
+def test_set_selected_line_boost_zero_disables_boost(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_selected_line_boost(0)
+    plot.set_selected_signals([active])
+    assert active.curve.opts["pen"].width() == active.line_width
+
+
+def test_set_selected_line_boost_applies_to_subsequent_selection(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_selected_signals([active])
+    assert active.curve.opts["pen"].width() == active.line_width + 1  # default boost
+    plot.set_selected_line_boost(4)
+    plot.set_selected_signals([active])
+    assert active.curve.opts["pen"].width() == active.line_width + 4

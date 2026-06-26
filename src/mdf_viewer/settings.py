@@ -33,6 +33,9 @@ DEFAULT_MAX_UNDO_STEPS = 1
 # Default signal Z-order ("top_first" = top table row on top, "bottom_first" = bottom row on top)
 DEFAULT_SIGNAL_Z_ORDER = "top_first"
 
+# Default line-width boost applied to the currently selected signal (0 = disabled)
+DEFAULT_SELECTED_LINE_BOOST = 1
+
 
 def _default_config_path() -> Path:
     if sys.platform == "win32":
@@ -63,6 +66,7 @@ class Settings:
         self._cursor_step_time_ms: float = DEFAULT_CURSOR_STEP_TIME_MS
         self._max_undo_steps: int = DEFAULT_MAX_UNDO_STEPS
         self._signal_z_order: str = DEFAULT_SIGNAL_Z_ORDER
+        self._selected_line_boost: int = DEFAULT_SELECTED_LINE_BOOST
         self._load()
 
     # ------------------------------------------------------------------
@@ -215,6 +219,15 @@ class Settings:
         self._signal_z_order = value
         self._save()
 
+    @property
+    def selected_line_boost(self) -> int:
+        return self._selected_line_boost
+
+    @selected_line_boost.setter
+    def selected_line_boost(self, value: int) -> None:
+        self._selected_line_boost = max(0, min(5, int(value)))
+        self._save()
+
     def get_and_prune(self) -> list[Path]:
         """Return only paths that exist on disk; save if any were removed."""
         existing = [p for p in self._recent if p.exists()]
@@ -246,6 +259,7 @@ class Settings:
             self._cursor_step_time_ms = float(data.get("cursor_step_time_ms", DEFAULT_CURSOR_STEP_TIME_MS))
             self._max_undo_steps = max(1, int(data.get("max_undo_steps", DEFAULT_MAX_UNDO_STEPS)))
             self._signal_z_order = str(data.get("signal_z_order", DEFAULT_SIGNAL_Z_ORDER))
+            self._selected_line_boost = max(0, min(5, int(data.get("selected_line_boost", DEFAULT_SELECTED_LINE_BOOST))))
         except (FileNotFoundError, json.JSONDecodeError, TypeError, KeyError):
             self._recent = []
             self._check_for_updates = True
@@ -263,6 +277,7 @@ class Settings:
             self._cursor_step_time_ms = DEFAULT_CURSOR_STEP_TIME_MS
             self._max_undo_steps = DEFAULT_MAX_UNDO_STEPS
             self._signal_z_order = DEFAULT_SIGNAL_Z_ORDER
+            self._selected_line_boost = DEFAULT_SELECTED_LINE_BOOST
 
     @staticmethod
     def _load_color(
@@ -294,6 +309,7 @@ class Settings:
                     "cursor_step_time_ms": self._cursor_step_time_ms,
                     "max_undo_steps": self._max_undo_steps,
                     "signal_z_order": self._signal_z_order,
+                    "selected_line_boost": self._selected_line_boost,
                 },
                 indent=2,
             ),

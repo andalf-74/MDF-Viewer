@@ -185,6 +185,7 @@ class PlotArea(QWidget):
         self._data: dict[ActiveSignal, _SignalPlotData] = {}
         # Signals currently highlighted (selection boost); ordered earliest→latest.
         self._selected_signals: list[ActiveSignal] = []
+        self._selected_line_boost: int = 1
 
         self._pi.vb.sigResized.connect(self._update_view_geometries)
         self._pi.ctrl.yGridCheck.toggled.connect(self._on_y_grid_toggled)
@@ -370,9 +371,13 @@ class PlotArea(QWidget):
         if active.display_mode != "marker":
             self._data[active].curve.setPen(_make_pen(active.color, self._effective_width(active), style))
 
+    def set_selected_line_boost(self, value: int) -> None:
+        """Set the line-width boost applied to selected signals."""
+        self._selected_line_boost = value
+
     def _effective_width(self, active: ActiveSignal) -> int:
-        """Return line_width + 1 if the signal is currently selected, else line_width."""
-        return active.line_width + (1 if active in self._selected_signals else 0)
+        """Return line_width + boost if the signal is currently selected, else line_width."""
+        return active.line_width + (self._selected_line_boost if active in self._selected_signals else 0)
 
     def set_y_grid(self, active: ActiveSignal, enabled: bool) -> None:
         """Enable or disable the Y-grid on a signal's axis. No-op if not present."""

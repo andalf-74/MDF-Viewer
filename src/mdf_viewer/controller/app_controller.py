@@ -308,7 +308,8 @@ class AppController:
             self._plot.set_line_style(active, style)
 
     def refresh_z_order(self) -> None:
-        """Reapply Z-order after a preference change."""
+        """Reapply Z-order and selection boost after a preference change."""
+        self._plot.set_selected_line_boost(self._line_boost)
         self._plot.set_selected_signals(
             self._selected_signals,
             all_signals=self._active,
@@ -320,6 +321,12 @@ class AppController:
         if self._settings is None:
             return True
         return self._settings.signal_z_order == "top_first"
+
+    @property
+    def _line_boost(self) -> int:
+        if self._settings is None:
+            return 1
+        return self._settings.selected_line_boost
 
     def remove_signal(self, active_signal: ActiveSignal) -> None:
         """Remove one signal from the plot and the table.

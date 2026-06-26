@@ -85,3 +85,36 @@ def test_apply_saves_colors_to_settings(dlg: PreferencesDialog, settings: Settin
     assert settings.cursor_color_c2 == (40, 50, 60)
     assert settings.cursor_color_cl == (70, 80, 90)
     assert settings.cursor_color_cr == (100, 110, 120)
+
+
+# ---------------------------------------------------------------------------
+# selected_line_boost spinbox
+# ---------------------------------------------------------------------------
+
+def test_line_boost_spinbox_initialised_from_settings(
+    qtbot: QtBot, settings: Settings
+) -> None:
+    settings.selected_line_boost = 4
+    dlg = PreferencesDialog(settings)
+    qtbot.addWidget(dlg)
+    assert dlg._line_boost.value() == 4
+
+
+def test_line_boost_spinbox_default_is_1(dlg: PreferencesDialog) -> None:
+    assert dlg._line_boost.value() == 1
+
+
+def test_line_boost_apply_saves_to_settings(
+    dlg: PreferencesDialog, settings: Settings
+) -> None:
+    dlg._line_boost.setValue(3)
+    dlg._apply()
+    assert settings.selected_line_boost == 3
+
+
+def test_line_boost_apply_zero_allowed(
+    dlg: PreferencesDialog, settings: Settings
+) -> None:
+    dlg._line_boost.setValue(0)
+    dlg._apply()
+    assert settings.selected_line_boost == 0

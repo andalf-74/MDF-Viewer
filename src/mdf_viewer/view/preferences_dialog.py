@@ -29,6 +29,7 @@ from mdf_viewer.settings import (
     DEFAULT_CURSOR_STEP_SAMPLES,
     DEFAULT_CURSOR_STEP_TIME_MS,
     DEFAULT_DELTA_TIME_COLOR,
+    DEFAULT_SELECTED_LINE_BOOST,
     Settings,
 )
 
@@ -207,6 +208,21 @@ class PreferencesDialog(QDialog):
         z_row.addStretch()
         signals_layout.addLayout(z_row)
 
+        boost_row = QHBoxLayout()
+        boost_row.addWidget(QLabel("Selected signal line boost:"))
+        self._line_boost = QSpinBox()
+        self._line_boost.setMinimum(0)
+        self._line_boost.setMaximum(5)
+        self._line_boost.setSuffix(" px")
+        self._line_boost.setValue(self._settings.selected_line_boost)
+        self._line_boost.setToolTip(
+            "Extra line width applied to the selected signal.\n"
+            "Set to 0 to disable the boost."
+        )
+        boost_row.addWidget(self._line_boost)
+        boost_row.addStretch()
+        signals_layout.addLayout(boost_row)
+
         signals_layout.addStretch()
         tabs.addTab(signals, "Signals")
 
@@ -223,6 +239,7 @@ class PreferencesDialog(QDialog):
         self._settings.check_for_updates = self._update_check.isChecked()
         self._settings.max_undo_steps = self._undo_steps.value()
         self._settings.signal_z_order = _Z_ORDER_OPTIONS[self._z_order_combo.currentIndex()][0]
+        self._settings.selected_line_boost = self._line_boost.value()
         self._settings.cursor_persistent = self._cursor_persistent.isChecked()
         self._settings.cursor_mode = "L/R" if self._cursor_lr.isChecked() else "1/2"
         self._settings.cursor_color_c1 = self._swatch_c1.rgb()
