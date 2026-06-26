@@ -639,3 +639,56 @@ def test_select_signal_none_emits_selection_changed_none(
 def test_select_signal_noop_for_unknown(table: ActiveSignalsTable, qtbot: QtBot) -> None:
     stranger = _make_active("stranger")
     table.select_signal(stranger)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# set_name_formatter
+# ---------------------------------------------------------------------------
+
+def test_set_name_formatter_updates_existing_rows(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot
+) -> None:
+    table, sigs = populated
+    table.set_name_formatter(lambda n: n.upper())
+    for row, sig in enumerate(sigs):
+        assert table._table.item(row, 1).text() == sig.metadata.name.upper()
+
+
+def test_set_name_formatter_applied_to_new_rows(
+    table: ActiveSignalsTable, qtbot: QtBot
+) -> None:
+    table.set_name_formatter(lambda n: f"[{n}]")
+    active = _make_active("mysig")
+    table.add_row(active)
+    assert table._table.item(0, 1).text() == "[mysig]"
+
+
+def test_default_formatter_shows_full_name(
+    table: ActiveSignalsTable, qtbot: QtBot
+) -> None:
+    active = _make_active("full.name.here")
+    table.add_row(active)
+    assert table._table.item(0, 1).text() == "full.name.here"
+
+
+def test_configure_display_names_signal_carries_name(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot
+) -> None:
+    table, sigs = populated
+    received: list[str] = []
+    table.configure_display_names_requested.connect(received.append)
+    table.configure_display_names_requested.emit(sigs[0].metadata.name)
+    assert received == [sigs[0].metadata.name]
+
+
+def test_shorten_names_toggled_signal_exists(table: ActiveSignalsTable) -> None:
+    received: list = []
+    table.shorten_names_toggled.connect(received.append)
+    table.shorten_names_toggled.emit(True)
+    assert received == [True]
+
+
+def test_set_shorten_names_enabled_updates_field(table: ActiveSignalsTable) -> None:
+    assert table._shorten_names_enabled is False
+    table.set_shorten_names_enabled(True)
+    assert table._shorten_names_enabled is True

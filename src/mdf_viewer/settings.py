@@ -36,6 +36,12 @@ DEFAULT_SIGNAL_Z_ORDER = "top_first"
 # Default line-width boost applied to the currently selected signal (0 = disabled)
 DEFAULT_SELECTED_LINE_BOOST = 1
 
+# Default display name rule settings
+DEFAULT_DISPLAY_NAME_RULE_ENABLED = False
+DEFAULT_DISPLAY_NAME_SEPARATOR = "."
+DEFAULT_DISPLAY_NAME_DIRECTION = "right"   # "left" | "right"
+DEFAULT_DISPLAY_NAME_SEGMENTS = 1
+
 
 def _default_config_path() -> Path:
     if sys.platform == "win32":
@@ -67,6 +73,10 @@ class Settings:
         self._max_undo_steps: int = DEFAULT_MAX_UNDO_STEPS
         self._signal_z_order: str = DEFAULT_SIGNAL_Z_ORDER
         self._selected_line_boost: int = DEFAULT_SELECTED_LINE_BOOST
+        self._display_name_rule_enabled: bool = DEFAULT_DISPLAY_NAME_RULE_ENABLED
+        self._display_name_separator: str = DEFAULT_DISPLAY_NAME_SEPARATOR
+        self._display_name_direction: str = DEFAULT_DISPLAY_NAME_DIRECTION
+        self._display_name_segments: int = DEFAULT_DISPLAY_NAME_SEGMENTS
         self._load()
 
     # ------------------------------------------------------------------
@@ -228,6 +238,42 @@ class Settings:
         self._selected_line_boost = max(0, min(5, int(value)))
         self._save()
 
+    @property
+    def display_name_rule_enabled(self) -> bool:
+        return self._display_name_rule_enabled
+
+    @display_name_rule_enabled.setter
+    def display_name_rule_enabled(self, value: bool) -> None:
+        self._display_name_rule_enabled = bool(value)
+        self._save()
+
+    @property
+    def display_name_separator(self) -> str:
+        return self._display_name_separator
+
+    @display_name_separator.setter
+    def display_name_separator(self, value: str) -> None:
+        self._display_name_separator = str(value)
+        self._save()
+
+    @property
+    def display_name_direction(self) -> str:
+        return self._display_name_direction
+
+    @display_name_direction.setter
+    def display_name_direction(self, value: str) -> None:
+        self._display_name_direction = value
+        self._save()
+
+    @property
+    def display_name_segments(self) -> int:
+        return self._display_name_segments
+
+    @display_name_segments.setter
+    def display_name_segments(self, value: int) -> None:
+        self._display_name_segments = max(1, min(10, int(value)))
+        self._save()
+
     def get_and_prune(self) -> list[Path]:
         """Return only paths that exist on disk; save if any were removed."""
         existing = [p for p in self._recent if p.exists()]
@@ -260,6 +306,10 @@ class Settings:
             self._max_undo_steps = max(1, int(data.get("max_undo_steps", DEFAULT_MAX_UNDO_STEPS)))
             self._signal_z_order = str(data.get("signal_z_order", DEFAULT_SIGNAL_Z_ORDER))
             self._selected_line_boost = max(0, min(5, int(data.get("selected_line_boost", DEFAULT_SELECTED_LINE_BOOST))))
+            self._display_name_rule_enabled = bool(data.get("display_name_rule_enabled", DEFAULT_DISPLAY_NAME_RULE_ENABLED))
+            self._display_name_separator = str(data.get("display_name_separator", DEFAULT_DISPLAY_NAME_SEPARATOR))
+            self._display_name_direction = str(data.get("display_name_direction", DEFAULT_DISPLAY_NAME_DIRECTION))
+            self._display_name_segments = max(1, min(10, int(data.get("display_name_segments", DEFAULT_DISPLAY_NAME_SEGMENTS))))
         except (FileNotFoundError, json.JSONDecodeError, TypeError, KeyError):
             self._recent = []
             self._check_for_updates = True
@@ -278,6 +328,10 @@ class Settings:
             self._max_undo_steps = DEFAULT_MAX_UNDO_STEPS
             self._signal_z_order = DEFAULT_SIGNAL_Z_ORDER
             self._selected_line_boost = DEFAULT_SELECTED_LINE_BOOST
+            self._display_name_rule_enabled = DEFAULT_DISPLAY_NAME_RULE_ENABLED
+            self._display_name_separator = DEFAULT_DISPLAY_NAME_SEPARATOR
+            self._display_name_direction = DEFAULT_DISPLAY_NAME_DIRECTION
+            self._display_name_segments = DEFAULT_DISPLAY_NAME_SEGMENTS
 
     @staticmethod
     def _load_color(
@@ -310,8 +364,32 @@ class Settings:
                     "max_undo_steps": self._max_undo_steps,
                     "signal_z_order": self._signal_z_order,
                     "selected_line_boost": self._selected_line_boost,
+                    "display_name_rule_enabled": self._display_name_rule_enabled,
+                    "display_name_separator": self._display_name_separator,
+                    "display_name_direction": self._display_name_direction,
+                    "display_name_segments": self._display_name_segments,
                 },
                 indent=2,
             ),
             encoding="utf-8",
         )
+
+
+def apply_display_name_rule(name: str, settings: "Settings") -> str:
+    """Return the display name for *name* according to the current settings rule.
+
+    Falls back to *name* unchanged when the rule is disabled or the separator
+    is not found in the name.
+    """
+    if not settings.display_name_rule_enabled:
+        return name
+    sep = settings.display_name_separator
+    if not sep or sep not in name:
+        return name
+    parts = name.split(sep)
+    n = settings.display_name_segments
+    if settings.display_name_direction == "right":
+        segments = parts[-n:]
+    else:
+        segments = parts[:n]
+    return sep.join(segments)

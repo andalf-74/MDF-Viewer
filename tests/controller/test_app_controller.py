@@ -818,6 +818,52 @@ def test_refresh_z_order_pushes_default_boost_without_settings(deps: dict) -> No
 
 
 # ---------------------------------------------------------------------------
+# refresh_display_names
+# ---------------------------------------------------------------------------
+
+def test_refresh_display_names_calls_set_name_formatter(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.refresh_display_names()
+    deps["table"].set_name_formatter.assert_called_once()
+
+
+def test_refresh_display_names_formatter_applies_rule(tmp_path, deps: dict) -> None:
+    from mdf_viewer.settings import Settings
+    s = Settings(path=tmp_path / "s.json")
+    s.display_name_rule_enabled = True
+    s.display_name_separator = "."
+    s.display_name_direction = "right"
+    s.display_name_segments = 1
+    ctrl_with_settings = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+        settings=s,
+    )
+    ctrl_with_settings.refresh_display_names()
+    formatter = deps["table"].set_name_formatter.call_args[0][0]
+    assert formatter("a.b.PosADP") == "PosADP"
+
+
+def test_refresh_display_names_identity_without_settings(deps: dict) -> None:
+    ctrl = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+    )
+    ctrl.refresh_display_names()
+    formatter = deps["table"].set_name_formatter.call_args[0][0]
+    assert formatter("any.name") == "any.name"
+
+
+# ---------------------------------------------------------------------------
 # set_selected_signal — Properties tab integration
 # ---------------------------------------------------------------------------
 

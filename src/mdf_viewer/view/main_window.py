@@ -168,6 +168,12 @@ class MainWindow(QMainWindow):
         self.active_signals_table.order_changed.connect(controller.reorder_signals)
         self.plot_area.y_grid_toggled.connect(controller.on_y_grid_toggled)
         self.plot_area.signal_clicked.connect(self.active_signals_table.select_signal)
+        self.active_signals_table.configure_display_names_requested.connect(
+            self._on_configure_display_names
+        )
+        self.active_signals_table.shorten_names_toggled.connect(
+            self._on_shorten_names_toggled
+        )
 
     def show_status(self, message: str, timeout_ms: int = 3000) -> None:
         """Show a transient status bar message."""
@@ -612,10 +618,35 @@ class MainWindow(QMainWindow):
         if self._settings is None:
             return
         from mdf_viewer.view.preferences_dialog import PreferencesDialog
-        dlg = PreferencesDialog(self._settings, self)
+        preview = None
+        if self._controller is not None and self._controller.selected_signal is not None:
+            preview = self._controller.selected_signal.metadata.name
+        dlg = PreferencesDialog(self._settings, self, preview_name=preview)
         if dlg.exec() and self._controller is not None:
             self._controller.refresh_cursors()
             self._controller.refresh_z_order()
+            self._controller.refresh_display_names()
+            self.active_signals_table.set_shorten_names_enabled(
+                self._settings.display_name_rule_enabled
+            )
+
+    def _on_configure_display_names(self, preview_name: str) -> None:
+        if self._settings is None or self._controller is None:
+            return
+        from mdf_viewer.view.signal_display_name_dialog import SignalDisplayNameDialog
+        dlg = SignalDisplayNameDialog(self._settings, preview_name, self)
+        if dlg.exec():
+            self._controller.refresh_display_names()
+            self.active_signals_table.set_shorten_names_enabled(
+                self._settings.display_name_rule_enabled
+            )
+
+    def _on_shorten_names_toggled(self, enabled: bool) -> None:
+        if self._settings is None or self._controller is None:
+            return
+        self._settings.display_name_rule_enabled = enabled
+        self._controller.refresh_display_names()
+        self.active_signals_table.set_shorten_names_enabled(enabled)
 
     def _on_check_for_update(self) -> None:
         from mdf_viewer.update_checker import UpdateCheckError, fetch_latest_release, is_newer

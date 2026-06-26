@@ -307,6 +307,15 @@ class AppController:
                 continue
             self._plot.set_line_style(active, style)
 
+    def refresh_display_names(self) -> None:
+        """Reapply the display name formatter to the Active Signals Table."""
+        if self._settings is not None:
+            from mdf_viewer.settings import apply_display_name_rule
+            formatter = lambda n: apply_display_name_rule(n, self._settings)
+        else:
+            formatter = lambda n: n
+        self._table.set_name_formatter(formatter)
+
     def refresh_z_order(self) -> None:
         """Reapply Z-order and selection boost after a preference change."""
         self._plot.set_selected_line_boost(self._line_boost)

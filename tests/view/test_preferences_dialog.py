@@ -118,3 +118,51 @@ def test_line_boost_apply_zero_allowed(
     dlg._line_boost.setValue(0)
     dlg._apply()
     assert settings.selected_line_boost == 0
+
+
+# ---------------------------------------------------------------------------
+# Display name rule controls in Signals tab
+# ---------------------------------------------------------------------------
+
+def test_display_name_controls_present(dlg: PreferencesDialog) -> None:
+    from mdf_viewer.view._display_name_controls import DisplayNameRuleControls
+    assert isinstance(dlg._display_name_controls, DisplayNameRuleControls)
+
+
+def test_display_name_controls_init_from_settings(
+    qtbot: QtBot, settings: Settings
+) -> None:
+    settings.display_name_rule_enabled = True
+    settings.display_name_separator = "_"
+    settings.display_name_segments = 3
+    dlg = PreferencesDialog(settings)
+    qtbot.addWidget(dlg)
+    c = dlg._display_name_controls
+    assert c._enabled.isChecked() is True
+    assert c._separator.text() == "_"
+    assert c._segments.value() == 3
+
+
+def test_display_name_apply_saves_to_settings(
+    dlg: PreferencesDialog, settings: Settings
+) -> None:
+    dlg._display_name_controls._enabled.setChecked(True)
+    dlg._display_name_controls._separator.setText("/")
+    dlg._display_name_controls._segments.setValue(2)
+    dlg._apply()
+    assert settings.display_name_rule_enabled is True
+    assert settings.display_name_separator == "/"
+    assert settings.display_name_segments == 2
+
+
+def test_display_name_preview_name_used(qtbot: QtBot, settings: Settings) -> None:
+    dlg = PreferencesDialog(settings, preview_name="a.b.c")
+    qtbot.addWidget(dlg)
+    assert dlg._preview_name == "a.b.c"
+
+
+def test_display_name_fallback_preview_when_none(qtbot: QtBot, settings: Settings) -> None:
+    from mdf_viewer.view.preferences_dialog import _FALLBACK_PREVIEW
+    dlg = PreferencesDialog(settings)
+    qtbot.addWidget(dlg)
+    assert dlg._preview_name == _FALLBACK_PREVIEW

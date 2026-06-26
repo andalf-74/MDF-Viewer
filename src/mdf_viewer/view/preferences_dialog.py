@@ -39,10 +39,19 @@ _Z_ORDER_OPTIONS: list[tuple[str, str]] = [
 ]
 
 
+_FALLBACK_PREVIEW = "ZF_DTI._.AutoDiagPosition.PosADP"
+
+
 class PreferencesDialog(QDialog):
-    def __init__(self, settings: Settings, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        parent: QWidget | None = None,
+        preview_name: str | None = None,
+    ) -> None:
         super().__init__(parent)
         self._settings = settings
+        self._preview_name = preview_name or _FALLBACK_PREVIEW
         self.setWindowTitle("Preferences")
         self.setMinimumWidth(380)
         self._build_ui()
@@ -223,6 +232,14 @@ class PreferencesDialog(QDialog):
         boost_row.addStretch()
         signals_layout.addLayout(boost_row)
 
+        signals_layout.addSpacing(8)
+
+        from mdf_viewer.view._display_name_controls import DisplayNameRuleControls
+        self._display_name_controls = DisplayNameRuleControls(
+            self._settings, self._preview_name
+        )
+        signals_layout.addWidget(self._display_name_controls)
+
         signals_layout.addStretch()
         tabs.addTab(signals, "Signals")
 
@@ -240,6 +257,7 @@ class PreferencesDialog(QDialog):
         self._settings.max_undo_steps = self._undo_steps.value()
         self._settings.signal_z_order = _Z_ORDER_OPTIONS[self._z_order_combo.currentIndex()][0]
         self._settings.selected_line_boost = self._line_boost.value()
+        self._display_name_controls.apply_to_settings(self._settings)
         self._settings.cursor_persistent = self._cursor_persistent.isChecked()
         self._settings.cursor_mode = "L/R" if self._cursor_lr.isChecked() else "1/2"
         self._settings.cursor_color_c1 = self._swatch_c1.rgb()

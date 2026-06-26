@@ -411,3 +411,112 @@ def test_selected_line_boost_defaults_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
     assert Settings(path=path).selected_line_boost == 1
+
+
+# ---------------------------------------------------------------------------
+# display name rule settings
+# ---------------------------------------------------------------------------
+
+def test_display_name_rule_enabled_default_false(settings: Settings) -> None:
+    assert settings.display_name_rule_enabled is False
+
+
+def test_display_name_separator_default(settings: Settings) -> None:
+    assert settings.display_name_separator == "."
+
+
+def test_display_name_direction_default(settings: Settings) -> None:
+    assert settings.display_name_direction == "right"
+
+
+def test_display_name_segments_default(settings: Settings) -> None:
+    assert settings.display_name_segments == 1
+
+
+def test_display_name_rule_persists(settings: Settings) -> None:
+    settings.display_name_rule_enabled = True
+    settings.display_name_separator = "_"
+    settings.display_name_direction = "left"
+    settings.display_name_segments = 2
+    reloaded = Settings(path=settings._path)
+    assert reloaded.display_name_rule_enabled is True
+    assert reloaded.display_name_separator == "_"
+    assert reloaded.display_name_direction == "left"
+    assert reloaded.display_name_segments == 2
+
+
+def test_display_name_segments_clamps(settings: Settings) -> None:
+    settings.display_name_segments = 0
+    assert settings.display_name_segments == 1
+    settings.display_name_segments = 99
+    assert settings.display_name_segments == 10
+
+
+def test_display_name_defaults_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    s = Settings(path=path)
+    assert s.display_name_rule_enabled is False
+    assert s.display_name_separator == "."
+    assert s.display_name_direction == "right"
+    assert s.display_name_segments == 1
+
+
+# ---------------------------------------------------------------------------
+# apply_display_name_rule
+# ---------------------------------------------------------------------------
+
+def test_apply_rule_disabled_returns_full_name(settings: Settings) -> None:
+    from mdf_viewer.settings import apply_display_name_rule
+    settings.display_name_rule_enabled = False
+    assert apply_display_name_rule("a.b.c", settings) == "a.b.c"
+
+
+def test_apply_rule_right_one_segment(settings: Settings) -> None:
+    from mdf_viewer.settings import apply_display_name_rule
+    settings.display_name_rule_enabled = True
+    settings.display_name_separator = "."
+    settings.display_name_direction = "right"
+    settings.display_name_segments = 1
+    assert apply_display_name_rule("ZF_DTI._.AutoDiagPosition.PosADP", settings) == "PosADP"
+
+
+def test_apply_rule_right_two_segments(settings: Settings) -> None:
+    from mdf_viewer.settings import apply_display_name_rule
+    settings.display_name_rule_enabled = True
+    settings.display_name_separator = "."
+    settings.display_name_direction = "right"
+    settings.display_name_segments = 2
+    assert apply_display_name_rule("ZF_DTI._.AutoDiagPosition.PosADP", settings) == "AutoDiagPosition.PosADP"
+
+
+def test_apply_rule_left_one_segment(settings: Settings) -> None:
+    from mdf_viewer.settings import apply_display_name_rule
+    settings.display_name_rule_enabled = True
+    settings.display_name_separator = "."
+    settings.display_name_direction = "left"
+    settings.display_name_segments = 1
+    assert apply_display_name_rule("ZF_DTI._.AutoDiagPosition.PosADP", settings) == "ZF_DTI"
+
+
+def test_apply_rule_separator_not_found_returns_full_name(settings: Settings) -> None:
+    from mdf_viewer.settings import apply_display_name_rule
+    settings.display_name_rule_enabled = True
+    settings.display_name_separator = "/"
+    assert apply_display_name_rule("no_slash_here", settings) == "no_slash_here"
+
+
+def test_apply_rule_empty_separator_returns_full_name(settings: Settings) -> None:
+    from mdf_viewer.settings import apply_display_name_rule
+    settings.display_name_rule_enabled = True
+    settings.display_name_separator = ""
+    assert apply_display_name_rule("a.b.c", settings) == "a.b.c"
+
+
+def test_apply_rule_segments_exceeds_parts_returns_all(settings: Settings) -> None:
+    from mdf_viewer.settings import apply_display_name_rule
+    settings.display_name_rule_enabled = True
+    settings.display_name_separator = "."
+    settings.display_name_direction = "right"
+    settings.display_name_segments = 10
+    assert apply_display_name_rule("a.b", settings) == "a.b"

@@ -11,6 +11,7 @@ already part of the selection does not change the selection.
 from __future__ import annotations
 
 import json
+from typing import Callable
 
 from PyQt6.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QKeyEvent, QMouseEvent
@@ -77,12 +78,18 @@ class ActiveSignalsTable(QWidget):
     signals_dropped = pyqtSignal(list)
     # list[ActiveSignal] in new order — emitted after a row drag-and-drop reorder
     order_changed = pyqtSignal(list)
+    # str (selected signal name) — emitted when "Display Name Rule…" is chosen from context menu
+    configure_display_names_requested = pyqtSignal(str)
+    # bool — emitted when the "Shorten Signal Names" toggle is clicked in the context menu
+    shorten_names_toggled = pyqtSignal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._signals: list[ActiveSignal] = []
         self._drag_src_rows: list[int] = []
         self._pending_reorder: tuple[list[int], int] | None = None
+        self._name_formatter: Callable[[str], str] = lambda n: n
+        self._shorten_names_enabled: bool = False
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -100,7 +107,7 @@ class ActiveSignalsTable(QWidget):
             lambda checked=False, a=active: self._on_color_swatch_clicked(a)
         )
         self._table.setCellWidget(row, _COL_COLOR, swatch)
-        self._table.setItem(row, _COL_NAME, _ro_item(active.metadata.name))
+        self._table.setItem(row, _COL_NAME, _ro_item(self._name_formatter(active.metadata.name)))
         for col in _CURSOR_COLS:
             self._table.setItem(row, col, _ro_item(""))
 
@@ -114,6 +121,18 @@ class ActiveSignalsTable(QWidget):
             return
         self._table.setCurrentCell(row, 0)
         self._table.scrollTo(self._table.model().index(row, 0))
+
+    def set_shorten_names_enabled(self, enabled: bool) -> None:
+        """Keep the context menu checkbox in sync with the current rule state."""
+        self._shorten_names_enabled = enabled
+
+    def set_name_formatter(self, formatter: Callable[[str], str]) -> None:
+        """Set a function that maps raw signal names to display names, then refresh all rows."""
+        self._name_formatter = formatter
+        for row, active in enumerate(self._signals):
+            item = self._table.item(row, _COL_NAME)
+            if item is not None:
+                item.setText(formatter(active.metadata.name))
 
     def remove_row(self, active: ActiveSignal) -> None:
         """Remove the row for the given ActiveSignal. No-op if not present."""
@@ -297,6 +316,23 @@ class ActiveSignalsTable(QWidget):
         )
         menu.addAction(disable_action)
 
+        menu.addSeparator()
+
+        shorten_action = QAction("Shorten Signal Names", self)
+        shorten_action.setCheckable(True)
+        shorten_action.setChecked(self._shorten_names_enabled)
+        shorten_action.triggered.connect(
+            lambda checked: self.shorten_names_toggled.emit(checked)
+        )
+        menu.addAction(shorten_action)
+
+        display_name_action = QAction("Display Name Rule…", self)
+        preview_name = selected[0].metadata.name if selected else ""
+        display_name_action.triggered.connect(
+            lambda: self.configure_display_names_requested.emit(preview_name)
+        )
+        menu.addAction(display_name_action)
+
         menu.exec(self._table.viewport().mapToGlobal(pos))
 
     def eventFilter(self, watched, event):
@@ -384,7 +420,7 @@ class ActiveSignalsTable(QWidget):
                 lambda checked=False, a=active: self._on_color_swatch_clicked(a)
             )
             self._table.setCellWidget(row, _COL_COLOR, swatch)
-            self._table.setItem(row, _COL_NAME, _ro_item(active.metadata.name))
+            self._table.setItem(row, _COL_NAME, _ro_item(self._name_formatter(active.metadata.name)))
             for col in _CURSOR_COLS:
                 self._table.setItem(row, col, _ro_item(""))
         self._table.blockSignals(False)
