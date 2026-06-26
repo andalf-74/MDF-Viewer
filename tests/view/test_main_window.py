@@ -470,3 +470,52 @@ def test_color_change_calls_recolor_signals(
     wired.active_signals_table.color_change_requested.emit([active], new_color)
 
     mock_controller.recolor_signals.assert_called_once_with([active], new_color)
+
+
+def test_plot_signal_clicked_selects_table_row(
+    wired: MainWindow, qtbot: QtBot
+) -> None:
+    import numpy as np
+    from PyQt6.QtGui import QColor
+    from mdf_viewer.model.signal_data import SignalData
+    from mdf_viewer.model.signal_metadata import SignalMetadata
+    from mdf_viewer.view_model.active_signal import ActiveSignal
+
+    t = np.linspace(0, 1, 10)
+    active = ActiveSignal(
+        data=SignalData(timestamps=t, samples=t),
+        metadata=SignalMetadata(name="x", group_index=0, channel_index=0),
+        color=QColor(255, 0, 0),
+    )
+    wired.active_signals_table.add_row(active)
+
+    received = []
+    wired.active_signals_table.selection_changed.connect(received.append)
+    wired.plot_area.signal_clicked.emit(active)
+
+    assert received == [active]
+
+
+def test_plot_signal_clicked_none_clears_table_selection(
+    wired: MainWindow, qtbot: QtBot
+) -> None:
+    import numpy as np
+    from PyQt6.QtGui import QColor
+    from mdf_viewer.model.signal_data import SignalData
+    from mdf_viewer.model.signal_metadata import SignalMetadata
+    from mdf_viewer.view_model.active_signal import ActiveSignal
+
+    t = np.linspace(0, 1, 10)
+    active = ActiveSignal(
+        data=SignalData(timestamps=t, samples=t),
+        metadata=SignalMetadata(name="x", group_index=0, channel_index=0),
+        color=QColor(255, 0, 0),
+    )
+    wired.active_signals_table.add_row(active)
+    wired.active_signals_table._table.selectRow(0)
+
+    received = []
+    wired.active_signals_table.selection_changed.connect(received.append)
+    wired.plot_area.signal_clicked.emit(None)
+
+    assert received == [None]

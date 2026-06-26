@@ -591,3 +591,51 @@ def test_multi_selection_changed_not_emitted_on_single_select(
         sm.SelectionFlag.Select | sm.SelectionFlag.Rows,
     )
     assert emitted == []
+
+
+# ---------------------------------------------------------------------------
+# select_signal
+# ---------------------------------------------------------------------------
+
+def test_select_signal_selects_correct_row(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot
+) -> None:
+    table, sigs = populated
+    table.select_signal(sigs[1])
+    selected_rows = {item.row() for item in table._table.selectedItems()}
+    assert selected_rows == {1}
+
+
+def test_select_signal_none_clears_selection(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot
+) -> None:
+    table, sigs = populated
+    table._table.selectRow(0)
+    table.select_signal(None)
+    assert table._table.selectedItems() == []
+
+
+def test_select_signal_emits_selection_changed(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot
+) -> None:
+    table, sigs = populated
+    received = []
+    table.selection_changed.connect(received.append)
+    table.select_signal(sigs[0])
+    assert received == [sigs[0]]
+
+
+def test_select_signal_none_emits_selection_changed_none(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot
+) -> None:
+    table, sigs = populated
+    table._table.selectRow(0)
+    received = []
+    table.selection_changed.connect(received.append)
+    table.select_signal(None)
+    assert received == [None]
+
+
+def test_select_signal_noop_for_unknown(table: ActiveSignalsTable, qtbot: QtBot) -> None:
+    stranger = _make_active("stranger")
+    table.select_signal(stranger)  # must not raise

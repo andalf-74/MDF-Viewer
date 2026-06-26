@@ -12,7 +12,9 @@ from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
-from PyQt6.QtCore import QByteArray, QEvent, QMimeData, QRectF, QUrl
+from unittest.mock import patch
+
+from PyQt6.QtCore import QByteArray, QEvent, QMimeData, QPoint, QRectF, Qt, QUrl
 from PyQt6.QtGui import QColor
 from pytestqt.qtbot import QtBot
 
@@ -893,3 +895,67 @@ def test_set_selected_line_boost_applies_to_subsequent_selection(plot: PlotArea)
     plot.set_selected_line_boost(4)
     plot.set_selected_signals([active])
     assert active.curve.opts["pen"].width() == active.line_width + 4
+
+
+# ---------------------------------------------------------------------------
+# signal_clicked / _hit_test
+# ---------------------------------------------------------------------------
+
+def _left_press_event(pos: QPoint = QPoint(100, 100)):
+    ev = MagicMock()
+    ev.type.return_value = QEvent.Type.MouseButtonPress
+    ev.button.return_value = Qt.MouseButton.LeftButton
+    ev.pos.return_value = pos
+    return ev
+
+
+def _right_press_event(pos: QPoint = QPoint(100, 100)):
+    ev = MagicMock()
+    ev.type.return_value = QEvent.Type.MouseButtonPress
+    ev.button.return_value = Qt.MouseButton.RightButton
+    ev.pos.return_value = pos
+    return ev
+
+
+def test_signal_clicked_emits_none_on_empty_plot(plot: PlotArea) -> None:
+    received = []
+    plot.signal_clicked.connect(received.append)
+    plot.eventFilter(plot._pw.viewport(), _left_press_event())
+    assert received == [None]
+
+
+def test_miss_does_not_consume_event(plot: PlotArea) -> None:
+    result = plot.eventFilter(plot._pw.viewport(), _left_press_event())
+    assert result is False
+
+
+def test_right_click_does_not_emit_signal_clicked(plot: PlotArea) -> None:
+    from PyQt6.QtWidgets import QWidget
+    received = []
+    plot.signal_clicked.connect(received.append)
+    with patch.object(QWidget, "eventFilter", return_value=False):
+        plot.eventFilter(plot._pw.viewport(), _right_press_event())
+    assert received == []
+
+
+def test_hit_emits_active_signal(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    received = []
+    plot.signal_clicked.connect(received.append)
+    with patch.object(plot, "_hit_test", return_value=active):
+        plot.eventFilter(plot._pw.viewport(), _left_press_event())
+    assert received == [active]
+
+
+def test_hit_consumes_event(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    with patch.object(plot, "_hit_test", return_value=active):
+        result = plot.eventFilter(plot._pw.viewport(), _left_press_event())
+    assert result is True
+
+
+def test_hit_test_returns_none_with_no_signals(plot: PlotArea) -> None:
+    from PyQt6.QtCore import QPointF
+    assert plot._hit_test(QPointF(0, 0)) is None

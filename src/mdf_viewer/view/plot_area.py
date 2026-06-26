@@ -168,6 +168,8 @@ class PlotArea(QWidget):
     signals_dropped = pyqtSignal(list)  # list of (group_index, channel_index)
     # Emitted whenever the X or any signal Y range changes (for zoom undo/redo).
     range_changed = pyqtSignal()
+    # Emitted on a left-click in the plot: the topmost hit ActiveSignal, or None on a miss.
+    signal_clicked = pyqtSignal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -516,9 +518,28 @@ class PlotArea(QWidget):
     # Internal
     # ------------------------------------------------------------------
 
+    def _hit_test(self, viewport_pos: QPointF) -> "ActiveSignal | None":
+        """Return the topmost ActiveSignal whose curve/markers contain viewport_pos, or None."""
+        scene_pos = self._pw.mapToScene(viewport_pos.toPoint())
+        ordered = sorted(self._data.items(), key=lambda kv: kv[1].view_box.zValue(), reverse=True)
+        for active, spd in ordered:
+            if active.display_mode != "marker":
+                data_pos = spd.view_box.mapSceneToView(scene_pos)
+                if spd.curve.curve.mouseShape().contains(data_pos):
+                    return active
+            if active.display_mode != "line":
+                local_pos = spd.curve.scatter.mapFromScene(scene_pos)
+                if spd.curve.scatter.pointsAt(local_pos):
+                    return active
+        return None
+
     def eventFilter(self, watched, event):
         if watched is self._pw.viewport():
             t = event.type()
+            if t == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                hit = self._hit_test(QPointF(event.pos()))
+                self.signal_clicked.emit(hit)
+                return hit is not None  # True (consume) on hit, False (pass through) on miss
             if t == QEvent.Type.DragEnter:
                 if self._accepts_drag(event.mimeData()):
                     event.acceptProposedAction()

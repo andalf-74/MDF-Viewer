@@ -167,6 +167,7 @@ class MainWindow(QMainWindow):
         )
         self.active_signals_table.order_changed.connect(controller.reorder_signals)
         self.plot_area.y_grid_toggled.connect(controller.on_y_grid_toggled)
+        self.plot_area.signal_clicked.connect(self.active_signals_table.select_signal)
 
     def show_status(self, message: str, timeout_ms: int = 3000) -> None:
         """Show a transient status bar message."""

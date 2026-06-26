@@ -104,6 +104,17 @@ class ActiveSignalsTable(QWidget):
         for col in _CURSOR_COLS:
             self._table.setItem(row, col, _ro_item(""))
 
+    def select_signal(self, active: "ActiveSignal | None") -> None:
+        """Programmatically select (and scroll to) the row for *active*, or clear selection."""
+        if active is None:
+            self._table.clearSelection()
+            return
+        row = self._find_row(active)
+        if row is None:
+            return
+        self._table.setCurrentCell(row, 0)
+        self._table.scrollTo(self._table.model().index(row, 0))
+
     def remove_row(self, active: ActiveSignal) -> None:
         """Remove the row for the given ActiveSignal. No-op if not present."""
         row = self._find_row(active)
