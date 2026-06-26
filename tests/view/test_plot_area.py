@@ -734,3 +734,91 @@ def test_set_line_width_preserves_line_style(plot: PlotArea) -> None:
     plot.set_line_style(active, "dashes")
     plot.set_line_width(active, 3)
     assert active.curve.opts["pen"].style() == Qt.PenStyle.DashLine
+
+
+# ---------------------------------------------------------------------------
+# set_selected_signals
+# ---------------------------------------------------------------------------
+
+def test_set_selected_signals_boosts_pen_width(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_selected_signals([active])
+    assert active.curve.opts["pen"].width() == active.line_width + 1
+
+
+def test_set_selected_signals_restores_pen_on_deselect(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_selected_signals([active])
+    plot.set_selected_signals([])
+    assert active.curve.opts["pen"].width() == active.line_width
+
+
+def test_set_selected_signals_raises_z_value(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_selected_signals([active])
+    assert active.view_box.zValue() >= 1
+
+
+def test_set_selected_signals_restores_z_on_deselect(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_selected_signals([active])
+    plot.set_selected_signals([])
+    assert active.view_box.zValue() == 0
+
+
+def test_set_selected_signals_latest_has_highest_z(plot: PlotArea) -> None:
+    a1 = _make_active("a")
+    a2 = _make_active("b")
+    plot.add_signal(a1)
+    plot.add_signal(a2)
+    plot.set_selected_signals([a1, a2])
+    assert a2.view_box.zValue() > a1.view_box.zValue()
+
+
+def test_set_selected_signals_unselected_stays_at_zero(plot: PlotArea) -> None:
+    a1 = _make_active("a")
+    a2 = _make_active("b")
+    plot.add_signal(a1)
+    plot.add_signal(a2)
+    plot.set_selected_signals([a1])
+    assert a2.view_box.zValue() == 0
+
+
+def test_set_selected_signals_no_boost_in_marker_mode(plot: PlotArea) -> None:
+    from PyQt6.QtCore import Qt
+    active = _make_active()
+    active.display_mode = "marker"
+    plot.add_signal(active)
+    plot.set_selected_signals([active])
+    pen = active.curve.opts["pen"]
+    assert pen is None or pen.style() == Qt.PenStyle.NoPen
+
+
+def test_recolor_preserves_boost_when_selected(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_selected_signals([active])
+    plot.recolor_signal(active, QColor(100, 200, 100))
+    assert active.curve.opts["pen"].width() == active.line_width + 1
+
+
+def test_set_line_width_preserves_boost_when_selected(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_selected_signals([active])
+    plot.set_line_width(active, 3)
+    assert active.curve.opts["pen"].width() == 4  # 3 + 1 boost
+
+
+def test_set_line_style_preserves_boost_when_selected(plot: PlotArea) -> None:
+    from PyQt6.QtCore import Qt
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_selected_signals([active])
+    plot.set_line_style(active, "dots")
+    assert active.curve.opts["pen"].width() == active.line_width + 1
+    assert active.curve.opts["pen"].style() == Qt.PenStyle.DotLine

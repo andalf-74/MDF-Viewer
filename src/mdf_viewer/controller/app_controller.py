@@ -270,6 +270,8 @@ class AppController:
         shape = next(iter(shapes)) if len(shapes) == 1 else None
         width = next(iter(widths)) if len(widths) == 1 else None
         style = next(iter(styles)) if len(styles) == 1 else None
+        ordered = [a for a in self._active if a in set(actives)]
+        self._plot.set_selected_signals(ordered)
         self._signal_info.set_properties(mode, shape, width, style)
         self._signal_info.enable_properties(True)
 
@@ -366,6 +368,7 @@ class AppController:
                 self._plot.set_y_grid(active_signal, True)
         self._selected = active_signal
         self._selected_signals = [active_signal] if active_signal is not None else []
+        self._plot.set_selected_signals(self._selected_signals)
         if active_signal is None:
             self._signal_info.clear()
         else:

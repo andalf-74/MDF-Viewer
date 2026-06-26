@@ -45,6 +45,9 @@ _QT_PEN_STYLE: dict[str, Qt.PenStyle] = {
 }
 
 
+_SELECTION_Z = 10   # Z-value base for selected signals; unselected signals stay at 0
+
+
 def _symbol_size(line_width: int) -> int:
     return max(6, line_width * 4)
 
@@ -180,6 +183,8 @@ class PlotArea(QWidget):
 
         # Maps ActiveSignal → its rendering objects (identity-based, see __hash__).
         self._data: dict[ActiveSignal, _SignalPlotData] = {}
+        # Signals currently highlighted (selection boost); ordered earliest→latest.
+        self._selected_signals: list[ActiveSignal] = []
 
         self._pi.vb.sigResized.connect(self._update_view_geometries)
         self._pi.ctrl.yGridCheck.toggled.connect(self._on_y_grid_toggled)
@@ -274,12 +279,29 @@ class PlotArea(QWidget):
         active.view_box = None
         self._update_view_geometries()
 
+    def set_selected_signals(self, actives: list[ActiveSignal]) -> None:
+        """Highlight selected signals with a +1px pen boost and raised Z-order.
+
+        *actives* must be ordered earliest→latest addition; the last entry gets
+        the highest Z-value and appears in the foreground.
+        """
+        self._selected_signals = list(actives)
+        selected_set = set(actives)
+        for active, spd in self._data.items():
+            if active in selected_set:
+                idx = actives.index(active)
+                spd.view_box.setZValue(_SELECTION_Z + idx)
+            else:
+                spd.view_box.setZValue(0)
+            if active.display_mode != "marker":
+                spd.curve.setPen(_make_pen(active.color, self._effective_width(active), active.line_style))
+
     def recolor_signal(self, active: ActiveSignal, color) -> None:
         """Update curve pen, Y-axis pen, and active.color. No-op if not present."""
         if active not in self._data:
             return
         spd = self._data[active]
-        pen = _make_pen(color, active.line_width, active.line_style) if active.display_mode != "marker" else None
+        pen = _make_pen(color, self._effective_width(active), active.line_style) if active.display_mode != "marker" else None
         spd.curve.setPen(pen)
         if active.display_mode != "line":
             spd.curve.setSymbolPen(pg.mkPen(color=color))
@@ -295,14 +317,14 @@ class PlotArea(QWidget):
             return
         spd = self._data[active]
         color = active.color
-        line_width = active.line_width
-        pen = _make_pen(color, line_width, active.line_style) if mode != "marker" else None
+        eff_width = self._effective_width(active)
+        pen = _make_pen(color, eff_width, active.line_style) if mode != "marker" else None
         if mode == "line":
             symbol = sym_pen = sym_brush = None
             sym_size = 0
         else:
             symbol = _PG_SYMBOL.get(shape, "o")
-            sym_size = _symbol_size(line_width)
+            sym_size = _symbol_size(eff_width)
             sym_pen = pg.mkPen(color=color)
             sym_brush = pg.mkBrush(color=color)
         spd.curve.setPen(pen)
@@ -318,9 +340,9 @@ class PlotArea(QWidget):
         active.line_width = width
         spd = self._data[active]
         if active.display_mode != "marker":
-            spd.curve.setPen(_make_pen(active.color, width, active.line_style))
+            spd.curve.setPen(_make_pen(active.color, self._effective_width(active), active.line_style))
         if active.display_mode != "line":
-            spd.curve.setSymbolSize(_symbol_size(width))
+            spd.curve.setSymbolSize(_symbol_size(self._effective_width(active)))
 
     def set_line_style(self, active: ActiveSignal, style: str) -> None:
         """Update the curve line style. No-op if not present or in marker-only mode."""
@@ -328,7 +350,11 @@ class PlotArea(QWidget):
             return
         active.line_style = style
         if active.display_mode != "marker":
-            self._data[active].curve.setPen(_make_pen(active.color, active.line_width, style))
+            self._data[active].curve.setPen(_make_pen(active.color, self._effective_width(active), style))
+
+    def _effective_width(self, active: ActiveSignal) -> int:
+        """Return line_width + 1 if the signal is currently selected, else line_width."""
+        return active.line_width + (1 if active in self._selected_signals else 0)
 
     def set_y_grid(self, active: ActiveSignal, enabled: bool) -> None:
         """Enable or disable the Y-grid on a signal's axis. No-op if not present."""

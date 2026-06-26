@@ -990,3 +990,43 @@ def test_set_multi_selected_passes_none_style_when_mismatched(
     call_args = deps["signal_info"].set_properties.call_args
     assert call_args[0][3] is None  # style arg is None
 
+
+# ---------------------------------------------------------------------------
+# set_selected_signals (PlotArea call)
+# ---------------------------------------------------------------------------
+
+def test_set_selected_signal_calls_plot_set_selected_signals(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    deps["plot"].reset_mock()
+    ctrl.set_selected_signal(sig)
+    deps["plot"].set_selected_signals.assert_called_once_with([sig])
+
+
+def test_set_selected_signal_none_clears_selection(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    ctrl.set_selected_signal(ctrl.active_signals[0])
+    deps["plot"].reset_mock()
+    ctrl.set_selected_signal(None)
+    deps["plot"].set_selected_signals.assert_called_once_with([])
+
+
+def test_set_multi_selected_passes_signals_in_active_order(
+    ctrl: AppController, deps: dict
+) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=1)),
+        (_make_signal_data(), _make_metadata("b", ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    sigs = ctrl.active_signals  # [a, b] — earliest first
+    deps["plot"].reset_mock()
+    ctrl.set_multi_selected(list(reversed(sigs)))  # pass in reverse order
+    call_args = deps["plot"].set_selected_signals.call_args[0][0]
+    assert call_args == sigs  # controller sorts by _active order
+
