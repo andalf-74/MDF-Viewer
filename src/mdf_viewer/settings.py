@@ -30,6 +30,9 @@ DEFAULT_CURSOR_STEP_TIME_MS = 10.0     # milliseconds per key press
 # Default zoom undo history depth
 DEFAULT_MAX_UNDO_STEPS = 1
 
+# Default signal Z-order ("top_first" = top table row on top, "bottom_first" = bottom row on top)
+DEFAULT_SIGNAL_Z_ORDER = "top_first"
+
 
 def _default_config_path() -> Path:
     if sys.platform == "win32":
@@ -59,6 +62,7 @@ class Settings:
         self._cursor_step_pixels: int = DEFAULT_CURSOR_STEP_PIXELS
         self._cursor_step_time_ms: float = DEFAULT_CURSOR_STEP_TIME_MS
         self._max_undo_steps: int = DEFAULT_MAX_UNDO_STEPS
+        self._signal_z_order: str = DEFAULT_SIGNAL_Z_ORDER
         self._load()
 
     # ------------------------------------------------------------------
@@ -202,6 +206,15 @@ class Settings:
         self._max_undo_steps = max(1, int(value))
         self._save()
 
+    @property
+    def signal_z_order(self) -> str:
+        return self._signal_z_order
+
+    @signal_z_order.setter
+    def signal_z_order(self, value: str) -> None:
+        self._signal_z_order = value
+        self._save()
+
     def get_and_prune(self) -> list[Path]:
         """Return only paths that exist on disk; save if any were removed."""
         existing = [p for p in self._recent if p.exists()]
@@ -232,6 +245,7 @@ class Settings:
             self._cursor_step_pixels = int(data.get("cursor_step_pixels", DEFAULT_CURSOR_STEP_PIXELS))
             self._cursor_step_time_ms = float(data.get("cursor_step_time_ms", DEFAULT_CURSOR_STEP_TIME_MS))
             self._max_undo_steps = max(1, int(data.get("max_undo_steps", DEFAULT_MAX_UNDO_STEPS)))
+            self._signal_z_order = str(data.get("signal_z_order", DEFAULT_SIGNAL_Z_ORDER))
         except (FileNotFoundError, json.JSONDecodeError, TypeError, KeyError):
             self._recent = []
             self._check_for_updates = True
@@ -248,6 +262,7 @@ class Settings:
             self._cursor_step_pixels = DEFAULT_CURSOR_STEP_PIXELS
             self._cursor_step_time_ms = DEFAULT_CURSOR_STEP_TIME_MS
             self._max_undo_steps = DEFAULT_MAX_UNDO_STEPS
+            self._signal_z_order = DEFAULT_SIGNAL_Z_ORDER
 
     @staticmethod
     def _load_color(
@@ -278,6 +293,7 @@ class Settings:
                     "cursor_step_pixels": self._cursor_step_pixels,
                     "cursor_step_time_ms": self._cursor_step_time_ms,
                     "max_undo_steps": self._max_undo_steps,
+                    "signal_z_order": self._signal_z_order,
                 },
                 indent=2,
             ),

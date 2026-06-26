@@ -279,20 +279,38 @@ class PlotArea(QWidget):
         active.view_box = None
         self._update_view_geometries()
 
-    def set_selected_signals(self, actives: list[ActiveSignal]) -> None:
-        """Highlight selected signals with a +1px pen boost and raised Z-order.
+    def set_selected_signals(
+        self,
+        selected: list[ActiveSignal],
+        all_signals: list[ActiveSignal] | None = None,
+        top_first: bool = True,
+    ) -> None:
+        """Update pen boost and Z-order for all signals.
 
-        *actives* must be ordered earliest→latest addition; the last entry gets
-        the highest Z-value and appears in the foreground.
+        *selected* — signals to highlight (+1px, raised above unselected).
+        *all_signals* — full ordered signal list (table order, index 0 = top row).
+            When provided, every signal gets a base Z from its position; omit to
+            leave unselected signals at Z=0 (backward-compatible).
+        *top_first* — when True the top row has the highest base Z-value.
         """
-        self._selected_signals = list(actives)
-        selected_set = set(actives)
+        self._selected_signals = list(selected)
+        selected_set = set(selected)
+        n = len(all_signals) if all_signals else 0
+
         for active, spd in self._data.items():
-            if active in selected_set:
-                idx = actives.index(active)
-                spd.view_box.setZValue(_SELECTION_Z + idx)
+            # Base Z from table position
+            if all_signals is not None and active in all_signals:
+                pos = all_signals.index(active)
+                base_z = (n - pos) if top_first else (pos + 1)
             else:
-                spd.view_box.setZValue(0)
+                base_z = 0
+
+            if active in selected_set:
+                idx = selected.index(active)
+                spd.view_box.setZValue(n + _SELECTION_Z + idx)
+            else:
+                spd.view_box.setZValue(base_z)
+
             if active.display_mode != "marker":
                 spd.curve.setPen(_make_pen(active.color, self._effective_width(active), active.line_style))
 

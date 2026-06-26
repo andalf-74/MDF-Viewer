@@ -32,6 +32,11 @@ from mdf_viewer.settings import (
     Settings,
 )
 
+_Z_ORDER_OPTIONS: list[tuple[str, str]] = [
+    ("top_first",    "Top row on top"),
+    ("bottom_first", "Bottom row on top"),
+]
+
 
 class PreferencesDialog(QDialog):
     def __init__(self, settings: Settings, parent: QWidget | None = None) -> None:
@@ -182,6 +187,29 @@ class PreferencesDialog(QDialog):
         cursors_layout.addStretch()
         tabs.addTab(cursors, "Cursors")
 
+        signals = QWidget()
+        signals_layout = QVBoxLayout(signals)
+
+        z_row = QHBoxLayout()
+        z_row.addWidget(QLabel("Z-Order:"))
+        self._z_order_combo = QComboBox()
+        for _, label in _Z_ORDER_OPTIONS:
+            self._z_order_combo.addItem(label)
+        z_keys = [k for k, _ in _Z_ORDER_OPTIONS]
+        self._z_order_combo.setCurrentIndex(
+            z_keys.index(self._settings.signal_z_order)
+            if self._settings.signal_z_order in z_keys else 0
+        )
+        self._z_order_combo.setToolTip(
+            "Which row of the Active Signals Table appears in the foreground of the plot."
+        )
+        z_row.addWidget(self._z_order_combo)
+        z_row.addStretch()
+        signals_layout.addLayout(z_row)
+
+        signals_layout.addStretch()
+        tabs.addTab(signals, "Signals")
+
         layout.addWidget(tabs)
 
         buttons = QDialogButtonBox(
@@ -194,6 +222,7 @@ class PreferencesDialog(QDialog):
     def _apply(self) -> None:
         self._settings.check_for_updates = self._update_check.isChecked()
         self._settings.max_undo_steps = self._undo_steps.value()
+        self._settings.signal_z_order = _Z_ORDER_OPTIONS[self._z_order_combo.currentIndex()][0]
         self._settings.cursor_persistent = self._cursor_persistent.isChecked()
         self._settings.cursor_mode = "L/R" if self._cursor_lr.isChecked() else "1/2"
         self._settings.cursor_color_c1 = self._swatch_c1.rgb()

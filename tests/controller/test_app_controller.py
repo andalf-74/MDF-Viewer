@@ -733,6 +733,56 @@ def test_reorder_signals_preserves_identity(ctrl: AppController, deps: dict) -> 
     assert ctrl._active[0] is original
 
 
+def test_add_signal_calls_refresh_z_order(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.return_value = (_make_signal_data(), _make_metadata())
+    deps["plot"].reset_mock()
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    deps["plot"].set_selected_signals.assert_called_with(
+        [], all_signals=[sig], top_first=True
+    )
+
+
+def test_reorder_signals_calls_refresh_z_order(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=0)),
+        (_make_signal_data(), _make_metadata("b", ci=1)),
+    ]
+    ctrl.add_signal(0, 0)
+    ctrl.add_signal(0, 1)
+    a, b = ctrl._active
+    deps["plot"].reset_mock()
+    ctrl.reorder_signals([b, a])
+    deps["plot"].set_selected_signals.assert_called_with(
+        [], all_signals=[b, a], top_first=True
+    )
+
+
+def test_refresh_z_order_uses_signal_z_order_from_settings(
+    tmp_path, deps: dict
+) -> None:
+    from mdf_viewer.settings import Settings
+    s = Settings(path=tmp_path / "s.json")
+    s.signal_z_order = "bottom_first"
+    ctrl_with_settings = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+        settings=s,
+    )
+    deps["loader"].load_signal.return_value = (_make_signal_data(), _make_metadata())
+    ctrl_with_settings.add_signal(0, 1)
+    sig = ctrl_with_settings.active_signals[0]
+    deps["plot"].reset_mock()
+    ctrl_with_settings.refresh_z_order()
+    deps["plot"].set_selected_signals.assert_called_with(
+        [], all_signals=[sig], top_first=False
+    )
+
+
 # ---------------------------------------------------------------------------
 # set_selected_signal — Properties tab integration
 # ---------------------------------------------------------------------------
@@ -1002,17 +1052,22 @@ def test_set_selected_signal_calls_plot_set_selected_signals(
     sig = ctrl.active_signals[0]
     deps["plot"].reset_mock()
     ctrl.set_selected_signal(sig)
-    deps["plot"].set_selected_signals.assert_called_once_with([sig])
+    deps["plot"].set_selected_signals.assert_called_once_with(
+        [sig], all_signals=[sig], top_first=True
+    )
 
 
 def test_set_selected_signal_none_clears_selection(
     ctrl: AppController, deps: dict
 ) -> None:
     ctrl.add_signal(0, 1)
-    ctrl.set_selected_signal(ctrl.active_signals[0])
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
     deps["plot"].reset_mock()
     ctrl.set_selected_signal(None)
-    deps["plot"].set_selected_signals.assert_called_once_with([])
+    deps["plot"].set_selected_signals.assert_called_once_with(
+        [], all_signals=[sig], top_first=True
+    )
 
 
 def test_set_multi_selected_passes_signals_in_active_order(

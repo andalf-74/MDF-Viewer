@@ -209,6 +209,7 @@ class AppController:
         self._active.append(active)
         self._plot.add_signal(active)
         self._table.add_row(active)
+        self.refresh_z_order()
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.refresh()
         return True
@@ -271,7 +272,7 @@ class AppController:
         width = next(iter(widths)) if len(widths) == 1 else None
         style = next(iter(styles)) if len(styles) == 1 else None
         ordered = [a for a in self._active if a in set(actives)]
-        self._plot.set_selected_signals(ordered)
+        self._plot.set_selected_signals(ordered, all_signals=self._active, top_first=self._top_first)
         self._signal_info.set_properties(mode, shape, width, style)
         self._signal_info.enable_properties(True)
 
@@ -305,6 +306,20 @@ class AppController:
             if active not in self._active:
                 continue
             self._plot.set_line_style(active, style)
+
+    def refresh_z_order(self) -> None:
+        """Reapply Z-order after a preference change."""
+        self._plot.set_selected_signals(
+            self._selected_signals,
+            all_signals=self._active,
+            top_first=self._top_first,
+        )
+
+    @property
+    def _top_first(self) -> bool:
+        if self._settings is None:
+            return True
+        return self._settings.signal_z_order == "top_first"
 
     def remove_signal(self, active_signal: ActiveSignal) -> None:
         """Remove one signal from the plot and the table.
@@ -350,6 +365,7 @@ class AppController:
     def reorder_signals(self, ordered: list) -> None:
         """Update the active signal order to match the table's new row order."""
         self._active = list(ordered)
+        self.refresh_z_order()
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.refresh()
 
@@ -368,7 +384,7 @@ class AppController:
                 self._plot.set_y_grid(active_signal, True)
         self._selected = active_signal
         self._selected_signals = [active_signal] if active_signal is not None else []
-        self._plot.set_selected_signals(self._selected_signals)
+        self._plot.set_selected_signals(self._selected_signals, all_signals=self._active, top_first=self._top_first)
         if active_signal is None:
             self._signal_info.clear()
         else:

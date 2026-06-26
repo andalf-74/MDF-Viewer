@@ -338,3 +338,32 @@ def test_max_undo_steps_defaults_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
     assert Settings(path=path).max_undo_steps == 1
+
+
+# signal_z_order
+
+
+def test_signal_z_order_default(settings: Settings) -> None:
+    from mdf_viewer.settings import DEFAULT_SIGNAL_Z_ORDER
+    assert settings.signal_z_order == DEFAULT_SIGNAL_Z_ORDER
+
+
+def test_signal_z_order_default_is_top_first(settings: Settings) -> None:
+    assert settings.signal_z_order == "top_first"
+
+
+def test_signal_z_order_can_be_changed(settings: Settings) -> None:
+    settings.signal_z_order = "bottom_first"
+    assert settings.signal_z_order == "bottom_first"
+
+
+def test_signal_z_order_persists(settings: Settings) -> None:
+    settings.signal_z_order = "bottom_first"
+    reloaded = Settings(path=settings._path)
+    assert reloaded.signal_z_order == "bottom_first"
+
+
+def test_signal_z_order_defaults_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    assert Settings(path=path).signal_z_order == "top_first"

@@ -822,3 +822,44 @@ def test_set_line_style_preserves_boost_when_selected(plot: PlotArea) -> None:
     plot.set_line_style(active, "dots")
     assert active.curve.opts["pen"].width() == active.line_width + 1
     assert active.curve.opts["pen"].style() == Qt.PenStyle.DotLine
+
+
+def test_set_selected_signals_top_first_top_row_has_highest_z(plot: PlotArea) -> None:
+    """With top_first=True, index-0 signal gets the highest base Z."""
+    a1 = _make_active("a")  # top row
+    a2 = _make_active("b")  # bottom row
+    plot.add_signal(a1)
+    plot.add_signal(a2)
+    plot.set_selected_signals([], all_signals=[a1, a2], top_first=True)
+    assert a1.view_box.zValue() > a2.view_box.zValue()
+
+
+def test_set_selected_signals_bottom_first_bottom_row_has_highest_z(plot: PlotArea) -> None:
+    """With top_first=False, last signal in the list gets the highest base Z."""
+    a1 = _make_active("a")  # top row
+    a2 = _make_active("b")  # bottom row
+    plot.add_signal(a1)
+    plot.add_signal(a2)
+    plot.set_selected_signals([], all_signals=[a1, a2], top_first=False)
+    assert a2.view_box.zValue() > a1.view_box.zValue()
+
+
+def test_set_selected_signals_selected_above_unselected(plot: PlotArea) -> None:
+    """Selected signals' Z must exceed any unselected signal's Z."""
+    a1 = _make_active("a")
+    a2 = _make_active("b")
+    plot.add_signal(a1)
+    plot.add_signal(a2)
+    plot.set_selected_signals([a1], all_signals=[a1, a2], top_first=True)
+    assert a1.view_box.zValue() > a2.view_box.zValue()
+
+
+def test_set_selected_signals_unselected_z_equals_position(plot: PlotArea) -> None:
+    """With top_first=True, unselected Z for row-0 is n, row-1 is n-1, …"""
+    a1 = _make_active("a")  # index 0 → Z = 2
+    a2 = _make_active("b")  # index 1 → Z = 1
+    plot.add_signal(a1)
+    plot.add_signal(a2)
+    plot.set_selected_signals([], all_signals=[a1, a2], top_first=True)
+    assert a1.view_box.zValue() == 2
+    assert a2.view_box.zValue() == 1
