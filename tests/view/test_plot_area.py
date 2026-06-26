@@ -667,3 +667,70 @@ def test_add_signal_uses_line_width_from_active(plot: PlotArea) -> None:
     active.line_width = 5
     plot.add_signal(active)
     assert active.curve.opts["pen"].width() == 5
+
+
+# ---------------------------------------------------------------------------
+# set_line_style
+# ---------------------------------------------------------------------------
+
+def test_set_line_style_noop_for_unknown(plot: PlotArea) -> None:
+    stranger = _make_active()
+    plot.set_line_style(stranger, "dashes")  # must not raise
+
+
+def test_set_line_style_updates_active_field(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_line_style(active, "dots")
+    assert active.line_style == "dots"
+
+
+def test_set_line_style_updates_pen_style(plot: PlotArea) -> None:
+    from PyQt6.QtCore import Qt
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_line_style(active, "dashes")
+    assert active.curve.opts["pen"].style() == Qt.PenStyle.DashLine
+
+
+def test_set_line_style_all_styles_map_correctly(plot: PlotArea) -> None:
+    from PyQt6.QtCore import Qt
+    expected = {
+        "solid":    Qt.PenStyle.SolidLine,
+        "dashes":   Qt.PenStyle.DashLine,
+        "dots":     Qt.PenStyle.DotLine,
+        "dash-dot": Qt.PenStyle.DashDotLine,
+    }
+    for style, pen_style in expected.items():
+        active = _make_active()
+        plot.add_signal(active)
+        plot.set_line_style(active, style)
+        assert active.curve.opts["pen"].style() == pen_style
+        plot.remove_signal(active)
+
+
+def test_set_line_style_noop_in_marker_only_mode(plot: PlotArea) -> None:
+    from PyQt6.QtCore import Qt
+    active = _make_active()
+    active.display_mode = "marker"
+    plot.add_signal(active)
+    plot.set_line_style(active, "dashes")
+    pen = active.curve.opts["pen"]
+    assert pen is None or pen.style() == Qt.PenStyle.NoPen
+
+
+def test_add_signal_uses_line_style_from_active(plot: PlotArea) -> None:
+    from PyQt6.QtCore import Qt
+    active = _make_active()
+    active.line_style = "dots"
+    plot.add_signal(active)
+    assert active.curve.opts["pen"].style() == Qt.PenStyle.DotLine
+
+
+def test_set_line_width_preserves_line_style(plot: PlotArea) -> None:
+    from PyQt6.QtCore import Qt
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_line_style(active, "dashes")
+    plot.set_line_width(active, 3)
+    assert active.curve.opts["pen"].style() == Qt.PenStyle.DashLine

@@ -265,10 +265,12 @@ class AppController:
         modes = {a.display_mode for a in actives}
         shapes = {a.marker_shape for a in actives}
         widths = {a.line_width for a in actives}
+        styles = {a.line_style for a in actives}
         mode = next(iter(modes)) if len(modes) == 1 else None
         shape = next(iter(shapes)) if len(shapes) == 1 else None
         width = next(iter(widths)) if len(widths) == 1 else None
-        self._signal_info.set_properties(mode, shape, width)
+        style = next(iter(styles)) if len(styles) == 1 else None
+        self._signal_info.set_properties(mode, shape, width, style)
         self._signal_info.enable_properties(True)
 
     def on_display_mode_requested(self, mode: str) -> None:
@@ -294,6 +296,13 @@ class AppController:
             if active not in self._active:
                 continue
             self._plot.set_line_width(active, width)
+
+    def on_line_style_requested(self, style: str) -> None:
+        """Apply a line style change to all currently selected signals."""
+        for active in self._selected_signals:
+            if active not in self._active:
+                continue
+            self._plot.set_line_style(active, style)
 
     def remove_signal(self, active_signal: ActiveSignal) -> None:
         """Remove one signal from the plot and the table.
@@ -361,7 +370,7 @@ class AppController:
             self._signal_info.clear()
         else:
             self._signal_info.set_metadata(active_signal.metadata)
-            self._signal_info.set_properties(active_signal.display_mode, active_signal.marker_shape, active_signal.line_width)
+            self._signal_info.set_properties(active_signal.display_mode, active_signal.marker_shape, active_signal.line_width, active_signal.line_style)
             self._signal_info.enable_properties(True)
 
     # ------------------------------------------------------------------

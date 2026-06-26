@@ -53,7 +53,7 @@ Public API:
 
 ## ActiveSignal
 
-Fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `step_mode: bool`; `display_mode: str` (`"line"` / `"line_marker"` / `"marker"`, default `"line"`); `marker_shape: str` (`"circle"` / `"square"` / `"diamond"` / `"cross"`, default `"circle"`); `line_width: int` (1–8, default `1`); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in. `__hash__ = object.__hash__` and `__eq__ = object.__eq__` — identity semantics throughout to avoid numpy `__eq__` ambiguity (list `in` / `remove` also use `__eq__`).
+Fields: `data`, `metadata`, `color: QColor` (set by controller from palette); `step_mode: bool`; `display_mode: str` (`"line"` / `"line_marker"` / `"marker"`, default `"line"`); `marker_shape: str` (`"circle"` / `"square"` / `"diamond"` / `"cross"`, default `"circle"`); `line_width: int` (1–8, default `1`); `line_style: str` (`"solid"` / `"dashes"` / `"dots"` / `"dash-dot"`, default `"solid"`); `curve` and `view_box` are `None` until `PlotArea.add_signal()` fills them in. `__hash__ = object.__hash__` and `__eq__ = object.__eq__` — identity semantics throughout to avoid numpy `__eq__` ambiguity (list `in` / `remove` also use `__eq__`).
 
 ## AppController
 
@@ -72,6 +72,7 @@ Public API:
 - `on_display_mode_requested(mode)` — applies `display_mode` to all `_selected_signals`; calls `PlotArea.set_display_mode()`; connected to `SignalInfoBox.display_mode_requested`
 - `on_marker_shape_requested(shape)` — applies `marker_shape` to all `_selected_signals`; calls `PlotArea.set_display_mode()` only when signal is not in "line" mode; connected to `SignalInfoBox.marker_shape_requested`
 - `on_line_width_requested(width)` — applies `line_width` to all `_selected_signals` via `PlotArea.set_line_width()`; connected to `SignalInfoBox.line_width_requested`
+- `on_line_style_requested(style)` — applies `line_style` to all `_selected_signals` via `PlotArea.set_line_style()`; connected to `SignalInfoBox.line_style_requested`
 - `reorder_signals(ordered)` — updates `_active` list order to match new table row order; calls `cursor_ctrl.refresh()`; connected to `ActiveSignalsTable.order_changed`
 - `on_y_grid_toggled(enabled)` — tracks Y-grid state; turns grid off on the previously selected signal and on for the newly selected one; connected to `PlotArea.y_grid_toggled`
 - `set_selected_signal(active | None)` — drives the Signal Info Box (metadata + properties tab); also manages per-signal Y-grid when `_y_grid_enabled`; updates `_selected_signals = [active]` or `[]`
@@ -208,6 +209,7 @@ Public API:
 - `set_step_mode(active, enabled)` — switches curve between linear and staircase (`pg.PlotDataItem(stepMode="left")`) rendering; no-op for unknowns
 - `set_display_mode(active, mode, shape)` — switches between `"line"` / `"line_marker"` / `"marker"` rendering; updates curve pen and symbol (`_PG_SYMBOL` map: `circle→"o"`, `square→"s"`, `diamond→"d"`, `cross→"+"`); marker size from `_symbol_size(line_width)` = `max(6, width*4)`; no-op for unknowns
 - `set_line_width(active, width)` — updates curve pen width and symbol size; no pen update in `"marker"` mode; no symbol size update in `"line"` mode; no-op for unknowns
+- `set_line_style(active, style)` — updates curve pen style (`"solid"` / `"dashes"` / `"dots"` / `"dash-dot"`); no-op in `"marker"` mode or for unknowns
 - `set_y_grid(active, enabled)` — shows or hides horizontal Y-grid lines on a signal's `ViewBox`; no-op for unknowns
 - `zoom_to_fit()` — full X range from timestamps, auto Y per signal; no-op when empty
 - `zoom_to_x_range(x_min, x_max)` — sets the shared X axis to the given range without touching Y axes; used by `AppController.zoom_to_cursors()`

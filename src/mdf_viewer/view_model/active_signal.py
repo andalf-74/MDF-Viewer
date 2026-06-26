@@ -43,6 +43,7 @@ class ActiveSignal:
     display_mode: str = "line"    # "line" | "line_marker" | "marker"
     marker_shape: str = "circle"  # "circle" | "square" | "diamond" | "cross"
     line_width: int = 1           # 1–8
+    line_style: str = "solid"     # "solid" | "dashes" | "dots" | "dash-dot"
     curve: Any = field(default=None)     # pyqtgraph.PlotDataItem
     view_box: Any = field(default=None)  # pyqtgraph.ViewBox
 

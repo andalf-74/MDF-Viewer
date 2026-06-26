@@ -483,3 +483,47 @@ def test_sbox_no_line_width_signal_when_setting_programmatically(
     sbox.line_width_requested.connect(emitted.append)
     sbox.set_properties("line", "circle", 3)
     assert emitted == []
+
+
+def test_sbox_set_properties_sets_line_style(sbox: SignalInfoBox) -> None:
+    sbox.set_properties("line", "circle", 1, "dashes")
+    assert sbox._props_widget._style_combo.currentIndex() == 1  # dashes is index 1
+
+
+def test_sbox_set_properties_none_style_shows_blank(sbox: SignalInfoBox) -> None:
+    sbox.set_properties("line", "circle", 1, None)
+    assert sbox._props_widget._style_combo.currentIndex() == -1
+
+
+def test_sbox_line_style_requested_emitted(sbox: SignalInfoBox, qtbot: QtBot) -> None:
+    sbox.set_properties("line", "circle", 1, "solid")
+    with qtbot.waitSignal(sbox.line_style_requested, timeout=1000) as blocker:
+        sbox._props_widget._style_combo.setCurrentIndex(2)  # dots
+    assert blocker.args == ["dots"]
+
+
+def test_sbox_line_style_disabled_in_marker_only_mode(sbox: SignalInfoBox) -> None:
+    sbox.enable_properties(True)
+    sbox.set_properties("marker", "circle", 1, "solid")
+    assert not sbox._props_widget._style_combo.isEnabled()
+
+
+def test_sbox_line_style_enabled_in_line_mode(sbox: SignalInfoBox) -> None:
+    sbox.enable_properties(True)
+    sbox.set_properties("line", "circle", 1, "solid")
+    assert sbox._props_widget._style_combo.isEnabled()
+
+
+def test_sbox_line_style_enabled_in_line_marker_mode(sbox: SignalInfoBox) -> None:
+    sbox.enable_properties(True)
+    sbox.set_properties("line_marker", "circle", 1, "solid")
+    assert sbox._props_widget._style_combo.isEnabled()
+
+
+def test_sbox_no_line_style_signal_when_setting_programmatically(
+    sbox: SignalInfoBox, qtbot: QtBot
+) -> None:
+    emitted: list = []
+    sbox.line_style_requested.connect(emitted.append)
+    sbox.set_properties("line", "circle", 1, "dashes")
+    assert emitted == []

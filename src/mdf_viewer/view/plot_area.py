@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 
 import pyqtgraph as pg
 from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, pyqtSignal
+from PyQt6.QtGui import QPen
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
@@ -36,9 +37,22 @@ _PG_SYMBOL: dict[str, str] = {
     "cross": "+",
 }
 
+_QT_PEN_STYLE: dict[str, Qt.PenStyle] = {
+    "solid":    Qt.PenStyle.SolidLine,
+    "dashes":   Qt.PenStyle.DashLine,
+    "dots":     Qt.PenStyle.DotLine,
+    "dash-dot": Qt.PenStyle.DashDotLine,
+}
+
 
 def _symbol_size(line_width: int) -> int:
     return max(6, line_width * 4)
+
+
+def _make_pen(color, width: int, style: str) -> QPen:
+    pen = pg.mkPen(color=color, width=width)
+    pen.setStyle(_QT_PEN_STYLE.get(style, Qt.PenStyle.SolidLine))
+    return pen
 
 
 class _ViewBox(pg.ViewBox):
@@ -194,7 +208,7 @@ class PlotArea(QWidget):
 
         color = active.color
         line_width = active.line_width
-        pen = pg.mkPen(color=color, width=line_width) if active.display_mode != "marker" else None
+        pen = _make_pen(color, line_width, active.line_style) if active.display_mode != "marker" else None
 
         vb = _ViewBox()
         self._pi.scene().addItem(vb)
@@ -265,7 +279,7 @@ class PlotArea(QWidget):
         if active not in self._data:
             return
         spd = self._data[active]
-        pen = pg.mkPen(color=color, width=active.line_width) if active.display_mode != "marker" else None
+        pen = _make_pen(color, active.line_width, active.line_style) if active.display_mode != "marker" else None
         spd.curve.setPen(pen)
         if active.display_mode != "line":
             spd.curve.setSymbolPen(pg.mkPen(color=color))
@@ -282,7 +296,7 @@ class PlotArea(QWidget):
         spd = self._data[active]
         color = active.color
         line_width = active.line_width
-        pen = pg.mkPen(color=color, width=line_width) if mode != "marker" else None
+        pen = _make_pen(color, line_width, active.line_style) if mode != "marker" else None
         if mode == "line":
             symbol = sym_pen = sym_brush = None
             sym_size = 0
@@ -304,9 +318,17 @@ class PlotArea(QWidget):
         active.line_width = width
         spd = self._data[active]
         if active.display_mode != "marker":
-            spd.curve.setPen(pg.mkPen(color=active.color, width=width))
+            spd.curve.setPen(_make_pen(active.color, width, active.line_style))
         if active.display_mode != "line":
             spd.curve.setSymbolSize(_symbol_size(width))
+
+    def set_line_style(self, active: ActiveSignal, style: str) -> None:
+        """Update the curve line style. No-op if not present or in marker-only mode."""
+        if active not in self._data:
+            return
+        active.line_style = style
+        if active.display_mode != "marker":
+            self._data[active].curve.setPen(_make_pen(active.color, active.line_width, style))
 
     def set_y_grid(self, active: ActiveSignal, enabled: bool) -> None:
         """Enable or disable the Y-grid on a signal's axis. No-op if not present."""
