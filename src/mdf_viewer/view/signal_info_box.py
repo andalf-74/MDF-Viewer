@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QLabel,
     QScrollArea,
+    QSpinBox,
     QStackedWidget,
     QTabWidget,
     QVBoxLayout,
@@ -39,11 +40,17 @@ _MARKER_SHAPES: list[tuple[str, str]] = [
 ]
 
 
+_LINE_WIDTH_MIN = 1
+_LINE_WIDTH_MAX = 8
+_LINE_WIDTH_MIXED = 0  # sentinel: spinbox shows "—" for mismatched multi-select
+
+
 class _SignalPropertiesWidget(QWidget):
-    """Display-mode and marker-shape controls for one or more selected signals."""
+    """Display-mode, marker-shape, and line-width controls for one or more selected signals."""
 
     display_mode_requested = pyqtSignal(str)
     marker_shape_requested = pyqtSignal(str)
+    line_width_requested = pyqtSignal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -60,20 +67,30 @@ class _SignalPropertiesWidget(QWidget):
             self._shape_combo.addItem(label)
         form.addRow("Marker:", self._shape_combo)
 
+        self._width_spin = QSpinBox()
+        self._width_spin.setMinimum(_LINE_WIDTH_MIXED)
+        self._width_spin.setMaximum(_LINE_WIDTH_MAX)
+        self._width_spin.setSpecialValueText("—")
+        form.addRow("Line width:", self._width_spin)
+
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self._shape_combo.currentIndexChanged.connect(self._on_shape_changed)
+        self._width_spin.valueChanged.connect(self._on_width_changed)
 
-    def set_properties(self, mode: str | None, shape: str | None) -> None:
+    def set_properties(self, mode: str | None, shape: str | None, width: int | None = None) -> None:
         """Populate the controls. Pass None for a field to show a blank (mismatched multi-select)."""
         self._mode_combo.blockSignals(True)
         self._shape_combo.blockSignals(True)
+        self._width_spin.blockSignals(True)
         mode_keys = [k for k, _ in _DISPLAY_MODES]
         self._mode_combo.setCurrentIndex(mode_keys.index(mode) if mode in mode_keys else -1)
         shape_keys = [k for k, _ in _MARKER_SHAPES]
         self._shape_combo.setCurrentIndex(shape_keys.index(shape) if shape in shape_keys else -1)
+        self._width_spin.setValue(width if width is not None else _LINE_WIDTH_MIXED)
         self._update_shape_enabled()
         self._mode_combo.blockSignals(False)
         self._shape_combo.blockSignals(False)
+        self._width_spin.blockSignals(False)
 
     def _on_mode_changed(self, index: int) -> None:
         self._update_shape_enabled()
@@ -84,6 +101,10 @@ class _SignalPropertiesWidget(QWidget):
         if 0 <= index < len(_MARKER_SHAPES):
             self.marker_shape_requested.emit(_MARKER_SHAPES[index][0])
 
+    def _on_width_changed(self, value: int) -> None:
+        if value >= _LINE_WIDTH_MIN:
+            self.line_width_requested.emit(value)
+
     def _update_shape_enabled(self) -> None:
         self._shape_combo.setEnabled(self._mode_combo.currentIndex() != 0)
 
@@ -93,6 +114,7 @@ class SignalInfoBox(QWidget):
 
     display_mode_requested = pyqtSignal(str)
     marker_shape_requested = pyqtSignal(str)
+    line_width_requested = pyqtSignal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -135,6 +157,7 @@ class SignalInfoBox(QWidget):
 
         self._props_widget.display_mode_requested.connect(self.display_mode_requested)
         self._props_widget.marker_shape_requested.connect(self.marker_shape_requested)
+        self._props_widget.line_width_requested.connect(self.line_width_requested)
 
     # ------------------------------------------------------------------
     # Info tab API
@@ -163,9 +186,9 @@ class SignalInfoBox(QWidget):
     # Properties tab API
     # ------------------------------------------------------------------
 
-    def set_properties(self, mode: str | None, shape: str | None) -> None:
+    def set_properties(self, mode: str | None, shape: str | None, width: int | None = None) -> None:
         """Populate the Properties tab. None values show blank (mismatched multi-select)."""
-        self._props_widget.set_properties(mode, shape)
+        self._props_widget.set_properties(mode, shape, width)
 
     def enable_properties(self, enabled: bool) -> None:
         """Enable or disable the Properties tab."""

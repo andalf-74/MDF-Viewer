@@ -448,3 +448,38 @@ def test_sbox_no_signal_emitted_when_setting_programmatically(
     sbox.marker_shape_requested.connect(emitted.append)
     sbox.set_properties("line_marker", "diamond")
     assert emitted == []
+
+
+def test_sbox_set_properties_sets_line_width(sbox: SignalInfoBox) -> None:
+    sbox.set_properties("line", "circle", 3)
+    assert sbox._props_widget._width_spin.value() == 3
+
+
+def test_sbox_set_properties_none_width_shows_mixed(sbox: SignalInfoBox) -> None:
+    sbox.set_properties("line", "circle", None)
+    assert sbox._props_widget._width_spin.value() == 0
+    assert sbox._props_widget._width_spin.text() == "—"
+
+
+def test_sbox_line_width_requested_emitted(sbox: SignalInfoBox, qtbot: QtBot) -> None:
+    sbox.set_properties("line", "circle", 2)
+    with qtbot.waitSignal(sbox.line_width_requested, timeout=1000) as blocker:
+        sbox._props_widget._width_spin.setValue(4)
+    assert blocker.args == [4]
+
+
+def test_sbox_line_width_not_emitted_for_mixed_sentinel(sbox: SignalInfoBox, qtbot: QtBot) -> None:
+    sbox.set_properties("line", "circle", 3)
+    emitted: list = []
+    sbox.line_width_requested.connect(emitted.append)
+    sbox._props_widget._width_spin.setValue(0)  # mixed sentinel
+    assert emitted == []
+
+
+def test_sbox_no_line_width_signal_when_setting_programmatically(
+    sbox: SignalInfoBox, qtbot: QtBot
+) -> None:
+    emitted: list = []
+    sbox.line_width_requested.connect(emitted.append)
+    sbox.set_properties("line", "circle", 3)
+    assert emitted == []

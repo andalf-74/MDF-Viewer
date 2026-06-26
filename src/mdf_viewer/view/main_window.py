@@ -153,6 +153,9 @@ class MainWindow(QMainWindow):
         self.signal_info_box.marker_shape_requested.connect(
             controller.on_marker_shape_requested
         )
+        self.signal_info_box.line_width_requested.connect(
+            controller.on_line_width_requested
+        )
         self.active_signals_table.color_change_requested.connect(
             controller.recolor_signals
         )

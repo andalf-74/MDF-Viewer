@@ -742,7 +742,7 @@ def test_set_selected_signal_calls_set_properties(ctrl: AppController, deps: dic
     sig = ctrl.active_signals[0]
     ctrl.set_selected_signal(sig)
     deps["signal_info"].set_properties.assert_called_once_with(
-        sig.display_mode, sig.marker_shape
+        sig.display_mode, sig.marker_shape, sig.line_width
     )
 
 
@@ -801,7 +801,7 @@ def test_set_multi_selected_calls_set_properties_with_matching_mode(
     actives = ctrl.active_signals
     # Both default to "line" / "circle"
     ctrl.set_multi_selected(actives)
-    deps["signal_info"].set_properties.assert_called_with("line", "circle")
+    deps["signal_info"].set_properties.assert_called_with("line", "circle", 1)
 
 
 def test_set_multi_selected_passes_none_for_mismatched_mode(
@@ -817,7 +817,7 @@ def test_set_multi_selected_passes_none_for_mismatched_mode(
     actives[0].display_mode = "line"
     actives[1].display_mode = "marker"
     ctrl.set_multi_selected(actives)
-    deps["signal_info"].set_properties.assert_called_with(None, "circle")
+    deps["signal_info"].set_properties.assert_called_with(None, "circle", 1)
 
 
 def test_set_multi_selected_enables_properties_tab(
@@ -895,4 +895,58 @@ def test_on_marker_shape_requested_no_plot_call_in_line_mode(
     deps["plot"].reset_mock()
     ctrl.on_marker_shape_requested("square")
     deps["plot"].set_display_mode.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# on_line_width_requested
+# ---------------------------------------------------------------------------
+
+def test_on_line_width_requested_calls_plot(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    deps["plot"].reset_mock()
+    ctrl.on_line_width_requested(4)
+    deps["plot"].set_line_width.assert_called_once_with(sig, 4)
+
+
+def test_on_line_width_requested_ignored_for_inactive(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    ctrl.remove_signal(sig)
+    deps["plot"].reset_mock()
+    ctrl.on_line_width_requested(3)
+    deps["plot"].set_line_width.assert_not_called()
+
+
+def test_set_selected_signal_passes_line_width_to_info_box(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    sig.line_width = 3
+    ctrl.set_selected_signal(sig)
+    deps["signal_info"].set_properties.assert_called_with("line", "circle", 3)
+
+
+def test_set_multi_selected_passes_shared_line_width(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    sigs = ctrl.active_signals
+    for s in sigs:
+        s.line_width = 2
+    ctrl.set_multi_selected(sigs)
+    deps["signal_info"].set_properties.assert_called_with("line", "circle", 2)
+
+
+def test_set_multi_selected_none_width_when_mismatched(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    sigs = ctrl.active_signals
+    sigs[0].line_width = 1
+    sigs[1].line_width = 3
+    ctrl.set_multi_selected(sigs)
+    call_args = deps["signal_info"].set_properties.call_args
+    assert call_args[0][2] is None  # width arg is None
 

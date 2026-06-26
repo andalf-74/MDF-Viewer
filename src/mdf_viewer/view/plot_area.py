@@ -193,7 +193,7 @@ class PlotArea(QWidget):
             return
 
         color = active.color
-        line_width = 2
+        line_width = active.line_width
         pen = pg.mkPen(color=color, width=line_width) if active.display_mode != "marker" else None
 
         vb = _ViewBox()
@@ -265,7 +265,7 @@ class PlotArea(QWidget):
         if active not in self._data:
             return
         spd = self._data[active]
-        pen = pg.mkPen(color=color, width=2) if active.display_mode != "marker" else None
+        pen = pg.mkPen(color=color, width=active.line_width) if active.display_mode != "marker" else None
         spd.curve.setPen(pen)
         if active.display_mode != "line":
             spd.curve.setSymbolPen(pg.mkPen(color=color))
@@ -281,7 +281,7 @@ class PlotArea(QWidget):
             return
         spd = self._data[active]
         color = active.color
-        line_width = 2
+        line_width = active.line_width
         pen = pg.mkPen(color=color, width=line_width) if mode != "marker" else None
         if mode == "line":
             symbol = sym_pen = sym_brush = None
@@ -296,6 +296,17 @@ class PlotArea(QWidget):
         spd.curve.setSymbolPen(sym_pen)
         spd.curve.setSymbolBrush(sym_brush)
         spd.curve.setSymbolSize(sym_size)
+
+    def set_line_width(self, active: ActiveSignal, width: int) -> None:
+        """Update the curve line width. No-op if not present."""
+        if active not in self._data:
+            return
+        active.line_width = width
+        spd = self._data[active]
+        if active.display_mode != "marker":
+            spd.curve.setPen(pg.mkPen(color=active.color, width=width))
+        if active.display_mode != "line":
+            spd.curve.setSymbolSize(_symbol_size(width))
 
     def set_y_grid(self, active: ActiveSignal, enabled: bool) -> None:
         """Enable or disable the Y-grid on a signal's axis. No-op if not present."""

@@ -42,6 +42,7 @@ class ActiveSignal:
     step_mode: bool = False
     display_mode: str = "line"    # "line" | "line_marker" | "marker"
     marker_shape: str = "circle"  # "circle" | "square" | "diamond" | "cross"
+    line_width: int = 1           # 1–8
     curve: Any = field(default=None)     # pyqtgraph.PlotDataItem
     view_box: Any = field(default=None)  # pyqtgraph.ViewBox
 

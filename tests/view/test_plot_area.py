@@ -618,3 +618,52 @@ def test_set_display_mode_cross_uses_correct_pg_symbol(plot: PlotArea) -> None:
     plot.add_signal(active)
     plot.set_display_mode(active, "marker", "cross")
     assert active.curve.opts["symbol"] == "+"
+
+
+# ---------------------------------------------------------------------------
+# set_line_width
+# ---------------------------------------------------------------------------
+
+def test_set_line_width_noop_for_unknown(plot: PlotArea) -> None:
+    stranger = _make_active()
+    plot.set_line_width(stranger, 3)  # must not raise
+
+
+def test_set_line_width_updates_active_field(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_line_width(active, 4)
+    assert active.line_width == 4
+
+
+def test_set_line_width_updates_pen_width_in_line_mode(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.set_line_width(active, 5)
+    assert active.curve.opts["pen"].width() == 5
+
+
+def test_set_line_width_no_pen_in_marker_only_mode(plot: PlotArea) -> None:
+    from PyQt6.QtCore import Qt
+    active = _make_active()
+    active.display_mode = "marker"
+    plot.add_signal(active)
+    plot.set_line_width(active, 3)
+    pen = active.curve.opts["pen"]
+    assert pen is None or pen.style() == Qt.PenStyle.NoPen
+
+
+def test_set_line_width_updates_symbol_size_in_line_marker_mode(plot: PlotArea) -> None:
+    from mdf_viewer.view.plot_area import _symbol_size
+    active = _make_active()
+    active.display_mode = "line_marker"
+    plot.add_signal(active)
+    plot.set_line_width(active, 3)
+    assert active.curve.opts["symbolSize"] == _symbol_size(3)
+
+
+def test_add_signal_uses_line_width_from_active(plot: PlotArea) -> None:
+    active = _make_active()
+    active.line_width = 5
+    plot.add_signal(active)
+    assert active.curve.opts["pen"].width() == 5
