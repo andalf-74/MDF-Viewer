@@ -166,3 +166,36 @@ def test_display_name_fallback_preview_when_none(qtbot: QtBot, settings: Setting
     dlg = PreferencesDialog(settings)
     qtbot.addWidget(dlg)
     assert dlg._preview_name == _FALLBACK_PREVIEW
+
+
+# show_only_selected_y_axis checkbox
+
+
+def test_show_only_selected_y_axis_default_unchecked(dlg: PreferencesDialog) -> None:
+    assert dlg._show_only_selected_y_axis.isChecked() is False
+
+
+def test_show_only_selected_y_axis_initialised_from_settings(
+    qtbot: QtBot, settings: Settings
+) -> None:
+    settings.show_only_selected_y_axis = True
+    dlg = PreferencesDialog(settings)
+    qtbot.addWidget(dlg)
+    assert dlg._show_only_selected_y_axis.isChecked() is True
+
+
+def test_show_only_selected_y_axis_apply_saves_to_settings(
+    dlg: PreferencesDialog, settings: Settings
+) -> None:
+    dlg._show_only_selected_y_axis.setChecked(True)
+    dlg._apply()
+    assert settings.show_only_selected_y_axis is True
+
+
+def test_show_only_selected_y_axis_apply_false_saves_to_settings(
+    dlg: PreferencesDialog, settings: Settings
+) -> None:
+    settings.show_only_selected_y_axis = True
+    dlg._show_only_selected_y_axis.setChecked(False)
+    dlg._apply()
+    assert settings.show_only_selected_y_axis is False

@@ -317,8 +317,9 @@ class AppController:
         self._table.set_name_formatter(formatter)
 
     def refresh_z_order(self) -> None:
-        """Reapply Z-order and selection boost after a preference change."""
+        """Reapply Z-order, selection boost, and Y-axis visibility after a preference change."""
         self._plot.set_selected_line_boost(self._line_boost)
+        self._plot.set_show_only_selected_y_axis(self._show_only_selected_y_axis)
         self._plot.set_selected_signals(
             self._selected_signals,
             all_signals=self._active,
@@ -336,6 +337,12 @@ class AppController:
         if self._settings is None:
             return 1
         return self._settings.selected_line_boost
+
+    @property
+    def _show_only_selected_y_axis(self) -> bool:
+        if self._settings is None:
+            return False
+        return self._settings.show_only_selected_y_axis
 
     def remove_signal(self, active_signal: ActiveSignal) -> None:
         """Remove one signal from the plot and the table.

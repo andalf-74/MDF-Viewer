@@ -959,3 +959,89 @@ def test_hit_consumes_event(plot: PlotArea) -> None:
 def test_hit_test_returns_none_with_no_signals(plot: PlotArea) -> None:
     from PyQt6.QtCore import QPointF
     assert plot._hit_test(QPointF(0, 0)) is None
+
+
+# ---------------------------------------------------------------------------
+# show_only_selected_y_axis / _update_axis_visibility
+# ---------------------------------------------------------------------------
+
+def test_axis_visible_by_default(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    assert plot._data[active].axis.isVisible()
+
+
+def test_show_only_selected_off_all_axes_visible(plot: PlotArea) -> None:
+    a, b = _make_active("a"), _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.set_show_only_selected_y_axis(False)
+    assert plot._data[a].axis.isVisible()
+    assert plot._data[b].axis.isVisible()
+
+
+def test_show_only_selected_on_no_selection_all_axes_visible(plot: PlotArea) -> None:
+    a, b = _make_active("a"), _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.set_show_only_selected_y_axis(True)
+    # No selected signals → all axes shown.
+    assert plot._data[a].axis.isVisible()
+    assert plot._data[b].axis.isVisible()
+
+
+def test_show_only_selected_on_hides_unselected_axis(plot: PlotArea) -> None:
+    a, b = _make_active("a"), _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.set_show_only_selected_y_axis(True)
+    plot.set_selected_signals([a], all_signals=[a, b])
+    assert plot._data[a].axis.isVisible()
+    assert not plot._data[b].axis.isVisible()
+
+
+def test_show_only_selected_on_multi_selection_shows_all_selected(plot: PlotArea) -> None:
+    a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
+    for sig in (a, b, c):
+        plot.add_signal(sig)
+    plot.set_show_only_selected_y_axis(True)
+    plot.set_selected_signals([a, b], all_signals=[a, b, c])
+    assert plot._data[a].axis.isVisible()
+    assert plot._data[b].axis.isVisible()
+    assert not plot._data[c].axis.isVisible()
+
+
+def test_show_only_selected_clearing_selection_restores_all_axes(plot: PlotArea) -> None:
+    a, b = _make_active("a"), _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.set_show_only_selected_y_axis(True)
+    plot.set_selected_signals([a], all_signals=[a, b])
+    assert not plot._data[b].axis.isVisible()
+    plot.set_selected_signals([], all_signals=[a, b])
+    assert plot._data[a].axis.isVisible()
+    assert plot._data[b].axis.isVisible()
+
+
+def test_show_only_selected_toggling_off_restores_all_axes(plot: PlotArea) -> None:
+    a, b = _make_active("a"), _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.set_show_only_selected_y_axis(True)
+    plot.set_selected_signals([a], all_signals=[a, b])
+    assert not plot._data[b].axis.isVisible()
+    plot.set_show_only_selected_y_axis(False)
+    assert plot._data[a].axis.isVisible()
+    assert plot._data[b].axis.isVisible()
+
+
+def test_new_signal_added_with_toggle_on_respects_visibility(plot: PlotArea) -> None:
+    a = _make_active("a")
+    plot.add_signal(a)
+    plot.set_show_only_selected_y_axis(True)
+    plot.set_selected_signals([a], all_signals=[a])
+    # Add a second signal while toggle is on and a is selected — b should be hidden.
+    b = _make_active("b")
+    plot.add_signal(b)
+    assert plot._data[a].axis.isVisible()
+    assert not plot._data[b].axis.isVisible()

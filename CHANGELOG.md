@@ -5,6 +5,11 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Option to show only the selected signal's Y-axis (#69). When enabled in
+  Preferences → Signals, all Y-axes except those belonging to the currently
+  selected signal(s) are hidden and their layout columns removed, giving the
+  plot more horizontal space. All axes reappear when the toggle is off or when
+  no signal is selected.
 - Measurement raster shown in Signal Info Box (#44). A "Raster" row appears
   in the Info tab for any signal with at least two samples. Fixed-rate signals
   show the mean interval (ms up to 500 ms, seconds above); variable-rate

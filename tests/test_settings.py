@@ -520,3 +520,32 @@ def test_apply_rule_segments_exceeds_parts_returns_all(settings: Settings) -> No
     settings.display_name_direction = "right"
     settings.display_name_segments = 10
     assert apply_display_name_rule("a.b", settings) == "a.b"
+
+
+# show_only_selected_y_axis
+
+
+def test_show_only_selected_y_axis_default(settings: Settings) -> None:
+    from mdf_viewer.settings import DEFAULT_SHOW_ONLY_SELECTED_Y_AXIS
+    assert settings.show_only_selected_y_axis == DEFAULT_SHOW_ONLY_SELECTED_Y_AXIS
+
+
+def test_show_only_selected_y_axis_default_is_false(settings: Settings) -> None:
+    assert settings.show_only_selected_y_axis is False
+
+
+def test_show_only_selected_y_axis_can_be_enabled(settings: Settings) -> None:
+    settings.show_only_selected_y_axis = True
+    assert settings.show_only_selected_y_axis is True
+
+
+def test_show_only_selected_y_axis_persists(settings: Settings) -> None:
+    settings.show_only_selected_y_axis = True
+    reloaded = Settings(path=settings._path)
+    assert reloaded.show_only_selected_y_axis is True
+
+
+def test_show_only_selected_y_axis_defaults_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    assert Settings(path=path).show_only_selected_y_axis is False

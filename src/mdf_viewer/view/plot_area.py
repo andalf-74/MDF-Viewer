@@ -188,6 +188,7 @@ class PlotArea(QWidget):
         # Signals currently highlighted (selection boost); ordered earliest→latest.
         self._selected_signals: list[ActiveSignal] = []
         self._selected_line_boost: int = 1
+        self._show_only_selected_y_axis: bool = False
 
         self._pi.vb.sigResized.connect(self._update_view_geometries)
         self._pi.ctrl.yGridCheck.toggled.connect(self._on_y_grid_toggled)
@@ -261,6 +262,7 @@ class PlotArea(QWidget):
         active.view_box = vb
         self._data[active] = _SignalPlotData(curve=curve, view_box=vb, axis=axis)
 
+        self._update_axis_visibility()
         self._update_view_geometries()
         vb.enableAutoRange()
         # Connect after enableAutoRange so the initial auto-range isn't captured
@@ -297,6 +299,7 @@ class PlotArea(QWidget):
         *top_first* — when True the top row has the highest base Z-value.
         """
         self._selected_signals = list(selected)
+        self._update_axis_visibility()
         selected_set = set(selected)
         n = len(all_signals) if all_signals else 0
 
@@ -376,6 +379,11 @@ class PlotArea(QWidget):
     def set_selected_line_boost(self, value: int) -> None:
         """Set the line-width boost applied to selected signals."""
         self._selected_line_boost = value
+
+    def set_show_only_selected_y_axis(self, enabled: bool) -> None:
+        """Toggle whether only the selected signal's Y-axis is shown."""
+        self._show_only_selected_y_axis = enabled
+        self._update_axis_visibility()
 
     def _effective_width(self, active: ActiveSignal) -> int:
         """Return line_width + boost if the signal is currently selected, else line_width."""
@@ -604,6 +612,31 @@ class PlotArea(QWidget):
 
     def _on_y_grid_toggled(self, checked: bool) -> None:
         self.y_grid_toggled.emit(checked)
+
+    def _update_axis_visibility(self) -> None:
+        """Show or hide Y-axes according to the show-only-selected-Y-axis toggle.
+
+        When the toggle is off, or when no signal is selected, all axes are shown.
+        Otherwise only the selected signals' axes are shown; others are removed from
+        the layout so the plot area expands to fill the freed space.
+        """
+        if not self._show_only_selected_y_axis or not self._selected_signals:
+            visible_set = set(self._data.keys())
+        else:
+            visible_set = set(self._selected_signals) & set(self._data.keys())
+
+        # Hide axes that should no longer be visible.
+        for active, spd in self._data.items():
+            if active not in visible_set and spd.axis.isVisible():
+                self._pi.layout.removeItem(spd.axis)
+                spd.axis.hide()
+
+        # Re-add axes that should become visible, preserving insertion order.
+        for active, spd in self._data.items():
+            if active in visible_set and not spd.axis.isVisible():
+                col = self._pi.layout.columnCount()
+                self._pi.layout.addItem(spd.axis, 2, col)
+                spd.axis.show()
 
     def _update_view_geometries(self) -> None:
         """Keep extra ViewBoxes aligned with the main ViewBox after resize."""

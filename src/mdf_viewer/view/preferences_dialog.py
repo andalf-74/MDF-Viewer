@@ -30,6 +30,7 @@ from mdf_viewer.settings import (
     DEFAULT_CURSOR_STEP_TIME_MS,
     DEFAULT_DELTA_TIME_COLOR,
     DEFAULT_SELECTED_LINE_BOOST,
+    DEFAULT_SHOW_ONLY_SELECTED_Y_AXIS,
     Settings,
 )
 
@@ -232,6 +233,15 @@ class PreferencesDialog(QDialog):
         boost_row.addStretch()
         signals_layout.addLayout(boost_row)
 
+        self._show_only_selected_y_axis = QCheckBox("Show only selected signal's Y-axis")
+        self._show_only_selected_y_axis.setChecked(self._settings.show_only_selected_y_axis)
+        self._show_only_selected_y_axis.setToolTip(
+            "When checked, only the Y-axis of the currently selected signal is shown.\n"
+            "All other Y-axes are hidden to give the plot more horizontal space.\n"
+            "When no signal is selected, all Y-axes are shown."
+        )
+        signals_layout.addWidget(self._show_only_selected_y_axis)
+
         signals_layout.addSpacing(8)
 
         from mdf_viewer.view._display_name_controls import DisplayNameRuleControls
@@ -257,6 +267,7 @@ class PreferencesDialog(QDialog):
         self._settings.max_undo_steps = self._undo_steps.value()
         self._settings.signal_z_order = _Z_ORDER_OPTIONS[self._z_order_combo.currentIndex()][0]
         self._settings.selected_line_boost = self._line_boost.value()
+        self._settings.show_only_selected_y_axis = self._show_only_selected_y_axis.isChecked()
         self._display_name_controls.apply_to_settings(self._settings)
         self._settings.cursor_persistent = self._cursor_persistent.isChecked()
         self._settings.cursor_mode = "L/R" if self._cursor_lr.isChecked() else "1/2"
