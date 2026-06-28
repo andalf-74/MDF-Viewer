@@ -16,4 +16,4 @@
 3. `Compress-Archive -Path dist\MDF-Viewer -DestinationPath dist\MDF-Viewer-X.Y-Windows.zip -Force` → portable zip
 4. Upload both to the GitHub release: `gh release upload vX.Y installer/dist/MDF-Viewer-X.Y-Setup.exe dist/MDF-Viewer-X.Y-Windows.zip`
 
-**Latest release — v2.0:** https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.0 — ships `MDF-Viewer-2.0-Setup.exe` (installer) and `MDF-Viewer-2.0-Windows.zip` (portable).
+**Latest release — v2.1:** https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.1 — ships `MDF-Viewer-2.1-Setup.exe` (installer) and `MDF-Viewer-2.1-Windows.zip` (portable).
