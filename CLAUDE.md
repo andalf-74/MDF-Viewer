@@ -102,6 +102,16 @@ When asked to look at / check / review the GitHub issues, always fetch and displ
 ### Grill-Me Skill
 When the user says **"grill me"** about a feature or topic, Claude should enter interview mode: ask focused, one-at-a-time questions to surface requirements, edge cases, and design decisions before writing any code. Summarize findings before proceeding.
 
+### Plugin vs. Built-in Decision Rule
+Before implementing any new feature, ask: **does this belong in the base app, or should it be a plugin?**
+
+A feature belongs in the base app if it is core to the viewing experience — without it, the app cannot fulfil its primary purpose (open a file, browse signals, plot them).
+
+A feature should be a plugin if it is optional, self-contained, and adds capability on top of the core without the core needing to know about it. Ask:
+- Can the base app still function usefully without this feature? → plugin
+- Does implementing it require the `PluginContext` API to grow substantially to accommodate it? → probably built-in (the API complexity cost is too high)
+- Is it something a user might reasonably want to disable or replace? → plugin
+
 ### General Rules
 - **Always check the codebase first** – before making assumptions or proposing solutions, check whether the answer already exists in the codebase
 - Always propose architecture and structure before writing code
