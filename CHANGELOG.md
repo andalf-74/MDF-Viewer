@@ -5,6 +5,20 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Shared and linked Y-axes (#16). Two or more active signals can be grouped
+  from the Active Signals Table context menu (multi-select required):
+  - **Share Y-axis** — all selected signals share one ViewBox and one Y-axis
+    (same Y scale, zoomed together). The shared axis uses a neutral grey colour;
+    shared groups count as a single swimlane.
+  - **Link Y-axes** — selected signals keep their own ViewBox and axis but
+    pan/zoom together to the exact same absolute Y range whenever any member's
+    axis is touched.
+  Both options block mismatched-unit combinations (checked in MainWindow before
+  calling the controller). Selecting a member of a shared group while
+  "Show only selected Y-axis" is on keeps the shared axis visible. A third
+  context-menu action, "Remove from shared/linked axis", dissolves a signal
+  back to its own axis; removing the last two members of a group also dissolves
+  it automatically.
 - Enum signal support (#40). Signals with an MDF4 value-to-text conversion
   (conversion type 7) are now recognised as enum signals. Their integer raw
   values are loaded and stored alongside a label map extracted from the

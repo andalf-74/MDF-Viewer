@@ -232,6 +232,33 @@ class AppController:
         for active in actives:
             self.recolor_signal(active, color)
 
+    def on_share_y_axis_requested(self, signals: list) -> None:
+        """Share a single Y-axis (ViewBox) across all given signals."""
+        actives = [s for s in signals if s in self._active]
+        if len(actives) < 2:
+            return
+        self._plot.share_signals(actives)
+        self._refresh_table_group_state()
+
+    def on_link_y_axes_requested(self, signals: list) -> None:
+        """Link the Y-axes of all given signals so they pan/zoom together."""
+        actives = [s for s in signals if s in self._active]
+        if len(actives) < 2:
+            return
+        self._plot.link_signals(actives)
+        self._refresh_table_group_state()
+
+    def on_ungroup_y_axis_requested(self, signals: list) -> None:
+        """Remove each given signal from its shared or linked group."""
+        for active in signals:
+            if active in self._active:
+                self._plot.ungroup_signal(active)
+        self._refresh_table_group_state()
+
+    def _refresh_table_group_state(self) -> None:
+        """Push the current grouped-signal set to the Active Signals Table."""
+        self._table.set_grouped_signals(self._plot.get_grouped_signals())
+
     def remove_signals(self, actives: list) -> None:
         """Remove multiple signals from the plot and the table."""
         for active in list(actives):
@@ -244,6 +271,7 @@ class AppController:
             self._table.remove_row(active)
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.refresh()
+        self._refresh_table_group_state()
 
     def set_step_modes(self, actives: list, enabled: bool) -> None:
         """Set step mode to a specific state for each signal in *actives*."""
@@ -388,6 +416,7 @@ class AppController:
             self._cursor_ctrl.refresh()
         if self._selected is active_signal:
             self.set_selected_signal(None)
+        self._refresh_table_group_state()
 
     def remove_all(self) -> None:
         """Remove all active signals from the plot and the table."""
@@ -399,6 +428,7 @@ class AppController:
         self._active.clear()
         self._table.clear()
         self.set_selected_signal(None)
+        self._refresh_table_group_state()
 
     def swimlanes(self) -> bool:
         """Arrange active signals in horizontal swimlanes.
