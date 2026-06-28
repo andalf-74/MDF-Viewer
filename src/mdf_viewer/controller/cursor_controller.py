@@ -400,15 +400,22 @@ class CursorController:
                         if cl_val is not None and cr_val is not None
                         else None
                     )
+                    em = active.metadata.enum_map
+                    ed = active.enum_display_table
                     self._table.update_cursor_values(
-                        active, _fmt(cl_val), _fmt(cr_val), _fmt(delta)
+                        active,
+                        _fmt_value(cl_val, em, ed),
+                        _fmt_value(cr_val, em, ed),
+                        _fmt(delta),
                     )
             else:  # ONE — single cursor is always Cursor L by definition
                 self._view.set_line_colors(color_cl, color_cr)
                 c_x = self._positions[0]
                 for active in active_signals:
+                    em = active.metadata.enum_map
+                    ed = active.enum_display_table
                     self._table.update_cursor_values(
-                        active, _fmt(_interpolate(active, c_x)), "", ""
+                        active, _fmt_value(_interpolate(active, c_x), em, ed), "", ""
                     )
         else:  # "1/2" mode (default)
             self._table.set_cursor_column_headers("Cursor 1", "Cursor 2")
@@ -423,8 +430,13 @@ class CursorController:
                     if c1_val is not None and c2_val is not None
                     else None
                 )
+                em = active.metadata.enum_map
+                ed = active.enum_display_table
                 self._table.update_cursor_values(
-                    active, _fmt(c1_val), _fmt(c2_val), _fmt(delta2)
+                    active,
+                    _fmt_value(c1_val, em, ed),
+                    _fmt_value(c2_val, em, ed),
+                    _fmt(delta2),
                 )
 
         if update_labels:
@@ -467,4 +479,20 @@ def _fmt(value: float | None) -> str:
     """Format a cursor value for display in the table."""
     if value is None:
         return ""
+    return f"{value:.6g}"
+
+
+def _fmt_value(value: float | None, enum_map: dict[int, str], enum_display: bool) -> str:
+    """Format a signal cursor value, using enum labels when applicable.
+
+    When *enum_map* is non-empty and *enum_display* is True, formats as
+    ``"LABEL (n)"``.  Falls back to plain numeric formatting otherwise.
+    """
+    if value is None:
+        return ""
+    if enum_map and enum_display:
+        key = int(round(value))
+        label = enum_map.get(key)
+        if label is not None:
+            return f"{label} ({key})"
     return f"{value:.6g}"

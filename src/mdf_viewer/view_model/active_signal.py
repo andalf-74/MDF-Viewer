@@ -40,6 +40,9 @@ class ActiveSignal:
     metadata: SignalMetadata
     color: QColor | tuple[int, int, int]
     step_mode: bool = False
+    enum_display_table: bool = True    # cursor-value columns in the Active Signals Table
+    enum_display_cursor: bool = False  # floating cursor label on the plot
+    enum_display_yaxis: bool = False   # Y-axis tick labels
     display_mode: str = "line"    # "line" | "line_marker" | "marker"
     marker_shape: str = "circle"  # "circle" | "square" | "diamond" | "cross"
     line_width: int = 1           # 1–8

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QFrame,
@@ -59,6 +60,9 @@ class _SignalPropertiesWidget(QWidget):
     marker_shape_requested = pyqtSignal(str)
     line_width_requested = pyqtSignal(int)
     line_style_requested = pyqtSignal(str)
+    enum_table_requested = pyqtSignal(bool)
+    enum_cursor_requested = pyqtSignal(bool)
+    enum_yaxis_requested = pyqtSignal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -86,10 +90,54 @@ class _SignalPropertiesWidget(QWidget):
             self._style_combo.addItem(label)
         form.addRow("Line style:", self._style_combo)
 
+        # Enum label options — only shown when the selected signal has an enum map.
+        self._enum_table_check = QCheckBox("Value table")
+        self._enum_cursor_check = QCheckBox("Cursor label")
+        self._enum_yaxis_check = QCheckBox("Y-axis")
+        self._enum_container = QWidget()
+        enum_layout = QVBoxLayout(self._enum_container)
+        enum_layout.setContentsMargins(0, 0, 0, 0)
+        enum_layout.setSpacing(2)
+        enum_layout.addWidget(self._enum_table_check)
+        enum_layout.addWidget(self._enum_cursor_check)
+        enum_layout.addWidget(self._enum_yaxis_check)
+        self._enum_label = QLabel("Enum labels:")
+        form.addRow(self._enum_label, self._enum_container)
+        self._enum_label.setVisible(False)
+        self._enum_container.setVisible(False)
+
         self._mode_combo.currentIndexChanged.connect(self._on_mode_changed)
         self._shape_combo.currentIndexChanged.connect(self._on_shape_changed)
         self._width_spin.valueChanged.connect(self._on_width_changed)
         self._style_combo.currentIndexChanged.connect(self._on_style_changed)
+        self._enum_table_check.toggled.connect(self.enum_table_requested)
+        self._enum_cursor_check.toggled.connect(self.enum_cursor_requested)
+        self._enum_yaxis_check.toggled.connect(self.enum_yaxis_requested)
+
+    def set_enum_options(
+        self,
+        table: bool | None,
+        cursor: bool | None,
+        yaxis: bool | None,
+    ) -> None:
+        """Show or hide the enum-label checkboxes and set their states.
+
+        Pass None for all three to hide the section (non-enum signal or multi-select).
+        """
+        visible = table is not None
+        self._enum_label.setVisible(visible)
+        self._enum_container.setVisible(visible)
+        if not visible:
+            return
+        self._enum_table_check.blockSignals(True)
+        self._enum_cursor_check.blockSignals(True)
+        self._enum_yaxis_check.blockSignals(True)
+        self._enum_table_check.setChecked(bool(table))
+        self._enum_cursor_check.setChecked(bool(cursor))
+        self._enum_yaxis_check.setChecked(bool(yaxis))
+        self._enum_table_check.blockSignals(False)
+        self._enum_cursor_check.blockSignals(False)
+        self._enum_yaxis_check.blockSignals(False)
 
     def set_properties(self, mode: str | None, shape: str | None, width: int | None = None, style: str | None = None) -> None:
         """Populate the controls. Pass None for a field to show a blank (mismatched multi-select)."""
@@ -142,6 +190,9 @@ class SignalInfoBox(QWidget):
     marker_shape_requested = pyqtSignal(str)
     line_width_requested = pyqtSignal(int)
     line_style_requested = pyqtSignal(str)
+    enum_table_requested = pyqtSignal(bool)
+    enum_cursor_requested = pyqtSignal(bool)
+    enum_yaxis_requested = pyqtSignal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -186,6 +237,9 @@ class SignalInfoBox(QWidget):
         self._props_widget.marker_shape_requested.connect(self.marker_shape_requested)
         self._props_widget.line_width_requested.connect(self.line_width_requested)
         self._props_widget.line_style_requested.connect(self.line_style_requested)
+        self._props_widget.enum_table_requested.connect(self.enum_table_requested)
+        self._props_widget.enum_cursor_requested.connect(self.enum_cursor_requested)
+        self._props_widget.enum_yaxis_requested.connect(self.enum_yaxis_requested)
 
     # ------------------------------------------------------------------
     # Info tab API
@@ -208,6 +262,7 @@ class SignalInfoBox(QWidget):
         self._placeholder.setText("No signal selected.")
         _clear_form(self._form)
         self._stack.setCurrentIndex(0)
+        self._props_widget.set_enum_options(None, None, None)
         self._tabs.setTabEnabled(1, False)
 
     # ------------------------------------------------------------------
@@ -217,6 +272,15 @@ class SignalInfoBox(QWidget):
     def set_properties(self, mode: str | None, shape: str | None, width: int | None = None, style: str | None = None) -> None:
         """Populate the Properties tab. None values show blank (mismatched multi-select)."""
         self._props_widget.set_properties(mode, shape, width, style)
+
+    def set_enum_options(
+        self,
+        table: bool | None,
+        cursor: bool | None,
+        yaxis: bool | None,
+    ) -> None:
+        """Show/hide and populate the enum label checkboxes. Pass None to hide the section."""
+        self._props_widget.set_enum_options(table, cursor, yaxis)
 
     def enable_properties(self, enabled: bool) -> None:
         """Enable or disable the Properties tab."""

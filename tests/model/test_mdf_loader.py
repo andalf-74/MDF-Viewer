@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 
 from mdf_viewer.errors import MdfLoadError
-from mdf_viewer.model.mdf_loader import ChannelGroupInfo, MdfLoader, _compute_raster
+from mdf_viewer.model.mdf_loader import ChannelGroupInfo, MdfLoader, _compute_raster, _extract_enum_map
 from mdf_viewer.model.measurement import MeasurementInfo
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
@@ -418,3 +418,95 @@ def test_load_signal_non_numeric_even_with_raw_raises() -> None:
 
     with pytest.raises(MdfLoadError, match="cannot be converted"):
         ldr.load_signal(0, 0)
+
+
+# ---------------------------------------------------------------------------
+# _extract_enum_map
+# ---------------------------------------------------------------------------
+
+class _FakeConversion:
+    """Minimal stand-in for an asammdf ChannelConversion (type 7)."""
+    conversion_type = 7
+    referenced_blocks: dict
+    # val_N attributes set per-instance in tests
+
+
+def test_extract_enum_map_type7_returns_mapping() -> None:
+    conv = _FakeConversion()
+    conv.referenced_blocks = {"text_0": b"OFF", "text_1": b"ON"}
+    conv.val_0 = 0.0
+    conv.val_1 = 1.0
+    assert _extract_enum_map(conv) == {0: "OFF", 1: "ON"}
+
+
+def test_extract_enum_map_non_contiguous_values() -> None:
+    conv = _FakeConversion()
+    conv.referenced_blocks = {"text_0": b"Initialization", "text_1": b"RUN", "text_2": b"SNA"}
+    conv.val_0 = 0.0
+    conv.val_1 = 4.0
+    conv.val_2 = 7.0
+    result = _extract_enum_map(conv)
+    assert result == {0: "Initialization", 4: "RUN", 7: "SNA"}
+
+
+def test_extract_enum_map_none_returns_empty() -> None:
+    assert _extract_enum_map(None) == {}
+
+
+def test_extract_enum_map_wrong_type_returns_empty() -> None:
+    conv = _FakeConversion()
+    conv.conversion_type = 1  # linear, not value-to-text
+    assert _extract_enum_map(conv) == {}
+
+
+def test_extract_enum_map_no_conversion_type_returns_empty() -> None:
+    class _NoType:
+        referenced_blocks = {}
+    assert _extract_enum_map(_NoType()) == {}
+
+
+def test_extract_enum_map_decodes_bytes() -> None:
+    conv = _FakeConversion()
+    conv.referenced_blocks = {"text_0": b"KEY_IN_IGN"}
+    conv.val_0 = 2.0
+    result = _extract_enum_map(conv)
+    assert result[2] == "KEY_IN_IGN"
+    assert isinstance(result[2], str)
+
+
+# ---------------------------------------------------------------------------
+# load_signal — enum_map extraction
+# ---------------------------------------------------------------------------
+
+def _mock_signal_with_conv(samples, timestamps, conversion=None):
+    sig = _mock_signal(samples, timestamps)
+    sig.conversion = conversion
+    return sig
+
+
+def _fake_conv(val_text_pairs: list[tuple[float, bytes]]) -> _FakeConversion:
+    conv = _FakeConversion()
+    rb = {}
+    for i, (val, text) in enumerate(val_text_pairs):
+        setattr(conv, f"val_{i}", val)
+        rb[f"text_{i}"] = text
+    conv.referenced_blocks = rb
+    return conv
+
+
+def test_load_signal_enum_map_populated_from_raw_conversion() -> None:
+    t = np.array([0.0, 0.5, 1.0])
+    conv = _fake_conv([(0.0, b"OFF"), (1.0, b"ON")])
+    raw_sig = _mock_signal_with_conv(np.array([0, 1, 0], dtype=np.uint8), t, conv)
+    string_sig = _mock_signal(np.array([b"OFF", b"ON", b"OFF"]), t)
+    ldr = _loader_with_mock_mdf(string_sig, raw_sig)
+
+    _, meta = ldr.load_signal(0, 0)
+
+    assert meta.enum_map == {0: "OFF", 1: "ON"}
+
+
+def test_load_signal_enum_map_empty_for_numeric_signal(loader: MdfLoader) -> None:
+    gi, ci = _find_channel_location(loader, "sin")
+    _, meta = loader.load_signal(gi, ci)
+    assert meta.enum_map == {}

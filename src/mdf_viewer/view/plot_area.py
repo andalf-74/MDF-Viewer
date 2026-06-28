@@ -121,9 +121,16 @@ class _SignalAxisItem(pg.AxisItem):
     - tickStrings formats values as plain integers ("7" not "7.0").
     """
 
-    def __init__(self, *args, integer_ticks: bool = False, **kwargs) -> None:
+    def __init__(self, *args, integer_ticks: bool = False,
+                 enum_map: dict | None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._integer_ticks = integer_ticks
+        self._enum_map: dict[int, str] = enum_map or {}
+        self._enum_display: bool = False
+
+    def set_enum_display(self, enabled: bool) -> None:
+        self._enum_display = enabled
+        self.update()
 
     def tickValues(self, minVal, maxVal, size):
         ticks = super().tickValues(minVal, maxVal, size)
@@ -145,6 +152,12 @@ class _SignalAxisItem(pg.AxisItem):
 
     def tickStrings(self, values, scale, spacing):
         if self._integer_ticks:
+            if self._enum_map and self._enum_display:
+                result = []
+                for v in values:
+                    key = int(round(v * scale))
+                    result.append(self._enum_map.get(key, str(key)))
+                return result
             return [str(int(round(v * scale))) for v in values]
         return [f"{v * scale:.6g}" for v in values]
 
@@ -233,6 +246,7 @@ class PlotArea(QWidget):
             pen=pg.mkPen(color=color),
             textPen=pg.mkPen(color=color),
             integer_ticks=integer_ticks,
+            enum_map=active.metadata.enum_map or None,
         )
         self._pi.layout.addItem(axis, 2, col)
 
@@ -394,6 +408,12 @@ class PlotArea(QWidget):
         if active not in self._data:
             return
         self._data[active].axis.setGrid(160 if enabled else False)
+
+    def set_enum_display_yaxis(self, active: ActiveSignal, enabled: bool) -> None:
+        """Show enum labels (or raw integers) on this signal's Y-axis. No-op if not present."""
+        if active not in self._data:
+            return
+        self._data[active].axis.set_enum_display(enabled)
 
     def set_step_mode(self, active: ActiveSignal, enabled: bool) -> None:
         """Switch a signal curve between step and linear rendering. No-op if not present."""

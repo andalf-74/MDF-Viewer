@@ -159,6 +159,15 @@ class MainWindow(QMainWindow):
         self.signal_info_box.line_style_requested.connect(
             controller.on_line_style_requested
         )
+        self.signal_info_box.enum_table_requested.connect(
+            controller.on_enum_table_requested
+        )
+        self.signal_info_box.enum_cursor_requested.connect(
+            controller.on_enum_cursor_requested
+        )
+        self.signal_info_box.enum_yaxis_requested.connect(
+            controller.on_enum_yaxis_requested
+        )
         self.active_signals_table.color_change_requested.connect(
             controller.recolor_signals
         )

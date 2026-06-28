@@ -220,6 +220,7 @@ class MdfLoader:
                 ) from exc
 
         data = SignalData(timestamps=timestamps, samples=samples)
+        enum_map = _extract_enum_map(getattr(sig, "conversion", None))
 
         min_val: float | None = None
         max_val: float | None = None
@@ -242,6 +243,7 @@ class MdfLoader:
             data_type=str(raw_dtype),
             is_integer=bool(np.issubdtype(raw_dtype, np.integer)),
             raster_s=_compute_raster(timestamps),
+            enum_map=enum_map,
         )
 
         return data, meta
@@ -284,6 +286,29 @@ def _channel_group_name(group, gi: int) -> str:
         except Exception:
             pass
     return f"Group {gi}"
+
+
+def _extract_enum_map(conversion) -> dict[int, str]:
+    """Extract a value→label mapping from an asammdf ChannelConversion (type 7 only).
+
+    Type 7 is MDF4 "value to text": val_0 maps to text_0, val_1 to text_1, etc.
+    Returns an empty dict for any other conversion type or when conversion is None.
+    """
+    if conversion is None or getattr(conversion, "conversion_type", None) != 7:
+        return {}
+    result: dict[int, str] = {}
+    rb = getattr(conversion, "referenced_blocks", {})
+    i = 0
+    while True:
+        val = getattr(conversion, f"val_{i}", None)
+        if val is None:
+            break
+        text = rb.get(f"text_{i}")
+        if text is not None:
+            label = text.decode("utf-8", errors="replace") if isinstance(text, bytes) else str(text)
+            result[int(val)] = label
+        i += 1
+    return result
 
 
 def _compute_duration(mdf) -> float | None:

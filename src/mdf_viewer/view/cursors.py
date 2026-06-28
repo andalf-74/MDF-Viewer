@@ -249,7 +249,14 @@ class CursorView(QObject):
                     vb.addItem(lbl, ignoreBounds=True)
                     self._labels[key] = (lbl, vb)
                 lbl, _ = self._labels[key]
-                lbl.setText(f"{y:.4g}")
+                em = active.metadata.enum_map
+                if em and active.enum_display_cursor:
+                    iv = int(round(y))
+                    label = em.get(iv)
+                    text = f"{label} ({iv})" if label is not None else f"{y:.4g}"
+                else:
+                    text = f"{y:.4g}"
+                lbl.setText(text)
                 lbl.setPos(x, y)
 
         # Remove labels for keys no longer needed

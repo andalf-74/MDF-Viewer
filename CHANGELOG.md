@@ -5,6 +5,16 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Enum signal support (#40). Signals with an MDF4 value-to-text conversion
+  (conversion type 7) are now recognised as enum signals. Their integer raw
+  values are loaded and stored alongside a label map extracted from the
+  conversion block. Three independent per-signal display options are exposed
+  in the Signal Info Box → Properties tab (visible only for enum signals):
+  "Value table" shows `"LABEL (n)"` in the Active Signals Table cursor-value
+  columns (on by default); "Cursor label" applies the same format to the
+  floating plot label near the cursor (off by default); "Y-axis" replaces
+  raw integer tick values with their label text on the signal's Y-axis (off
+  by default). The delta column always shows a plain numeric difference.
 - Option to show only the selected signal's Y-axis (#69). When enabled in
   Preferences → Signals, all Y-axes except those belonging to the currently
   selected signal(s) are hidden and their layout columns removed, giving the

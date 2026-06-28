@@ -29,5 +29,8 @@ class SignalMetadata:
     is_integer: bool = False
     # Fixed measurement raster in seconds, or None when variable/unknown.
     raster_s: float | None = None
+    # Maps raw integer sample values to their display labels (non-empty only for
+    # MDF channels with a value-to-text conversion, i.e. asammdf conversion_type 7).
+    enum_map: dict[int, str] = field(default_factory=dict)
     # Any additional MDF metadata fields that don't map to the above.
     extra: dict[str, Any] = field(default_factory=dict)

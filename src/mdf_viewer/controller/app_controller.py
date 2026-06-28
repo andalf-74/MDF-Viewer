@@ -253,6 +253,32 @@ class AppController:
             active.step_mode = enabled
             self._plot.set_step_mode(active, enabled)
 
+    def on_enum_table_requested(self, enabled: bool) -> None:
+        """Toggle enum label display in the cursor-value table columns."""
+        for active in self._selected_signals:
+            if active not in self._active:
+                continue
+            active.enum_display_table = enabled
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.refresh()
+
+    def on_enum_cursor_requested(self, enabled: bool) -> None:
+        """Toggle enum label display on the floating cursor plot label."""
+        for active in self._selected_signals:
+            if active not in self._active:
+                continue
+            active.enum_display_cursor = enabled
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.refresh()
+
+    def on_enum_yaxis_requested(self, enabled: bool) -> None:
+        """Toggle enum label display on the Y-axis tick labels."""
+        for active in self._selected_signals:
+            if active not in self._active:
+                continue
+            active.enum_display_yaxis = enabled
+            self._plot.set_enum_display_yaxis(active, enabled)
+
     def on_multi_selection(self, multi: bool) -> None:
         """Called when the table switches between single and multi-row selection."""
         if multi:
@@ -274,6 +300,7 @@ class AppController:
         ordered = [a for a in self._active if a in set(actives)]
         self._plot.set_selected_signals(ordered, all_signals=self._active, top_first=self._top_first)
         self._signal_info.set_properties(mode, shape, width, style)
+        self._signal_info.set_enum_options(None, None, None)
         self._signal_info.enable_properties(True)
 
     def on_display_mode_requested(self, mode: str) -> None:
@@ -413,6 +440,14 @@ class AppController:
         else:
             self._signal_info.set_metadata(active_signal.metadata)
             self._signal_info.set_properties(active_signal.display_mode, active_signal.marker_shape, active_signal.line_width, active_signal.line_style)
+            if active_signal.metadata.enum_map:
+                self._signal_info.set_enum_options(
+                    active_signal.enum_display_table,
+                    active_signal.enum_display_cursor,
+                    active_signal.enum_display_yaxis,
+                )
+            else:
+                self._signal_info.set_enum_options(None, None, None)
             self._signal_info.enable_properties(True)
 
     # ------------------------------------------------------------------

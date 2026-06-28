@@ -12,6 +12,7 @@ from mdf_viewer.controller.cursor_controller import (
     CursorController,
     CursorMode,
     _fmt,
+    _fmt_value,
 )
 from mdf_viewer.model.interpolate import interpolate as _interpolate
 from mdf_viewer.model.signal_data import SignalData
@@ -319,6 +320,96 @@ def test_fmt_float() -> None:
 
 def test_fmt_zero() -> None:
     assert _fmt(0.0) == "0"
+
+
+# ---------------------------------------------------------------------------
+# _fmt_value helper
+# ---------------------------------------------------------------------------
+
+_ENUM = {0: "OFF", 1: "ACC", 2: "RUN"}
+
+
+def test_fmt_value_none_is_empty() -> None:
+    assert _fmt_value(None, _ENUM, True) == ""
+
+
+def test_fmt_value_enum_display_on_shows_label() -> None:
+    assert _fmt_value(2.0, _ENUM, True) == "RUN (2)"
+
+
+def test_fmt_value_enum_display_off_shows_raw() -> None:
+    assert _fmt_value(2.0, _ENUM, False) == "2"
+
+
+def test_fmt_value_empty_enum_map_shows_raw() -> None:
+    assert _fmt_value(2.0, {}, True) == "2"
+
+
+def test_fmt_value_unknown_key_falls_back_to_raw() -> None:
+    assert _fmt_value(99.0, _ENUM, True) == "99"
+
+
+def test_fmt_value_rounds_to_nearest_int_for_lookup() -> None:
+    assert _fmt_value(1.9, _ENUM, True) == "RUN (2)"
+
+
+def test_fmt_value_no_enum_formats_as_float() -> None:
+    assert _fmt_value(1.23456789, {}, True) == "1.23457"
+
+
+# ---------------------------------------------------------------------------
+# cursor refresh — enum signal cursor values
+# ---------------------------------------------------------------------------
+
+def _make_enum_active(enum_display_table: bool = True) -> ActiveSignal:
+    t = np.array([0.0, 1.0, 2.0, 3.0])
+    samples = np.array([0.0, 1.0, 2.0, 1.0])
+    data = SignalData(timestamps=t, samples=samples)
+    meta = SignalMetadata(
+        name="ign",
+        unit="",
+        group_index=0,
+        channel_index=0,
+        enum_map={0: "OFF", 1: "ACC", 2: "RUN"},
+    )
+    active = ActiveSignal(data=data, metadata=meta, color=QColor(255, 0, 0))
+    active.enum_display_table = enum_display_table
+    return active
+
+
+def test_cursor_value_shows_enum_label(view: MagicMock, table: MagicMock) -> None:
+    active = _make_enum_active(enum_display_table=True)
+    ctrl = _make_ctrl(view, table, signals=[active])
+    ctrl.toggle()
+
+    c1_text = table.update_cursor_values.call_args[0][1]
+    assert "OFF" in c1_text or "ACC" in c1_text or "RUN" in c1_text
+
+
+def test_cursor_value_raw_when_enum_display_off(view: MagicMock, table: MagicMock) -> None:
+    active = _make_enum_active(enum_display_table=False)
+    ctrl = _make_ctrl(view, table, signals=[active])
+    ctrl.toggle()
+
+    c1_text = table.update_cursor_values.call_args[0][1]
+    # Should be a plain number, not contain a label
+    assert "OFF" not in c1_text
+    assert "ACC" not in c1_text
+    assert "RUN" not in c1_text
+
+
+def test_delta_column_always_numeric_for_enum_signal(view: MagicMock, table: MagicMock) -> None:
+    active = _make_enum_active(enum_display_table=True)
+    ctrl = _make_ctrl(view, table, signals=[active], x_range=(0.0, 3.0))
+    ctrl.toggle()
+    ctrl.toggle()  # TWO mode
+
+    delta_text = table.update_cursor_values.call_args[0][3]
+    # delta must be a number (possibly empty), never a label
+    assert "OFF" not in delta_text
+    assert "RUN" not in delta_text
+    if delta_text:
+        float(delta_text)  # must parse as a number
 
 
 # ---------------------------------------------------------------------------
