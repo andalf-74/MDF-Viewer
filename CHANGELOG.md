@@ -2,7 +2,7 @@
 
 All notable changes to MDF-Viewer are documented in this file.
 
-## [Unreleased]
+## [2.1] - 2026-06-28
 
 ### Added
 - Save and load viewer configuration files (#37). The current view — active
