@@ -137,6 +137,15 @@ class ActiveSignalsTable(QWidget):
         """Update the set of signals that are in any shared or linked group."""
         self._grouped_signals = set(grouped)
 
+    def set_row_color(self, active: ActiveSignal, color: QColor) -> None:
+        """Update the color swatch for *active*. No-op if the signal is not in the table."""
+        row = self._find_row(active)
+        if row is None:
+            return
+        swatch = self._table.cellWidget(row, _COL_COLOR)
+        if isinstance(swatch, ColorSwatch):
+            swatch.set_color(color)
+
     def set_name_formatter(self, formatter: Callable[[str], str]) -> None:
         """Set a function that maps raw signal names to display names, then refresh all rows."""
         self._name_formatter = formatter

@@ -549,3 +549,38 @@ def test_show_only_selected_y_axis_defaults_on_missing_key(tmp_path: Path) -> No
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
     assert Settings(path=path).show_only_selected_y_axis is False
+
+
+# ---------------------------------------------------------------------------
+# keep_signals_on_load
+# ---------------------------------------------------------------------------
+
+def test_keep_signals_on_load_default_is_always(settings: Settings) -> None:
+    assert settings.keep_signals_on_load == "always"
+
+
+def test_keep_signals_on_load_can_be_set_to_ask(settings: Settings) -> None:
+    settings.keep_signals_on_load = "ask"
+    assert settings.keep_signals_on_load == "ask"
+
+
+def test_keep_signals_on_load_can_be_set_to_never(settings: Settings) -> None:
+    settings.keep_signals_on_load = "never"
+    assert settings.keep_signals_on_load == "never"
+
+
+def test_keep_signals_on_load_persists(settings: Settings) -> None:
+    settings.keep_signals_on_load = "ask"
+    reloaded = Settings(path=settings._path)
+    assert reloaded.keep_signals_on_load == "ask"
+
+
+def test_keep_signals_on_load_invalid_value_falls_back_to_default(settings: Settings) -> None:
+    settings.keep_signals_on_load = "bogus"
+    assert settings.keep_signals_on_load == "always"
+
+
+def test_keep_signals_on_load_defaults_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    assert Settings(path=path).keep_signals_on_load == "always"

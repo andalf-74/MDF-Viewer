@@ -5,6 +5,16 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Keep active signals when loading a new file (#36). When a new file is
+  opened (via File menu or drag-and-drop), previously active signals are
+  looked up by name in the new measurement and re-added with their full
+  display state preserved (color, line width/style, display mode, marker
+  shape, step mode, enum display options). Three behaviours are selectable
+  in Preferences → General: **Always keep** (default), **Ask each time**
+  (Yes/No prompt), or **Always discard**. If a signal name is found in
+  multiple channel groups the user is asked to pick which group to use.
+  Signals that cannot be matched are listed in a dialog with a
+  "Copy to Clipboard" button.
 - Shared and linked Y-axes (#16). Two or more active signals can be grouped
   from the Active Signals Table context menu (multi-select required):
   - **Share Y-axis** — all selected signals share one ViewBox and one Y-axis

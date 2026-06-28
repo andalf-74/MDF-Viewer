@@ -1165,3 +1165,169 @@ def test_set_multi_selected_passes_signals_in_active_order(
     call_args = deps["plot"].set_selected_signals.call_args[0][0]
     assert call_args == sigs  # controller sorts by _active order
 
+
+
+# ---------------------------------------------------------------------------
+# snapshot_active_signals
+# ---------------------------------------------------------------------------
+
+def test_snapshot_empty_when_no_signals(ctrl: AppController) -> None:
+    assert ctrl.snapshot_active_signals() == []
+
+
+def test_snapshot_captures_one_signal(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.return_value = (
+        _make_signal_data(),
+        _make_metadata("rpm", gi=0, ci=1),
+    )
+    ctrl.add_signal(0, 1)
+    snaps = ctrl.snapshot_active_signals()
+    assert len(snaps) == 1
+    snap = snaps[0]
+    assert snap.name == "rpm"
+    assert len(snap.color) == 3
+    assert snap.line_width == 1
+    assert snap.line_style == "solid"
+    assert snap.display_mode == "line"
+    assert snap.marker_shape == "circle"
+    assert snap.step_mode is False
+    assert snap.enum_display_table is True
+    assert snap.enum_display_cursor is False
+    assert snap.enum_display_yaxis is False
+
+
+def test_snapshot_captures_multiple_signals_in_order(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=1)),
+        (_make_signal_data(), _make_metadata("b", ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    snaps = ctrl.snapshot_active_signals()
+    assert [s.name for s in snaps] == ["a", "b"]
+
+
+def test_snapshot_color_is_rgb_tuple(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    snap = ctrl.snapshot_active_signals()[0]
+    r, g, b = snap.color
+    assert all(0 <= v <= 255 for v in (r, g, b))
+
+
+# ---------------------------------------------------------------------------
+# find_signal_by_name
+# ---------------------------------------------------------------------------
+
+def test_find_signal_by_name_delegates_to_loader(ctrl: AppController, deps: dict) -> None:
+    meta = _make_metadata("speed", gi=0, ci=3)
+    deps["loader"].find_signal_by_name.return_value = [meta]
+    result = ctrl.find_signal_by_name("speed")
+    deps["loader"].find_signal_by_name.assert_called_once_with("speed")
+    assert result == [meta]
+
+
+def test_find_signal_by_name_returns_empty_when_not_found(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].find_signal_by_name.return_value = []
+    assert ctrl.find_signal_by_name("no_such") == []
+
+
+# ---------------------------------------------------------------------------
+# restore_signals
+# ---------------------------------------------------------------------------
+
+def _make_snapshot(name: str = "rpm", **kwargs):
+    from mdf_viewer.controller.app_controller import ActiveSignalSnapshot
+    defaults = dict(
+        color=(200, 100, 50),
+        line_width=2,
+        line_style="dashes",
+        display_mode="line_marker",
+        marker_shape="square",
+        step_mode=True,
+        enum_display_table=False,
+        enum_display_cursor=True,
+        enum_display_yaxis=True,
+    )
+    defaults.update(kwargs)
+    return ActiveSignalSnapshot(name=name, **defaults)
+
+
+def test_restore_signals_adds_signal(ctrl: AppController, deps: dict) -> None:
+    meta = _make_metadata("rpm", gi=0, ci=5)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    snap = _make_snapshot("rpm")
+    ctrl.restore_signals([(snap, 0, 5)])
+    assert len(ctrl.active_signals) == 1
+    assert ctrl.active_signals[0].metadata.name == "rpm"
+
+
+def test_restore_signals_applies_color(ctrl: AppController, deps: dict) -> None:
+    meta = _make_metadata("sig", gi=0, ci=1)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    snap = _make_snapshot("sig", color=(10, 20, 30))
+    ctrl.restore_signals([(snap, 0, 1)])
+    active = ctrl.active_signals[0]
+    assert (active.color.red(), active.color.green(), active.color.blue()) == (10, 20, 30)
+
+
+def test_restore_signals_calls_recolor_on_plot(ctrl: AppController, deps: dict) -> None:
+    from PyQt6.QtGui import QColor
+    meta = _make_metadata("sig", gi=0, ci=1)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    snap = _make_snapshot("sig", color=(10, 20, 30))
+    ctrl.restore_signals([(snap, 0, 1)])
+    deps["plot"].recolor_signal.assert_called_once()
+    args = deps["plot"].recolor_signal.call_args[0]
+    assert isinstance(args[1], QColor)
+    assert args[1].red() == 10
+
+
+def test_restore_signals_updates_table_swatch(ctrl: AppController, deps: dict) -> None:
+    from PyQt6.QtGui import QColor
+    meta = _make_metadata("sig", gi=0, ci=1)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    snap = _make_snapshot("sig", color=(99, 88, 77))
+    ctrl.restore_signals([(snap, 0, 1)])
+    deps["table"].set_row_color.assert_called_once()
+    args = deps["table"].set_row_color.call_args[0]
+    assert isinstance(args[1], QColor)
+    assert args[1].red() == 99
+
+
+def test_restore_signals_applies_line_width(ctrl: AppController, deps: dict) -> None:
+    meta = _make_metadata("sig", gi=0, ci=1)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    snap = _make_snapshot("sig", line_width=3)
+    ctrl.restore_signals([(snap, 0, 1)])
+    deps["plot"].set_line_width.assert_called_once()
+    assert ctrl.active_signals[0].line_width == 3
+
+
+def test_restore_signals_applies_step_mode(ctrl: AppController, deps: dict) -> None:
+    meta = _make_metadata("sig", gi=0, ci=1)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    snap = _make_snapshot("sig", step_mode=True)
+    ctrl.restore_signals([(snap, 0, 1)])
+    deps["plot"].set_step_mode.assert_called_once()
+    assert ctrl.active_signals[0].step_mode is True
+
+
+def test_restore_signals_skips_duplicate(ctrl: AppController, deps: dict) -> None:
+    meta = _make_metadata("rpm", gi=0, ci=1)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    ctrl.add_signal(0, 1)  # already added
+    initial_count = len(ctrl.active_signals)
+    snap = _make_snapshot("rpm")
+    ctrl.restore_signals([(snap, 0, 1)])
+    # add_signal returns False for duplicate — no new signal added
+    assert len(ctrl.active_signals) == initial_count
+
+
+def test_restore_signals_multiple_signals(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", gi=0, ci=1)),
+        (_make_signal_data(), _make_metadata("b", gi=0, ci=2)),
+    ]
+    snaps = [_make_snapshot("a"), _make_snapshot("b")]
+    ctrl.restore_signals([(snaps[0], 0, 1), (snaps[1], 0, 2)])
+    assert [s.metadata.name for s in ctrl.active_signals] == ["a", "b"]

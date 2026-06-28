@@ -563,16 +563,76 @@ class MainWindow(QMainWindow):
         """
         if self._controller is None:
             return
+
+        snapshots = self._collect_snapshots_if_keeping()
+
         self.show_status(f"Loading {Path(path).name}…", timeout_ms=0)
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         QApplication.processEvents()
+        load_ok = True
         try:
             self._controller.load_file(path)
         except MdfLoadError as exc:
             QMessageBox.critical(self, "Load Error", str(exc))
+            load_ok = False
         finally:
             QApplication.restoreOverrideCursor()
             self.statusBar().clearMessage()
+
+        if load_ok and snapshots:
+            self._restore_snapshots(snapshots)
+
+    def _collect_snapshots_if_keeping(self) -> list:
+        """Return snapshots of active signals if the user wants to keep them, else []."""
+        if self._controller is None or self._settings is None:
+            return []
+        if not self._controller.active_signals:
+            return []
+        setting = self._settings.keep_signals_on_load
+        if setting == "never":
+            return []
+        if setting == "always":
+            return self._controller.snapshot_active_signals()
+        # "ask"
+        reply = QMessageBox.question(
+            self,
+            "Keep Active Signals?",
+            "Keep the currently active signals in the new measurement?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            return self._controller.snapshot_active_signals()
+        return []
+
+    def _restore_snapshots(self, snapshots: list) -> None:
+        """Resolve each snapshot against the new file and re-add matched signals."""
+        from mdf_viewer.view.signal_group_picker_dialog import SignalGroupPickerDialog
+        from mdf_viewer.view.signals_not_found_dialog import SignalsNotFoundDialog
+
+        resolved: list[tuple] = []
+        not_found: list[str] = []
+
+        for snap in snapshots:
+            candidates = self._controller.find_signal_by_name(snap.name)
+            if not candidates:
+                not_found.append(snap.name)
+            elif len(candidates) == 1:
+                meta = candidates[0]
+                resolved.append((snap, meta.group_index, meta.channel_index))
+            else:
+                dlg = SignalGroupPickerDialog(snap.name, candidates, self)
+                if dlg.exec():
+                    meta = dlg.selected()
+                    resolved.append((snap, meta.group_index, meta.channel_index))
+                else:
+                    not_found.append(snap.name)
+
+        if resolved:
+            self._controller.restore_signals(resolved)
+
+        if not_found:
+            dlg = SignalsNotFoundDialog(not_found, self)
+            dlg.exec()
 
     def _on_zoom_to_fit(self) -> None:
         if self._controller is not None:

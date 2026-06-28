@@ -12,10 +12,30 @@ display, without either layer importing the other.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from mdf_viewer.model.mdf_loader import MdfLoader
 from mdf_viewer.view_model.active_signal import ActiveSignal
+
+
+@dataclass
+class ActiveSignalSnapshot:
+    """A lightweight copy of all display-state fields of one active signal.
+
+    Used to preserve signal appearance across file loads when the
+    "keep signals" feature is active.  Immutable once created.
+    """
+    name: str
+    color: tuple[int, int, int]   # (r, g, b)
+    line_width: int
+    line_style: str
+    display_mode: str
+    marker_shape: str
+    step_mode: bool
+    enum_display_table: bool
+    enum_display_cursor: bool
+    enum_display_yaxis: bool
 
 if TYPE_CHECKING:
     from PyQt6.QtGui import QColor
@@ -479,6 +499,73 @@ class AppController:
             else:
                 self._signal_info.set_enum_options(None, None, None)
             self._signal_info.enable_properties(True)
+
+    def snapshot_active_signals(self) -> list[ActiveSignalSnapshot]:
+        """Capture the display state of all active signals, in table order."""
+        snapshots = []
+        for active in self._active:
+            c = active.color
+            snapshots.append(ActiveSignalSnapshot(
+                name=active.metadata.name,
+                color=(c.red(), c.green(), c.blue()),
+                line_width=active.line_width,
+                line_style=active.line_style,
+                display_mode=active.display_mode,
+                marker_shape=active.marker_shape,
+                step_mode=active.step_mode,
+                enum_display_table=active.enum_display_table,
+                enum_display_cursor=active.enum_display_cursor,
+                enum_display_yaxis=active.enum_display_yaxis,
+            ))
+        return snapshots
+
+    def find_signal_by_name(self, name: str) -> list:
+        """Return all SignalMetadata entries in the loaded file that match *name*."""
+        return self._loader.find_signal_by_name(name)
+
+    def restore_signals(
+        self, resolved: list[tuple[ActiveSignalSnapshot, int, int]]
+    ) -> None:
+        """Re-add signals from (snapshot, group_index, channel_index) tuples.
+
+        Each signal is added via the normal path (palette color), then all
+        display attributes from the snapshot are applied immediately.
+        """
+        from PyQt6.QtGui import QColor
+        for snap, gi, ci in resolved:
+            try:
+                added = self.add_signal(gi, ci)
+            except Exception:
+                continue
+            if not added:
+                continue
+            active = self._active[-1]
+            new_color = QColor(*snap.color)
+            # Set color on the active signal first, then propagate to the plot.
+            active.color = new_color
+            self._plot.recolor_signal(active, new_color)
+            self._table.set_row_color(active, new_color)
+            # Restore other display properties.
+            if snap.line_width != active.line_width:
+                self._plot.set_line_width(active, snap.line_width)
+                active.line_width = snap.line_width
+            if snap.line_style != active.line_style:
+                self._plot.set_line_style(active, snap.line_style)
+                active.line_style = snap.line_style
+            if snap.display_mode != active.display_mode or snap.marker_shape != active.marker_shape:
+                self._plot.set_display_mode(active, snap.display_mode, snap.marker_shape)
+                active.display_mode = snap.display_mode
+                active.marker_shape = snap.marker_shape
+            if snap.step_mode != active.step_mode:
+                self._plot.set_step_mode(active, snap.step_mode)
+                active.step_mode = snap.step_mode
+            active.enum_display_table = snap.enum_display_table
+            active.enum_display_cursor = snap.enum_display_cursor
+            if snap.enum_display_yaxis != active.enum_display_yaxis:
+                self._plot.set_enum_display_yaxis(active, snap.enum_display_yaxis)
+                active.enum_display_yaxis = snap.enum_display_yaxis
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.refresh()
 
     # ------------------------------------------------------------------
     # Read-only state accessors

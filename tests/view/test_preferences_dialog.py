@@ -199,3 +199,52 @@ def test_show_only_selected_y_axis_apply_false_saves_to_settings(
     dlg._show_only_selected_y_axis.setChecked(False)
     dlg._apply()
     assert settings.show_only_selected_y_axis is False
+
+
+# ---------------------------------------------------------------------------
+# keep_signals_on_load radio buttons
+# ---------------------------------------------------------------------------
+
+def test_keep_signals_default_radio_is_always(dlg: PreferencesDialog) -> None:
+    assert dlg._keep_always.isChecked() is True
+    assert dlg._keep_ask.isChecked() is False
+    assert dlg._keep_never.isChecked() is False
+
+
+def test_keep_signals_radio_reflects_ask_setting(
+    qtbot: QtBot, settings: Settings
+) -> None:
+    settings.keep_signals_on_load = "ask"
+    dlg = PreferencesDialog(settings)
+    qtbot.addWidget(dlg)
+    assert dlg._keep_ask.isChecked() is True
+
+
+def test_keep_signals_radio_reflects_never_setting(
+    qtbot: QtBot, settings: Settings
+) -> None:
+    settings.keep_signals_on_load = "never"
+    dlg = PreferencesDialog(settings)
+    qtbot.addWidget(dlg)
+    assert dlg._keep_never.isChecked() is True
+
+
+def test_keep_signals_apply_saves_ask(dlg: PreferencesDialog, settings: Settings) -> None:
+    dlg._keep_ask.setChecked(True)
+    dlg._apply()
+    assert settings.keep_signals_on_load == "ask"
+
+
+def test_keep_signals_apply_saves_never(dlg: PreferencesDialog, settings: Settings) -> None:
+    dlg._keep_never.setChecked(True)
+    dlg._apply()
+    assert settings.keep_signals_on_load == "never"
+
+
+def test_keep_signals_apply_saves_always(
+    dlg: PreferencesDialog, settings: Settings
+) -> None:
+    settings.keep_signals_on_load = "never"
+    dlg._keep_always.setChecked(True)
+    dlg._apply()
+    assert settings.keep_signals_on_load == "always"

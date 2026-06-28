@@ -45,6 +45,10 @@ DEFAULT_DISPLAY_NAME_SEPARATOR = "."
 DEFAULT_DISPLAY_NAME_DIRECTION = "right"   # "left" | "right"
 DEFAULT_DISPLAY_NAME_SEGMENTS = 1
 
+# Default behaviour when loading a new file while signals are active
+# "always" = keep without asking | "ask" = Yes/No prompt | "never" = always discard
+DEFAULT_KEEP_SIGNALS_ON_LOAD = "always"
+
 
 def _default_config_path() -> Path:
     if sys.platform == "win32":
@@ -81,6 +85,7 @@ class Settings:
         self._display_name_separator: str = DEFAULT_DISPLAY_NAME_SEPARATOR
         self._display_name_direction: str = DEFAULT_DISPLAY_NAME_DIRECTION
         self._display_name_segments: int = DEFAULT_DISPLAY_NAME_SEGMENTS
+        self._keep_signals_on_load: str = DEFAULT_KEEP_SIGNALS_ON_LOAD
         self._load()
 
     # ------------------------------------------------------------------
@@ -287,6 +292,17 @@ class Settings:
         self._display_name_segments = max(1, min(10, int(value)))
         self._save()
 
+    @property
+    def keep_signals_on_load(self) -> str:
+        return self._keep_signals_on_load
+
+    @keep_signals_on_load.setter
+    def keep_signals_on_load(self, value: str) -> None:
+        if value not in ("always", "ask", "never"):
+            value = DEFAULT_KEEP_SIGNALS_ON_LOAD
+        self._keep_signals_on_load = value
+        self._save()
+
     def get_and_prune(self) -> list[Path]:
         """Return only paths that exist on disk; save if any were removed."""
         existing = [p for p in self._recent if p.exists()]
@@ -324,6 +340,8 @@ class Settings:
             self._display_name_separator = str(data.get("display_name_separator", DEFAULT_DISPLAY_NAME_SEPARATOR))
             self._display_name_direction = str(data.get("display_name_direction", DEFAULT_DISPLAY_NAME_DIRECTION))
             self._display_name_segments = max(1, min(10, int(data.get("display_name_segments", DEFAULT_DISPLAY_NAME_SEGMENTS))))
+            raw_keep = str(data.get("keep_signals_on_load", DEFAULT_KEEP_SIGNALS_ON_LOAD))
+            self._keep_signals_on_load = raw_keep if raw_keep in ("always", "ask", "never") else DEFAULT_KEEP_SIGNALS_ON_LOAD
         except (FileNotFoundError, json.JSONDecodeError, TypeError, KeyError):
             self._recent = []
             self._check_for_updates = True
@@ -347,6 +365,7 @@ class Settings:
             self._display_name_separator = DEFAULT_DISPLAY_NAME_SEPARATOR
             self._display_name_direction = DEFAULT_DISPLAY_NAME_DIRECTION
             self._display_name_segments = DEFAULT_DISPLAY_NAME_SEGMENTS
+            self._keep_signals_on_load = DEFAULT_KEEP_SIGNALS_ON_LOAD
 
     @staticmethod
     def _load_color(
@@ -384,6 +403,7 @@ class Settings:
                     "display_name_separator": self._display_name_separator,
                     "display_name_direction": self._display_name_direction,
                     "display_name_segments": self._display_name_segments,
+                    "keep_signals_on_load": self._keep_signals_on_load,
                 },
                 indent=2,
             ),

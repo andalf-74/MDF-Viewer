@@ -173,6 +173,23 @@ class MdfLoader:
 
         return result
 
+    def find_signal_by_name(self, name: str) -> list[SignalMetadata]:
+        """Return all channels whose name exactly matches *name*, across all groups.
+
+        Returns an empty list when the file has no such channel or no file is open.
+        """
+        if not self.is_open:
+            return []
+        result: list[SignalMetadata] = []
+        try:
+            for group in self.channel_tree():
+                for ch in group.channels:
+                    if ch.name == name:
+                        result.append(ch)
+        except Exception:
+            pass
+        return result
+
     def load_signal(
         self, group_index: int, channel_index: int
     ) -> tuple[SignalData, SignalMetadata]:

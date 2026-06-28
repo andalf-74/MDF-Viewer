@@ -510,3 +510,37 @@ def test_load_signal_enum_map_empty_for_numeric_signal(loader: MdfLoader) -> Non
     gi, ci = _find_channel_location(loader, "sin")
     _, meta = loader.load_signal(gi, ci)
     assert meta.enum_map == {}
+
+
+# ---------------------------------------------------------------------------
+# find_signal_by_name
+# ---------------------------------------------------------------------------
+
+def test_find_signal_by_name_returns_empty_when_not_open() -> None:
+    loader = MdfLoader()
+    result = loader.find_signal_by_name("sin")
+    assert result == []
+
+
+def test_find_signal_by_name_finds_existing_channel(loader: MdfLoader) -> None:
+    result = loader.find_signal_by_name("sin")
+    assert len(result) >= 1
+    assert all(m.name == "sin" for m in result)
+
+
+def test_find_signal_by_name_returns_empty_for_unknown(loader: MdfLoader) -> None:
+    assert loader.find_signal_by_name("no_such_channel_xyz") == []
+
+
+def test_find_signal_by_name_result_has_group_and_channel_index(loader: MdfLoader) -> None:
+    result = loader.find_signal_by_name("sin")
+    assert result
+    for meta in result:
+        assert meta.group_index is not None
+        assert meta.channel_index is not None
+
+
+def test_find_signal_by_name_exact_match_only(loader: MdfLoader) -> None:
+    # "si" is a prefix of "sin" but should not be returned
+    result = loader.find_signal_by_name("si")
+    assert all(m.name == "si" for m in result)

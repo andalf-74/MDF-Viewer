@@ -29,6 +29,7 @@ from mdf_viewer.settings import (
     DEFAULT_CURSOR_STEP_SAMPLES,
     DEFAULT_CURSOR_STEP_TIME_MS,
     DEFAULT_DELTA_TIME_COLOR,
+    DEFAULT_KEEP_SIGNALS_ON_LOAD,
     DEFAULT_SELECTED_LINE_BOOST,
     DEFAULT_SHOW_ONLY_SELECTED_Y_AXIS,
     Settings,
@@ -81,6 +82,26 @@ class PreferencesDialog(QDialog):
         undo_row.addWidget(self._undo_steps)
         undo_row.addStretch()
         general_layout.addLayout(undo_row)
+
+        general_layout.addSpacing(8)
+        general_layout.addWidget(QLabel("When loading a new file while signals are active:"))
+        self._keep_signals_group = QButtonGroup(self)
+        self._keep_always = QRadioButton("Always keep active signals")
+        self._keep_ask = QRadioButton("Ask each time")
+        self._keep_never = QRadioButton("Always discard active signals")
+        self._keep_signals_group.addButton(self._keep_always, 0)
+        self._keep_signals_group.addButton(self._keep_ask, 1)
+        self._keep_signals_group.addButton(self._keep_never, 2)
+        setting = self._settings.keep_signals_on_load
+        if setting == "ask":
+            self._keep_ask.setChecked(True)
+        elif setting == "never":
+            self._keep_never.setChecked(True)
+        else:
+            self._keep_always.setChecked(True)
+        general_layout.addWidget(self._keep_always)
+        general_layout.addWidget(self._keep_ask)
+        general_layout.addWidget(self._keep_never)
 
         general_layout.addStretch()
         tabs.addTab(general, "General")
@@ -265,6 +286,8 @@ class PreferencesDialog(QDialog):
     def _apply(self) -> None:
         self._settings.check_for_updates = self._update_check.isChecked()
         self._settings.max_undo_steps = self._undo_steps.value()
+        bid = self._keep_signals_group.checkedId()
+        self._settings.keep_signals_on_load = ("always", "ask", "never")[bid] if bid >= 0 else DEFAULT_KEEP_SIGNALS_ON_LOAD
         self._settings.signal_z_order = _Z_ORDER_OPTIONS[self._z_order_combo.currentIndex()][0]
         self._settings.selected_line_boost = self._line_boost.value()
         self._settings.show_only_selected_y_axis = self._show_only_selected_y_axis.isChecked()
