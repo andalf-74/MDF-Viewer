@@ -62,7 +62,7 @@ Grouped by topic; most-recent entries at the bottom of each group.
 - **Qt binding:** PyQt6, licensed GPL-3.0-only by Riverbank (not LGPL — earlier misconception); PyQtGraph supports it.
 - **Project license (1.x):** GPL-3.0-only (`LICENSE`, `pyproject.toml`), required by PyQt6's GPL terms for the combined work. Replaces the earlier `Proprietary` placeholder.
 - **Build:** `pyproject.toml` (src-layout, entry point `mdf-viewer`) + `requirements.txt` / `requirements-dev.txt`.
-- **`__version__`:** defined in `src/mdf_viewer/__init__.py`. Kept in sync with `pyproject.toml` and the installer `.iss` manually — not derived via `importlib.metadata` because editable installs cache a stale version at install time.
+- **`__version__`:** defined in `src/mdf_viewer/__init__.py` — the single source of truth. `pyproject.toml` uses `dynamic = ["version"]` with `[tool.setuptools.dynamic] version = {attr = "mdf_viewer.__version__"}` so it reads from `__init__.py` at install/build time rather than hardcoding a second copy. The installer `.iss` still requires a manual bump at release time (Inno Setup cannot read Python). Python code imports `__version__` directly rather than via `importlib.metadata` (editable installs cache stale metadata until reinstalled).
 
 ### Data model
 
