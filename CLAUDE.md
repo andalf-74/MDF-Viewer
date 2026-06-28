@@ -132,6 +132,15 @@ A feature should be a plugin if it is optional, self-contained, and adds capabil
 
 `master` was renamed to `main` as part of adopting this policy.
 
+### Version Bump Checklist
+
+`pyproject.toml` reads its version dynamically from `__init__.py`, so only **two** files need updating at release time:
+
+1. `src/mdf_viewer/__init__.py` — `__version__ = "X.Y"`
+2. `installer/mdf_viewer.iss` — `#define AppVersion "X.Y"` (line 8)
+
+See `docs/release.md` for the full build and publish steps.
+
 ---
 
 ## Current Status

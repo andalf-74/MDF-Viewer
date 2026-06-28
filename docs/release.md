@@ -9,7 +9,18 @@
 
 `dist/` is in `.gitignore`; build artifacts are never committed.
 
-## Steps
+## Version bump (before building)
+
+Two files must be updated — `pyproject.toml` derives its version dynamically, so only these two need touching:
+
+| File | What to change |
+|------|---------------|
+| `src/mdf_viewer/__init__.py` | `__version__ = "X.Y"` |
+| `installer/mdf_viewer.iss` | `#define AppVersion "X.Y"` (line 8) |
+
+Commit, tag (`git tag vX.Y`), and push before building so the tag lands on the correct commit.
+
+## Build steps
 
 1. `pyinstaller installer/mdf_viewer.spec --distpath dist --workpath dist/_build -y` → produces `dist/MDF-Viewer/`
 2. `"C:/Program Files (x86)/Inno Setup 6/ISCC.exe" installer/mdf_viewer.iss` → produces `installer/dist/MDF-Viewer-X.Y-Setup.exe`
