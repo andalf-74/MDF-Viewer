@@ -49,8 +49,10 @@ $RECYCLE.BIN/
 *.mf4
 *.mdf
 *.dat
+*.mvc
 !tests/fixtures/*.mf4
 !tests/fixtures/*.mdf
+!tests/fixtures/*.mvc
 
 # License generator and private keys — must never be committed.
 generate_license.py
