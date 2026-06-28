@@ -576,6 +576,7 @@ def test_should_prompt_when_active_signals_and_setting_on(
     window._controller = mock_controller
     mock_controller.active_signals = [MagicMock()]
     assert window._should_prompt_save_on_close()
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
 
 
 def test_close_event_accept_when_not_prompted(
@@ -609,6 +610,7 @@ def test_close_event_cancel_ignores_event(
         window.closeEvent(event)
 
     assert not event.isAccepted()
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
 
 
 # ---------------------------------------------------------------------------
@@ -622,6 +624,7 @@ def test_on_load_file_routes_mvc_to_load_config(
     mvc.touch()
     window._controller = mock_controller
     window._settings = MagicMock()
+    window._settings.prompt_save_config_on_close = False
 
     with patch("PyQt6.QtWidgets.QFileDialog.getOpenFileName", return_value=(str(mvc), "")):
         with patch.object(window, "_load_config") as mock_load_config:
@@ -649,6 +652,7 @@ def test_on_open_recent_routes_mvc(
     mvc.touch()
     window._controller = mock_controller
     window._settings = MagicMock()
+    window._settings.prompt_save_config_on_close = False
 
     with patch.object(window, "_load_config") as mock_lc:
         window._on_open_recent(mvc)
@@ -678,6 +682,7 @@ def test_open_config_delegates_to_load_config(
     mvc.touch()
     window._controller = mock_controller
     window._settings = MagicMock()
+    window._settings.prompt_save_config_on_close = False
 
     with patch.object(window, "_load_config") as mock_lc:
         window.open_config(mvc)
@@ -691,6 +696,7 @@ def test_open_config_mvc_not_routed_to_load_file(
     mvc.touch()
     window._controller = mock_controller
     window._settings = MagicMock()
+    window._settings.prompt_save_config_on_close = False
 
     with patch.object(window, "_load_config"):
         with patch.object(window, "_load_file") as mock_lf:
