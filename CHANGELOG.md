@@ -101,6 +101,10 @@ All notable changes to MDF-Viewer are documented in this file.
 ### Fixed
 - Cursors are now placed at 25 % and 75 % of the current viewport on first
   activation, instead of at the leftmost edge of the full time range (#59).
+- `__version__` in `src/mdf_viewer/__init__.py` was not bumped alongside
+  `pyproject.toml`, so the update checker, splash screen, and About dialog
+  all reported `2.0.1` instead of `2.1`. Corrected; release artifacts
+  rebuilt.
 
 ## [2.0.1] - 2026-06-22
 
