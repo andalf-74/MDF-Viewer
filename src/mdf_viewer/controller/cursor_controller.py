@@ -258,6 +258,27 @@ class CursorController:
         """
         self._refresh(update_labels=True)
 
+    def snapshot(self) -> dict:
+        """Return a serializable snapshot of the current cursor state."""
+        return {
+            "mode": self._mode.name,
+            "positions": list(self._positions),
+        }
+
+    def restore(self, snapshot: dict) -> None:
+        """Restore cursor state from a snapshot produced by snapshot()."""
+        mode_name = snapshot.get("mode", "HIDDEN")
+        try:
+            self._mode = CursorMode[mode_name]
+        except KeyError:
+            self._mode = CursorMode.HIDDEN
+        positions = snapshot.get("positions", [0.0, 0.0])
+        if len(positions) >= 2:
+            self._positions = [float(positions[0]), float(positions[1])]
+        if self._mode != CursorMode.HIDDEN:
+            self._initialized = True
+        self._commit_mode()
+
     # ------------------------------------------------------------------
     # Slots (private)
     # ------------------------------------------------------------------

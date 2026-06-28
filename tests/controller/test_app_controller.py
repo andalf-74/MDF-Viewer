@@ -1331,3 +1331,156 @@ def test_restore_signals_multiple_signals(ctrl: AppController, deps: dict) -> No
     snaps = [_make_snapshot("a"), _make_snapshot("b")]
     ctrl.restore_signals([(snaps[0], 0, 1), (snaps[1], 0, 2)])
     assert [s.metadata.name for s in ctrl.active_signals] == ["a", "b"]
+
+
+# ---------------------------------------------------------------------------
+# snapshot includes group_name
+# ---------------------------------------------------------------------------
+
+def test_snapshot_includes_group_name(ctrl: AppController, deps: dict) -> None:
+    meta = SignalMetadata(name="rpm", unit="rpm", group_index=0, channel_index=1, group_name="Engine")
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    ctrl.add_signal(0, 1)
+    snap = ctrl.snapshot_active_signals()[0]
+    assert snap.group_name == "Engine"
+
+
+def test_snapshot_group_name_empty_when_not_set(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    snap = ctrl.snapshot_active_signals()[0]
+    assert snap.group_name == ""
+
+
+# ---------------------------------------------------------------------------
+# current_config_path
+# ---------------------------------------------------------------------------
+
+def test_current_config_path_initially_none(ctrl: AppController) -> None:
+    assert ctrl.current_config_path is None
+
+
+def test_current_config_path_can_be_set(ctrl: AppController, tmp_path) -> None:
+    p = tmp_path / "session.mvc"
+    ctrl.current_config_path = p
+    assert ctrl.current_config_path == p
+
+
+def test_load_file_clears_config_path(ctrl: AppController, deps: dict, tmp_path) -> None:
+    ctrl.current_config_path = tmp_path / "session.mvc"
+    ctrl.load_file(tmp_path / "test.mf4")
+    assert ctrl.current_config_path is None
+
+
+# ---------------------------------------------------------------------------
+# capture_config
+# ---------------------------------------------------------------------------
+
+def _make_zoom_state():
+    from mdf_viewer.view_model.zoom_state import ZoomState
+    return ZoomState(x_range=(0.0, 5.0), y_ranges={})
+
+
+def test_capture_config_returns_viewer_config(ctrl: AppController, deps: dict, tmp_path) -> None:
+    from mdf_viewer.model.viewer_config import ViewerConfig
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    deps["loader"].is_open = True
+    deps["loader"]._path = tmp_path / "test.mf4"
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+    assert isinstance(config, ViewerConfig)
+
+
+def test_capture_config_x_range(ctrl: AppController, deps: dict, tmp_path) -> None:
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    deps["loader"].is_open = True
+    deps["loader"]._path = tmp_path / "test.mf4"
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+    assert config.x_range == (0.0, 5.0)
+
+
+def test_capture_config_measurement_path(ctrl: AppController, deps: dict, tmp_path) -> None:
+    meas = tmp_path / "meas.mf4"
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    deps["loader"].is_open = True
+    deps["loader"]._path = meas
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+    assert config.measurement_path == str(meas)
+
+
+def test_capture_config_no_file_open(ctrl: AppController, deps: dict, tmp_path) -> None:
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    deps["loader"].is_open = False
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+    assert config.measurement_path == ""
+
+
+def test_capture_config_cursor_snapshot_used(ctrl: AppController, deps: dict, tmp_path) -> None:
+    from unittest.mock import MagicMock
+    cursor = MagicMock()
+    cursor.snapshot.return_value = {"mode": "TWO", "positions": [1.0, 4.0]}
+    ctrl.set_cursor_controller(cursor)
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    deps["loader"].is_open = False
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+    assert config.cursor_mode == "TWO"
+    assert config.cursor_positions == (1.0, 4.0)
+
+
+# ---------------------------------------------------------------------------
+# restore_config
+# ---------------------------------------------------------------------------
+
+def _make_viewer_config(**kwargs):
+    from mdf_viewer.config_manager import CONFIG_FORMAT_VERSION
+    from mdf_viewer.model.viewer_config import ViewerConfig
+    defaults = dict(
+        format_version=CONFIG_FORMAT_VERSION,
+        measurement_path="/x.mf4",
+        signals=(),
+        x_range=(0.0, 10.0),
+        y_ranges={},
+        shared_groups=(),
+        linked_groups=(),
+        cursor_mode="HIDDEN",
+        cursor_positions=(0.0, 0.0),
+        selected_signal=None,
+    )
+    defaults.update(kwargs)
+    return ViewerConfig(**defaults)
+
+
+def test_restore_config_calls_restore_axis_grouping(ctrl: AppController, deps: dict) -> None:
+    config = _make_viewer_config(
+        shared_groups=(("a", "b"),),
+    )
+    ctrl.restore_config(config, [])
+    deps["plot"].restore_axis_grouping.assert_called_once()
+
+
+def test_restore_config_calls_set_zoom_state(ctrl: AppController, deps: dict) -> None:
+    config = _make_viewer_config()
+    ctrl.restore_config(config, [])
+    deps["plot"].set_zoom_state.assert_called_once()
+
+
+def test_restore_config_calls_cursor_restore(ctrl: AppController, deps: dict) -> None:
+    from unittest.mock import MagicMock
+    cursor = MagicMock()
+    ctrl.set_cursor_controller(cursor)
+    config = _make_viewer_config(cursor_mode="ONE", cursor_positions=(2.5, 0.0))
+    ctrl.restore_config(config, [])
+    cursor.restore.assert_called_once_with({"mode": "ONE", "positions": [2.5, 0.0]})
+
+
+def test_restore_config_sets_selection(ctrl: AppController, deps: dict) -> None:
+    meta = _make_metadata("RPM", gi=0, ci=1)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    snap = _make_snapshot("RPM")
+    config = _make_viewer_config(selected_signal="RPM")
+    ctrl.restore_config(config, [(snap, 0, 1)])
+    assert ctrl.selected_signal is not None
+    assert ctrl.selected_signal.metadata.name == "RPM"

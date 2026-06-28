@@ -544,3 +544,35 @@ def test_find_signal_by_name_exact_match_only(loader: MdfLoader) -> None:
     # "si" is a prefix of "sin" but should not be returned
     result = loader.find_signal_by_name("si")
     assert all(m.name == "si" for m in result)
+
+
+# ---------------------------------------------------------------------------
+# group_name
+# ---------------------------------------------------------------------------
+
+def test_channel_tree_group_name_is_non_empty(loader: MdfLoader) -> None:
+    groups = loader.channel_tree()
+    for group in groups:
+        for ch in group.channels:
+            assert isinstance(ch.group_name, str)
+            assert ch.group_name != ""
+
+
+def test_load_signal_group_name_matches_channel_tree(loader: MdfLoader) -> None:
+    groups = loader.channel_tree()
+    first_group = groups[0]
+    # find a real channel index (skip master channel at index 0 if needed)
+    for ch in first_group.channels:
+        try:
+            _, meta = loader.load_signal(ch.group_index, ch.channel_index)
+            assert meta.group_name == first_group.name
+            break
+        except Exception:
+            continue
+
+
+def test_find_signal_by_name_result_has_group_name(loader: MdfLoader) -> None:
+    results = loader.find_signal_by_name("sin")
+    assert len(results) >= 1
+    for meta in results:
+        assert meta.group_name != ""

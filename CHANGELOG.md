@@ -5,6 +5,22 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Save and load viewer configuration files (#37). The current view — active
+  signals with all display state, axis grouping (shared/linked), zoom, cursor
+  state, and the path to the measurement file — can be saved as a `.mvc` file
+  (MDF Viewer Config, JSON format) and restored later.
+  - **File → Save Config** (Ctrl+S) and **File → Save Config As…** write the
+    current session to a `.mvc` file.
+  - The **Open** dialog now accepts both MDF files and `.mvc` files; `.mvc`
+    files also appear in the recent files list.
+  - On load: if the measurement file is not found at its stored path a file
+    dialog prompts the user to locate it; signals missing from the file are
+    listed in a warning dialog.
+  - On exit: if active signals are loaded the app prompts **Save / Don't Save /
+    Cancel** (option in Preferences → General, default on).
+  - Measurement path is stored as absolute or relative (Preferences → General).
+  - Signal matching uses name **and** channel group name to disambiguate
+    signals that share a name across multiple channel groups.
 - Keep active signals when loading a new file (#36). When a new file is
   opened (via File menu or drag-and-drop), previously active signals are
   looked up by name in the new measurement and re-added with their full

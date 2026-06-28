@@ -519,3 +519,149 @@ def test_plot_signal_clicked_none_clears_table_selection(
     wired.plot_area.signal_clicked.emit(None)
 
     assert received == [None]
+
+
+# ---------------------------------------------------------------------------
+# Config menu actions
+# ---------------------------------------------------------------------------
+
+def test_save_config_action_exists(window: MainWindow) -> None:
+    assert window._save_config_action is not None
+
+
+def test_save_config_as_action_exists(window: MainWindow) -> None:
+    assert window._save_config_as_action is not None
+
+
+def test_save_config_action_shortcut_is_ctrl_s(window: MainWindow) -> None:
+    from PyQt6.QtGui import QKeySequence
+    assert window._save_config_action.shortcut() == QKeySequence("Ctrl+S")
+
+
+# ---------------------------------------------------------------------------
+# closeEvent — prompt logic
+# ---------------------------------------------------------------------------
+
+def test_should_not_prompt_when_no_active_signals(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    from mdf_viewer.settings import Settings
+    settings = MagicMock(spec=Settings)
+    settings.prompt_save_config_on_close = True
+    window._settings = settings
+    window._controller = mock_controller
+    mock_controller.active_signals = []
+    assert not window._should_prompt_save_on_close()
+
+
+def test_should_not_prompt_when_setting_is_off(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    from mdf_viewer.settings import Settings
+    settings = MagicMock(spec=Settings)
+    settings.prompt_save_config_on_close = False
+    window._settings = settings
+    window._controller = mock_controller
+    mock_controller.active_signals = [MagicMock()]
+    assert not window._should_prompt_save_on_close()
+
+
+def test_should_prompt_when_active_signals_and_setting_on(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    from mdf_viewer.settings import Settings
+    settings = MagicMock(spec=Settings)
+    settings.prompt_save_config_on_close = True
+    window._settings = settings
+    window._controller = mock_controller
+    mock_controller.active_signals = [MagicMock()]
+    assert window._should_prompt_save_on_close()
+
+
+def test_close_event_accept_when_not_prompted(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    from PyQt6.QtGui import QCloseEvent
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # no prompt
+    event = QCloseEvent()
+    window.closeEvent(event)
+    assert event.isAccepted()
+
+
+def test_close_event_cancel_ignores_event(
+    window: MainWindow, mock_controller: MagicMock, qtbot: QtBot
+) -> None:
+    from PyQt6.QtGui import QCloseEvent
+    from mdf_viewer.settings import Settings
+    settings = MagicMock(spec=Settings)
+    settings.prompt_save_config_on_close = True
+    window._settings = settings
+    window._controller = mock_controller
+    mock_controller.active_signals = [MagicMock()]
+    mock_controller.current_config_path = None
+
+    event = QCloseEvent()
+    with patch.object(
+        QMessageBox, "question",
+        return_value=QMessageBox.StandardButton.Cancel
+    ):
+        window.closeEvent(event)
+
+    assert not event.isAccepted()
+
+
+# ---------------------------------------------------------------------------
+# Open dialog routing
+# ---------------------------------------------------------------------------
+
+def test_on_load_file_routes_mvc_to_load_config(
+    window: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mvc = tmp_path / "session.mvc"
+    mvc.touch()
+    window._controller = mock_controller
+    window._settings = MagicMock()
+
+    with patch("PyQt6.QtWidgets.QFileDialog.getOpenFileName", return_value=(str(mvc), "")):
+        with patch.object(window, "_load_config") as mock_load_config:
+            window._on_load_file()
+            mock_load_config.assert_called_once_with(mvc)
+
+
+def test_on_load_file_routes_mdf_to_load_file(
+    window: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mdf = tmp_path / "data.mf4"
+    mdf.touch()
+    window._controller = mock_controller
+
+    with patch("PyQt6.QtWidgets.QFileDialog.getOpenFileName", return_value=(str(mdf), "")):
+        with patch.object(window, "_load_file") as mock_load_file:
+            window._on_load_file()
+            mock_load_file.assert_called_once_with(str(mdf))
+
+
+def test_on_open_recent_routes_mvc(
+    window: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mvc = tmp_path / "session.mvc"
+    mvc.touch()
+    window._controller = mock_controller
+    window._settings = MagicMock()
+
+    with patch.object(window, "_load_config") as mock_lc:
+        window._on_open_recent(mvc)
+        mock_lc.assert_called_once_with(mvc)
+
+
+def test_on_open_recent_routes_mdf(
+    window: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mdf = tmp_path / "data.mf4"
+    mdf.touch()
+    window._controller = mock_controller
+
+    with patch.object(window, "_load_file") as mock_lf:
+        window._on_open_recent(mdf)
+        mock_lf.assert_called_once_with(mdf)

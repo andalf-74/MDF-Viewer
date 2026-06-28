@@ -126,9 +126,9 @@ When the user says **"grill me"** about a feature or topic, Claude should enter 
 
 ## Current Status
 
-**As of 2026-06-28:** v2.0.1 released — 863 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45, #44) merged to main; #30 (line width), #38 (line style), #24 (selected signal highlight), #69 (show only selected signal Y-axis), #40 (enum signal display), #16 (shared/linked Y-axes), #36 (keep signals on new file load) implemented; next release will be v2.1.1.
+**As of 2026-06-28:** v2.0.1 released — 922 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45, #44) merged to main; #30 (line width), #38 (line style), #24 (selected signal highlight), #69 (show only selected signal Y-axis), #40 (enum signal display), #16 (shared/linked Y-axes), #36 (keep signals on new file load), #37 (save/load configuration) implemented; next release will be v2.1.1.
 
-Version stays at 2.0.1 until a release build can be produced (requires Windows). Next milestone is v2.1.1 — keep adding features to main.
+Version stays at 2.0.1 until a release build can be produced (requires Windows). Next milestone is v2.2 Config/MultiFile — #37 now done, #17 (multi-file) remains.
 
 ### Changelog
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from mdf_viewer.model.mdf_loader import MdfLoader
@@ -36,6 +37,7 @@ class ActiveSignalSnapshot:
     enum_display_table: bool
     enum_display_cursor: bool
     enum_display_yaxis: bool
+    group_name: str = ""
 
 if TYPE_CHECKING:
     from PyQt6.QtGui import QColor
@@ -89,6 +91,7 @@ class AppController:
         self._cursor_ctrl = None  # set by set_cursor_controller()
         self._zoom_ctrl = None    # set by set_zoom_controller()
         self._y_grid_enabled: bool = False
+        self._current_config_path: Path | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -208,6 +211,7 @@ class AppController:
             self._zoom_ctrl.clear()
         if self._settings is not None:
             self._settings.add_recent(path)
+        self._current_config_path = None
 
     def add_signal(self, group_index: int, channel_index: int) -> bool:
         """Load a channel and add it to the plot and the Active Signals Table.
@@ -516,6 +520,7 @@ class AppController:
                 enum_display_table=active.enum_display_table,
                 enum_display_cursor=active.enum_display_cursor,
                 enum_display_yaxis=active.enum_display_yaxis,
+                group_name=active.metadata.group_name,
             ))
         return snapshots
 
@@ -567,6 +572,118 @@ class AppController:
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.refresh()
 
+    def capture_config(self, config_path: Path) -> "ViewerConfig":
+        """Capture the current viewer state as a ViewerConfig.
+
+        *config_path* is the intended save location — needed to compute
+        relative measurement paths later in ConfigManager.save().
+        """
+        from mdf_viewer.model.viewer_config import SignalConfig, ViewerConfig
+
+        snapshots = self.snapshot_active_signals()
+        signal_configs = tuple(
+            SignalConfig(
+                name=s.name,
+                group_name=s.group_name,
+                color=s.color,
+                line_width=s.line_width,
+                line_style=s.line_style,
+                display_mode=s.display_mode,
+                marker_shape=s.marker_shape,
+                step_mode=s.step_mode,
+                enum_display_table=s.enum_display_table,
+                enum_display_cursor=s.enum_display_cursor,
+                enum_display_yaxis=s.enum_display_yaxis,
+            )
+            for s in snapshots
+        )
+
+        zoom = self._plot.get_zoom_state(self._active)
+        x_range = tuple(zoom.x_range)  # type: ignore[arg-type]
+        y_ranges: dict[str, tuple[float, float]] = {}
+        for active, yr in zoom.y_ranges.items():
+            y_ranges[active.metadata.name] = tuple(yr)  # type: ignore[assignment]
+
+        shared_raw, linked_raw = self._plot.get_axis_grouping()
+        shared_groups = tuple(tuple(g) for g in shared_raw)
+        linked_groups = tuple(tuple(g) for g in linked_raw)
+
+        cursor_snap: dict = {}
+        if self._cursor_ctrl is not None:
+            cursor_snap = self._cursor_ctrl.snapshot()
+        cursor_mode = cursor_snap.get("mode", "HIDDEN")
+        cursor_pos_raw = cursor_snap.get("positions", [0.0, 0.0])
+        cursor_positions: tuple[float, float] = (
+            float(cursor_pos_raw[0]),
+            float(cursor_pos_raw[1]),
+        )
+
+        selected_name = (
+            self._selected.metadata.name if self._selected is not None else None
+        )
+
+        meas_path = ""
+        if self._loader.is_open and self._loader._path is not None:
+            meas_path = str(self._loader._path)
+
+        from mdf_viewer.config_manager import CONFIG_FORMAT_VERSION
+        return ViewerConfig(
+            format_version=CONFIG_FORMAT_VERSION,
+            measurement_path=meas_path,
+            signals=signal_configs,
+            x_range=x_range,  # type: ignore[arg-type]
+            y_ranges=y_ranges,
+            shared_groups=shared_groups,
+            linked_groups=linked_groups,
+            cursor_mode=cursor_mode,
+            cursor_positions=cursor_positions,
+            selected_signal=selected_name,
+        )
+
+    def restore_config(
+        self,
+        config: "ViewerConfig",
+        resolved_signals: "list[tuple[ActiveSignalSnapshot, int, int]]",
+    ) -> None:
+        """Restore a saved viewer session after the measurement file is loaded.
+
+        *resolved_signals* is a list of (snapshot, group_index, channel_index)
+        tuples — the caller is responsible for resolving name → indices.
+        """
+        from PyQt6.QtGui import QColor
+        from mdf_viewer.view_model.zoom_state import ZoomState
+
+        self.restore_signals(resolved_signals)
+
+        # Restore axis grouping — must happen after signals are added
+        shared = [list(g) for g in config.shared_groups]
+        linked = [list(g) for g in config.linked_groups]
+        self._plot.restore_axis_grouping(shared, linked, self._active)
+        self._refresh_table_group_state()
+
+        # Restore zoom — must happen after grouping (ViewBoxes may have changed)
+        y_ranges: dict = {}
+        for active in self._active:
+            name = active.metadata.name
+            if name in config.y_ranges:
+                y_ranges[active] = config.y_ranges[name]
+        zoom_state = ZoomState(x_range=config.x_range, y_ranges=y_ranges)
+        self._plot.set_zoom_state(zoom_state, self._active)
+
+        # Restore cursor state
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.restore({
+                "mode": config.cursor_mode,
+                "positions": list(config.cursor_positions),
+            })
+
+        # Restore selection
+        if config.selected_signal is not None:
+            for active in self._active:
+                if active.metadata.name == config.selected_signal:
+                    self.set_selected_signal(active)
+                    break
+
     # ------------------------------------------------------------------
     # Read-only state accessors
     # ------------------------------------------------------------------
@@ -582,3 +699,11 @@ class AppController:
     @property
     def selected_signal(self) -> ActiveSignal | None:
         return self._selected
+
+    @property
+    def current_config_path(self) -> Path | None:
+        return self._current_config_path
+
+    @current_config_path.setter
+    def current_config_path(self, value: Path | None) -> None:
+        self._current_config_path = value

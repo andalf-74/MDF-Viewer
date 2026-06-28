@@ -99,6 +99,7 @@ def _make_splitter(orientation: Qt.Orientation) -> QSplitter:
     return s
 
 _MDF_FILE_FILTER = "MDF Files (*.mf4 *.mdf *.dat);;All Files (*)"
+_ALL_FILE_FILTER = "All Supported Files (*.mf4 *.mdf *.dat *.mvc);;MDF Files (*.mf4 *.mdf *.dat);;MDF Viewer Config (*.mvc);;All Files (*)"
 _GITHUB_URL = "https://github.com/andalf-74/MDF-Viewer"
 
 
@@ -293,6 +294,13 @@ class MainWindow(QMainWindow):
         self._redo_action.setShortcut(QKeySequence("Ctrl+Shift+Z"))
         self._redo_action.triggered.connect(self._on_redo)
 
+        self._save_config_action = QAction("Save Config", self)
+        self._save_config_action.setShortcut(QKeySequence("Ctrl+S"))
+        self._save_config_action.triggered.connect(self._on_save_config)
+
+        self._save_config_as_action = QAction("Save Config As…", self)
+        self._save_config_as_action.triggered.connect(self._on_save_config_as)
+
         self._preferences_action = QAction("Preferences…", self)
         self._preferences_action.triggered.connect(self._on_preferences)
 
@@ -308,6 +316,8 @@ class MainWindow(QMainWindow):
     def _build_menu(self) -> None:
         self._file_menu = self.menuBar().addMenu("&File")
         self._file_menu.addAction(self._load_action)
+        self._file_menu.addAction(self._save_config_action)
+        self._file_menu.addAction(self._save_config_as_action)
         self._file_menu.addSeparator()
         self._exit_action = QAction("Exit", self)
         self._exit_action.setShortcut(QKeySequence("Ctrl+Q"))
@@ -533,6 +543,9 @@ class MainWindow(QMainWindow):
     def _on_file_dropped(self, path) -> None:
         if self._controller is None:
             return
+        if Path(path).suffix.lower() == ".mvc":
+            self._load_config(Path(path))
+            return
         if self._controller.is_file_loaded:
             reply = QMessageBox.question(
                 self,
@@ -548,11 +561,14 @@ class MainWindow(QMainWindow):
         if self._controller is None:
             return
         path, _ = QFileDialog.getOpenFileName(
-            self, "Load MDF File", "", _MDF_FILE_FILTER
+            self, "Open File", "", _ALL_FILE_FILTER
         )
         if not path:
             return
-        self._load_file(path)
+        if Path(path).suffix.lower() == ".mvc":
+            self._load_config(Path(path))
+        else:
+            self._load_file(path)
 
     def _load_file(self, path: str | Path) -> None:
         """Load *path* via the controller, showing busy feedback meanwhile.
@@ -809,6 +825,175 @@ class MainWindow(QMainWindow):
         dlg = LicenseDialog(self._license_manager, self._license_info, self)
         dlg.exec()  # dialog shows "restart required" on success; no state update needed here
 
+    def closeEvent(self, event) -> None:
+        if self._should_prompt_save_on_close():
+            path = self._controller.current_config_path if self._controller else None
+            if path is not None:
+                msg = f"Save updated config '{path.name}'?"
+            else:
+                msg = "Save current view as a config file?"
+            reply = QMessageBox.question(
+                self,
+                "Save Config?",
+                msg,
+                QMessageBox.StandardButton.Save
+                | QMessageBox.StandardButton.Discard
+                | QMessageBox.StandardButton.Cancel,
+            )
+            if reply == QMessageBox.StandardButton.Cancel:
+                event.ignore()
+                return
+            if reply == QMessageBox.StandardButton.Save:
+                if path is not None:
+                    self._save_config_to(path)
+                else:
+                    self._on_save_config_as()
+        event.accept()
+
+    def _should_prompt_save_on_close(self) -> bool:
+        return (
+            self._settings is not None
+            and self._settings.prompt_save_config_on_close
+            and self._controller is not None
+            and bool(self._controller.active_signals)
+        )
+
+    def _on_save_config(self) -> None:
+        if self._controller is None:
+            return
+        path = self._controller.current_config_path
+        if path is None:
+            self._on_save_config_as()
+        else:
+            self._save_config_to(path)
+
+    def _on_save_config_as(self) -> None:
+        if self._controller is None:
+            return
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Save Config As", "", "MDF Viewer Config (*.mvc);;All Files (*)"
+        )
+        if not path_str:
+            return
+        self._save_config_to(Path(path_str))
+
+    def _save_config_to(self, path: Path) -> None:
+        from mdf_viewer.config_manager import ConfigManager
+        if self._controller is None or self._settings is None:
+            return
+        try:
+            config = self._controller.capture_config(path)
+            ConfigManager.save(config, path, self._settings.config_path_mode)
+        except Exception as exc:
+            QMessageBox.critical(self, "Save Config Error", str(exc))
+            return
+        self._controller.current_config_path = path
+        self._settings.add_recent(path)
+        self.show_status(f"Config saved to {path.name}")
+
+    def _load_config(self, path: Path) -> None:
+        from mdf_viewer.config_manager import ConfigManager
+        from mdf_viewer.errors import ConfigLoadError
+        if self._controller is None or self._settings is None:
+            return
+
+        try:
+            config = ConfigManager.load(path)
+        except ConfigLoadError as exc:
+            QMessageBox.critical(self, "Config Load Error", str(exc))
+            return
+
+        mdf_path = ConfigManager.resolve_measurement_path(config.measurement_path, path)
+        if mdf_path is None:
+            mdf_path_str, _ = QFileDialog.getOpenFileName(
+                self,
+                f"Locate Measurement File for '{path.name}'",
+                "",
+                _MDF_FILE_FILTER,
+            )
+            if not mdf_path_str:
+                return
+            mdf_path = Path(mdf_path_str)
+
+        self.show_status(f"Loading {mdf_path.name}…", timeout_ms=0)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
+        load_ok = True
+        try:
+            self._controller.load_file(mdf_path)
+        except MdfLoadError as exc:
+            QMessageBox.critical(self, "Load Error", str(exc))
+            load_ok = False
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.statusBar().clearMessage()
+
+        if not load_ok:
+            return
+
+        resolved, not_found = self._resolve_config_signals(config)
+
+        if not_found:
+            from mdf_viewer.view.signals_not_found_dialog import SignalsNotFoundDialog
+            SignalsNotFoundDialog(not_found, self).exec()
+
+        if resolved:
+            self._controller.restore_config(config, resolved)
+
+        self._controller.current_config_path = path
+        self._settings.add_recent(path)
+
+    def _resolve_config_signals(self, config) -> tuple[list, list[str]]:
+        """Match SignalConfig entries in *config* to channels in the loaded file.
+
+        Returns (resolved, not_found) where resolved is a list of
+        (ActiveSignalSnapshot, group_index, channel_index) tuples.
+        """
+        from mdf_viewer.controller.app_controller import ActiveSignalSnapshot
+        from mdf_viewer.view.signal_group_picker_dialog import SignalGroupPickerDialog
+
+        resolved: list = []
+        not_found: list[str] = []
+
+        for sig in config.signals:
+            candidates = self._controller.find_signal_by_name(sig.name)
+            if not candidates:
+                not_found.append(sig.name)
+                continue
+
+            # Narrow by group_name when stored
+            if sig.group_name:
+                group_match = [c for c in candidates if c.group_name == sig.group_name]
+                if group_match:
+                    candidates = group_match
+
+            snap = ActiveSignalSnapshot(
+                name=sig.name,
+                color=tuple(sig.color),  # type: ignore[arg-type]
+                line_width=sig.line_width,
+                line_style=sig.line_style,
+                display_mode=sig.display_mode,
+                marker_shape=sig.marker_shape,
+                step_mode=sig.step_mode,
+                enum_display_table=sig.enum_display_table,
+                enum_display_cursor=sig.enum_display_cursor,
+                enum_display_yaxis=sig.enum_display_yaxis,
+                group_name=sig.group_name,
+            )
+
+            if len(candidates) == 1:
+                meta = candidates[0]
+                resolved.append((snap, meta.group_index, meta.channel_index))
+            else:
+                dlg = SignalGroupPickerDialog(sig.name, candidates, self)
+                if dlg.exec():
+                    meta = dlg.selected()
+                    resolved.append((snap, meta.group_index, meta.channel_index))
+                else:
+                    not_found.append(sig.name)
+
+        return resolved, not_found
+
     def _rebuild_recent_files(self) -> None:
         for action in self._recent_actions:
             self._file_menu.removeAction(action)
@@ -832,7 +1017,10 @@ class MainWindow(QMainWindow):
         self._recent_sep = self._file_menu.insertSeparator(self._preferences_action)
 
     def _on_open_recent(self, path: Path) -> None:
-        self._load_file(path)
+        if Path(path).suffix.lower() == ".mvc":
+            self._load_config(Path(path))
+        else:
+            self._load_file(path)
 
 
 class _UpdateCheckThread(QThread):

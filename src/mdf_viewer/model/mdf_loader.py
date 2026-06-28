@@ -156,6 +156,7 @@ class MdfLoader:
                                 comment=comment,
                                 group_index=gi,
                                 channel_index=ci,
+                                group_name=group_name,
                             )
                         )
                     except Exception:
@@ -257,6 +258,7 @@ class MdfLoader:
             max_value=max_val,
             group_index=group_index,
             channel_index=channel_index,
+            group_name=_channel_group_name(mdf.groups[group_index], group_index),
             data_type=str(raw_dtype),
             is_integer=bool(np.issubdtype(raw_dtype, np.integer)),
             raster_s=_compute_raster(timestamps),

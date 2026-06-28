@@ -49,6 +49,13 @@ DEFAULT_DISPLAY_NAME_SEGMENTS = 1
 # "always" = keep without asking | "ask" = Yes/No prompt | "never" = always discard
 DEFAULT_KEEP_SIGNALS_ON_LOAD = "always"
 
+# Default for how the measurement path is stored in .mvc config files
+# "absolute" = full path | "relative" = relative to the .mvc file's directory
+DEFAULT_CONFIG_PATH_MODE = "absolute"
+
+# Default for whether to prompt the user to save a config when closing the app
+DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE = True
+
 
 def _default_config_path() -> Path:
     if sys.platform == "win32":
@@ -86,6 +93,8 @@ class Settings:
         self._display_name_direction: str = DEFAULT_DISPLAY_NAME_DIRECTION
         self._display_name_segments: int = DEFAULT_DISPLAY_NAME_SEGMENTS
         self._keep_signals_on_load: str = DEFAULT_KEEP_SIGNALS_ON_LOAD
+        self._config_path_mode: str = DEFAULT_CONFIG_PATH_MODE
+        self._prompt_save_config_on_close: bool = DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE
         self._load()
 
     # ------------------------------------------------------------------
@@ -303,6 +312,26 @@ class Settings:
         self._keep_signals_on_load = value
         self._save()
 
+    @property
+    def config_path_mode(self) -> str:
+        return self._config_path_mode
+
+    @config_path_mode.setter
+    def config_path_mode(self, value: str) -> None:
+        if value not in ("absolute", "relative"):
+            value = DEFAULT_CONFIG_PATH_MODE
+        self._config_path_mode = value
+        self._save()
+
+    @property
+    def prompt_save_config_on_close(self) -> bool:
+        return self._prompt_save_config_on_close
+
+    @prompt_save_config_on_close.setter
+    def prompt_save_config_on_close(self, value: bool) -> None:
+        self._prompt_save_config_on_close = bool(value)
+        self._save()
+
     def get_and_prune(self) -> list[Path]:
         """Return only paths that exist on disk; save if any were removed."""
         existing = [p for p in self._recent if p.exists()]
@@ -342,6 +371,9 @@ class Settings:
             self._display_name_segments = max(1, min(10, int(data.get("display_name_segments", DEFAULT_DISPLAY_NAME_SEGMENTS))))
             raw_keep = str(data.get("keep_signals_on_load", DEFAULT_KEEP_SIGNALS_ON_LOAD))
             self._keep_signals_on_load = raw_keep if raw_keep in ("always", "ask", "never") else DEFAULT_KEEP_SIGNALS_ON_LOAD
+            raw_cpm = str(data.get("config_path_mode", DEFAULT_CONFIG_PATH_MODE))
+            self._config_path_mode = raw_cpm if raw_cpm in ("absolute", "relative") else DEFAULT_CONFIG_PATH_MODE
+            self._prompt_save_config_on_close = bool(data.get("prompt_save_config_on_close", DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE))
         except (FileNotFoundError, json.JSONDecodeError, TypeError, KeyError):
             self._recent = []
             self._check_for_updates = True
@@ -366,6 +398,8 @@ class Settings:
             self._display_name_direction = DEFAULT_DISPLAY_NAME_DIRECTION
             self._display_name_segments = DEFAULT_DISPLAY_NAME_SEGMENTS
             self._keep_signals_on_load = DEFAULT_KEEP_SIGNALS_ON_LOAD
+            self._config_path_mode = DEFAULT_CONFIG_PATH_MODE
+            self._prompt_save_config_on_close = DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE
 
     @staticmethod
     def _load_color(
@@ -404,6 +438,8 @@ class Settings:
                     "display_name_direction": self._display_name_direction,
                     "display_name_segments": self._display_name_segments,
                     "keep_signals_on_load": self._keep_signals_on_load,
+                    "config_path_mode": self._config_path_mode,
+                    "prompt_save_config_on_close": self._prompt_save_config_on_close,
                 },
                 indent=2,
             ),

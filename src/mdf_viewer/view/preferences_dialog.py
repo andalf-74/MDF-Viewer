@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from mdf_viewer.settings import (
+    DEFAULT_CONFIG_PATH_MODE,
     DEFAULT_CURSOR_COLOR_C1,
     DEFAULT_CURSOR_COLOR_C2,
     DEFAULT_CURSOR_COLOR_CL,
@@ -102,6 +103,29 @@ class PreferencesDialog(QDialog):
         general_layout.addWidget(self._keep_always)
         general_layout.addWidget(self._keep_ask)
         general_layout.addWidget(self._keep_never)
+
+        general_layout.addSpacing(8)
+        path_mode_row = QHBoxLayout()
+        path_mode_row.addWidget(QLabel("Store measurement path in config as:"))
+        self._config_path_mode = QComboBox()
+        self._config_path_mode.addItem("Absolute", "absolute")
+        self._config_path_mode.addItem("Relative", "relative")
+        idx = 1 if self._settings.config_path_mode == "relative" else 0
+        self._config_path_mode.setCurrentIndex(idx)
+        self._config_path_mode.setToolTip(
+            "Absolute: the full path is stored (always works, not portable).\n"
+            "Relative: the path is stored relative to the .mvc file (portable)."
+        )
+        path_mode_row.addWidget(self._config_path_mode)
+        path_mode_row.addStretch()
+        general_layout.addLayout(path_mode_row)
+
+        self._prompt_save_config = QCheckBox("Prompt to save configuration when closing")
+        self._prompt_save_config.setChecked(self._settings.prompt_save_config_on_close)
+        self._prompt_save_config.setToolTip(
+            "When active signals are loaded, ask whether to save a .mvc config file on exit."
+        )
+        general_layout.addWidget(self._prompt_save_config)
 
         general_layout.addStretch()
         tabs.addTab(general, "General")
@@ -288,6 +312,8 @@ class PreferencesDialog(QDialog):
         self._settings.max_undo_steps = self._undo_steps.value()
         bid = self._keep_signals_group.checkedId()
         self._settings.keep_signals_on_load = ("always", "ask", "never")[bid] if bid >= 0 else DEFAULT_KEEP_SIGNALS_ON_LOAD
+        self._settings.config_path_mode = self._config_path_mode.currentData() or DEFAULT_CONFIG_PATH_MODE
+        self._settings.prompt_save_config_on_close = self._prompt_save_config.isChecked()
         self._settings.signal_z_order = _Z_ORDER_OPTIONS[self._z_order_combo.currentIndex()][0]
         self._settings.selected_line_boost = self._line_boost.value()
         self._settings.show_only_selected_y_axis = self._show_only_selected_y_axis.isChecked()

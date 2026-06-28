@@ -584,3 +584,58 @@ def test_keep_signals_on_load_defaults_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
     assert Settings(path=path).keep_signals_on_load == "always"
+
+
+# ---------------------------------------------------------------------------
+# config_path_mode
+# ---------------------------------------------------------------------------
+
+def test_config_path_mode_default_is_absolute(settings: Settings) -> None:
+    assert settings.config_path_mode == "absolute"
+
+
+def test_config_path_mode_can_be_set_to_relative(settings: Settings) -> None:
+    settings.config_path_mode = "relative"
+    assert settings.config_path_mode == "relative"
+
+
+def test_config_path_mode_invalid_falls_back_to_default(settings: Settings) -> None:
+    settings.config_path_mode = "bogus"
+    assert settings.config_path_mode == "absolute"
+
+
+def test_config_path_mode_persists(settings: Settings) -> None:
+    settings.config_path_mode = "relative"
+    reloaded = Settings(path=settings._path)
+    assert reloaded.config_path_mode == "relative"
+
+
+def test_config_path_mode_defaults_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    assert Settings(path=path).config_path_mode == "absolute"
+
+
+# ---------------------------------------------------------------------------
+# prompt_save_config_on_close
+# ---------------------------------------------------------------------------
+
+def test_prompt_save_config_on_close_default_true(settings: Settings) -> None:
+    assert settings.prompt_save_config_on_close is True
+
+
+def test_prompt_save_config_on_close_can_be_disabled(settings: Settings) -> None:
+    settings.prompt_save_config_on_close = False
+    assert settings.prompt_save_config_on_close is False
+
+
+def test_prompt_save_config_on_close_persists(settings: Settings) -> None:
+    settings.prompt_save_config_on_close = False
+    reloaded = Settings(path=settings._path)
+    assert reloaded.prompt_save_config_on_close is False
+
+
+def test_prompt_save_config_on_close_defaults_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    assert Settings(path=path).prompt_save_config_on_close is True

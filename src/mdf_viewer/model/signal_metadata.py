@@ -23,6 +23,7 @@ class SignalMetadata:
     # Identifies where the channel lives inside the MDF file.
     group_index: int | None = None
     channel_index: int | None = None
+    group_name: str = ""
     # Raw NumPy dtype name before float64 conversion (e.g. "uint8", "float32").
     data_type: str = ""
     # True when data_type is any integer dtype (int8/16/32/64, uint8/16/32/64).

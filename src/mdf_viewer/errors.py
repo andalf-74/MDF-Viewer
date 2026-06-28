@@ -11,3 +11,7 @@ class MdfLoadError(Exception):
     The controller/view should catch this and present the message to the user;
     the application must never crash on malformed or incomplete MDF content.
     """
+
+
+class ConfigLoadError(Exception):
+    """Raised when a .mvc config file cannot be parsed or is structurally invalid."""

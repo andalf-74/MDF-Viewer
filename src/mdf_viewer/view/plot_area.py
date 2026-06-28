@@ -849,6 +849,36 @@ class PlotArea(QWidget):
             result.update(grp)
         return result
 
+    def get_axis_grouping(self) -> tuple[list[list[str]], list[list[str]]]:
+        """Return current shared and linked groups as signal-name lists.
+
+        Returns (shared_groups, linked_groups) where each inner list contains
+        the metadata names of the signals in that group.
+        """
+        shared = [[a.metadata.name for a in grp] for grp in self._shared_groups]
+        linked = [[a.metadata.name for a in grp] for grp in self._linked_groups]
+        return shared, linked
+
+    def restore_axis_grouping(
+        self,
+        shared: list[list[str]],
+        linked: list[list[str]],
+        active_signals: list,
+    ) -> None:
+        """Restore shared and linked groups from signal-name lists.
+
+        Names that don't match any active signal are silently skipped.
+        """
+        name_map = {a.metadata.name: a for a in active_signals}
+        for group_names in shared:
+            actives = [name_map[n] for n in group_names if n in name_map]
+            if len(actives) >= 2:
+                self.share_signals(actives)
+        for group_names in linked:
+            actives = [name_map[n] for n in group_names if n in name_map]
+            if len(actives) >= 2:
+                self.link_signals(actives)
+
     # ------------------------------------------------------------------
     # Internal helpers — grouping
     # ------------------------------------------------------------------
