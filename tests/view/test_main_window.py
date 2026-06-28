@@ -665,3 +665,34 @@ def test_on_open_recent_routes_mdf(
     with patch.object(window, "_load_file") as mock_lf:
         window._on_open_recent(mdf)
         mock_lf.assert_called_once_with(mdf)
+
+
+# ---------------------------------------------------------------------------
+# open_config — public entry point used by app.py for CLI / file association
+# ---------------------------------------------------------------------------
+
+def test_open_config_delegates_to_load_config(
+    window: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mvc = tmp_path / "session.mvc"
+    mvc.touch()
+    window._controller = mock_controller
+    window._settings = MagicMock()
+
+    with patch.object(window, "_load_config") as mock_lc:
+        window.open_config(mvc)
+        mock_lc.assert_called_once_with(mvc)
+
+
+def test_open_config_mvc_not_routed_to_load_file(
+    window: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mvc = tmp_path / "session.mvc"
+    mvc.touch()
+    window._controller = mock_controller
+    window._settings = MagicMock()
+
+    with patch.object(window, "_load_config"):
+        with patch.object(window, "_load_file") as mock_lf:
+            window.open_config(mvc)
+            mock_lf.assert_not_called()

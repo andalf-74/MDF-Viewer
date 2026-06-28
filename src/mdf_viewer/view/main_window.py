@@ -891,6 +891,10 @@ class MainWindow(QMainWindow):
         self._settings.add_recent(path)
         self.show_status(f"Config saved to {path.name}")
 
+    def open_config(self, path: Path) -> None:
+        """Public entry point for opening a .mvc config file (e.g. from app.py)."""
+        self._load_config(path)
+
     def _load_config(self, path: Path) -> None:
         from mdf_viewer.config_manager import ConfigManager
         from mdf_viewer.errors import ConfigLoadError

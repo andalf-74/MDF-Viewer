@@ -1,11 +1,11 @@
-; Inno Setup script for MDF-Viewer 2.0.1
+; Inno Setup script for MDF-Viewer 2.1
 ; Compile with Inno Setup 6+ from the project root:
 ;   iscc installer\mdf_viewer.iss
 ;
 ; Prerequisites: PyInstaller bundle must already exist at dist\MDF-Viewer\
 
 #define AppName "MDF-Viewer"
-#define AppVersion "2.0.1"
+#define AppVersion "2.1"
 #define AppPublisher "Andreas Maus"
 #define AppExeName "MDF-Viewer.exe"
 
@@ -19,7 +19,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 SetupIconFile=..\src\mdf_viewer\resources\icons\app_icon.ico
 OutputDir=dist
-OutputBaseFilename=MDF-Viewer-2.0.1-Setup
+OutputBaseFilename=MDF-Viewer-2.1-Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
@@ -34,6 +34,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 Name: "fileassoc_mf4"; Description: "Associate &.mf4 files with {#AppName}"; GroupDescription: "File associations (optional):"; Flags: unchecked
 Name: "fileassoc_mdf"; Description: "Associate .&mdf files with {#AppName}"; GroupDescription: "File associations (optional):"; Flags: unchecked
+Name: "fileassoc_mvc"; Description: "Associate .m&vc viewer configuration files with {#AppName}"; GroupDescription: "File associations (optional):"; Flags: unchecked
 
 [Files]
 Source: "..\dist\MDF-Viewer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -54,6 +55,11 @@ Root: HKCU; Subkey: "Software\Classes\.mdf"; ValueType: string; ValueName: ""; V
 Root: HKCU; Subkey: "Software\Classes\MDF-Viewer.mdffile"; ValueType: string; ValueName: ""; ValueData: "MDF Measurement File"; Flags: uninsdeletekey; Tasks: fileassoc_mdf
 Root: HKCU; Subkey: "Software\Classes\MDF-Viewer.mdffile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExeName},0"; Tasks: fileassoc_mdf
 Root: HKCU; Subkey: "Software\Classes\MDF-Viewer.mdffile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: fileassoc_mdf
+; .mvc association
+Root: HKCU; Subkey: "Software\Classes\.mvc"; ValueType: string; ValueName: ""; ValueData: "MDF-Viewer.mvcfile"; Flags: uninsdeletevalue; Tasks: fileassoc_mvc
+Root: HKCU; Subkey: "Software\Classes\MDF-Viewer.mvcfile"; ValueType: string; ValueName: ""; ValueData: "MDF-Viewer Configuration"; Flags: uninsdeletekey; Tasks: fileassoc_mvc
+Root: HKCU; Subkey: "Software\Classes\MDF-Viewer.mvcfile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExeName},0"; Tasks: fileassoc_mvc
+Root: HKCU; Subkey: "Software\Classes\MDF-Viewer.mvcfile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: fileassoc_mvc
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent
@@ -70,7 +76,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    if WizardIsTaskSelected('fileassoc_mf4') or WizardIsTaskSelected('fileassoc_mdf') then
+    if WizardIsTaskSelected('fileassoc_mf4') or WizardIsTaskSelected('fileassoc_mdf') or WizardIsTaskSelected('fileassoc_mvc') then
       SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, 0, 0);
   end;
 end;

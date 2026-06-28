@@ -129,13 +129,16 @@ def run(argv: list[str]) -> int:
     if settings.check_for_updates:
         window.trigger_startup_update_check()
 
-    # Load a file passed on the command line (e.g. via .mf4 file association).
+    # Load a file passed on the command line (e.g. via file association).
     if len(argv) > 1:
         path = Path(argv[1])
         if path.is_file():
-            try:
-                controller.load_file(path)
-            except MdfLoadError as exc:
-                QMessageBox.critical(window, "Load Error", str(exc))
+            if path.suffix.lower() == ".mvc":
+                window.open_config(path)
+            else:
+                try:
+                    controller.load_file(path)
+                except MdfLoadError as exc:
+                    QMessageBox.critical(window, "Load Error", str(exc))
 
     return app.exec()
