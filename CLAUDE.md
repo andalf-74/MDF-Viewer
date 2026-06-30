@@ -145,9 +145,13 @@ See `docs/release.md` for the full build and publish steps.
 
 ## Current Status
 
-**As of 2026-06-28:** v2.1 released — 924 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45, #44) merged to main; #30 (line width), #38 (line style), #24 (selected signal highlight), #69 (show only selected signal Y-axis), #40 (enum signal display), #16 (shared/linked Y-axes), #36 (keep signals on new file load), #37 (save/load configuration) implemented.
+**As of 2026-06-30:** v2.1 released — 924 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45, #44) merged to main; #30 (line width), #38 (line style), #24 (selected signal highlight), #69 (show only selected signal Y-axis), #40 (enum signal display), #16 (shared/linked Y-axes), #36 (keep signals on new file load), #37 (save/load configuration) implemented.
 
-Next milestone is v2.2 Config/MultiFile — #37 now done, #17 (multi-file) remains.
+Two active milestones on GitHub:
+- **2.1.1 Bugfixing** — 7 open bugs found post-release: #83 (step mode display jump), #82 (cursor value labels hidden on shared/linked axes), #81 (some signals not selectable in plot view), #80 (Z-order broken on shared Y-axis), #79 (Y-axis not refreshed on enum display toggle), #78 (horizontal delta-t line immovable), #77 (config doesn't save widget sizes).
+- **2.2 Plugins** — new plugin architecture effort: #43 (umbrella), #70 (event bus on AppController), #71 (PluginContext API facade), #72 (Plugin base class/lifecycle), #73 (UI extension points in MainWindow), #74 (plugin loader/discovery), #75 (proof-of-concept built-in plugin), #76 (convert update checker into a first-party plugin).
+
+#17 (multi-file support) has been moved to the **Backlog** milestone (due 2028-12-31, i.e. unscheduled), along with #55, #57, #58, #60, #61.
 
 ### Changelog
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
