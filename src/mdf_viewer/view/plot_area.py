@@ -134,6 +134,7 @@ class _SignalAxisItem(pg.AxisItem):
 
     def set_enum_display(self, enabled: bool) -> None:
         self._enum_display = enabled
+        self.picture = None
         self.update()
 
     def tickValues(self, minVal, maxVal, size):

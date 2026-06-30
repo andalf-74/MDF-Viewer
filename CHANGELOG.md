@@ -20,6 +20,12 @@ All notable changes to MDF-Viewer are documented in this file.
   ViewBox whenever the two no longer match. Also added the missing
   cursor refresh after Share/Link/Ungroup Y-axis actions so labels
   update immediately instead of waiting for the next cursor interaction.
+- Activating Enum Display for a signal's Y-axis didn't redraw the axis
+  with the enum labels until the user panned or zoomed it (#79).
+  `_SignalAxisItem.set_enum_display()` called `update()`, which only
+  repaints pyqtgraph's cached tick-label picture — it doesn't regenerate
+  it. Now also clears the cache (`self.picture = None`) so the next
+  paint rebuilds the tick strings with the new setting.
 
 ## [2.1] - 2026-06-28
 
