@@ -10,6 +10,16 @@ All notable changes to MDF-Viewer are documented in this file.
   start (#83). pyqtgraph's `stepMode` was set to `"left"` while passing
   equal-length x/y arrays; switched to `"right"` to match the zero-order-hold
   convention already used by the cursor readout in `model/interpolate.py`.
+- Cursor value labels for signals in a shared-Y-axis group disappeared —
+  permanently, surviving even a cursor drag — and ungrouping afterward
+  lost the labels for all signals in the group, not just the ones that
+  were already broken (#82). Sharing/ungrouping replaces a signal's
+  ViewBox, but `CursorView.update_labels()` kept reusing the cached
+  label tied to the old (now scene-detached) ViewBox instead of noticing
+  the change. It now recreates the label in the signal's current
+  ViewBox whenever the two no longer match. Also added the missing
+  cursor refresh after Share/Link/Ungroup Y-axis actions so labels
+  update immediately instead of waiting for the next cursor interaction.
 
 ## [2.1] - 2026-06-28
 

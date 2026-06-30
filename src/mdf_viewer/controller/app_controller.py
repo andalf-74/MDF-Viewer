@@ -263,6 +263,8 @@ class AppController:
             return
         self._plot.share_signals(actives)
         self._refresh_table_group_state()
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.refresh()
 
     def on_link_y_axes_requested(self, signals: list) -> None:
         """Link the Y-axes of all given signals so they pan/zoom together."""
@@ -271,6 +273,8 @@ class AppController:
             return
         self._plot.link_signals(actives)
         self._refresh_table_group_state()
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.refresh()
 
     def on_ungroup_y_axis_requested(self, signals: list) -> None:
         """Remove each given signal from its shared or linked group."""
@@ -278,6 +282,8 @@ class AppController:
             if active in self._active:
                 self._plot.ungroup_signal(active)
         self._refresh_table_group_state()
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.refresh()
 
     def _refresh_table_group_state(self) -> None:
         """Push the current grouped-signal set to the Active Signals Table."""

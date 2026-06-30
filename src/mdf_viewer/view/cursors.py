@@ -240,7 +240,13 @@ class CursorView(QObject):
                     if key in self._labels:
                         self._labels[key][0].setVisible(False)
                     continue
-                if key not in self._labels:
+                cached = self._labels.get(key)
+                if cached is None or cached[1] is not vb:
+                    # No label yet, or the signal's ViewBox changed (axis
+                    # sharing/linking/ungrouping can destroy or replace it) —
+                    # detach from the stale ViewBox and recreate in the new one.
+                    if cached is not None:
+                        cached[1].removeItem(cached[0])
                     lbl = pg.TextItem(
                         text="",
                         color=active.color,
