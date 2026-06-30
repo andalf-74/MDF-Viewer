@@ -121,6 +121,12 @@ A feature should be a plugin if it is optional, self-contained, and adds capabil
 - All user-facing strings should be in English (internationalization not in scope for MVP)
 - Commit messages should be clear and descriptive
 
+### Verifying Mouse/Interaction Changes (#78 postmortem)
+
+Synthetic Qt mouse-event tests (`QTest.mousePress/mouseMove/mouseRelease`, or directly calling `eventFilter(...)` with a hand-built event) are **not sufficient evidence** that a fix touching mouse routing, event filters, or Z-order/stacking actually works. They inject events below the real OS input pipeline and can pass while the real interactive app does not — confirmed during the #78 (delta-time line undraggable) investigation, where two separate fixes each passed dedicated regression tests and a full-app `QTest`-based repro, yet failed in a live debug session. Swapping `QT_QPA_PLATFORM=offscreen` for the real platform plugin did **not** close that gap either — `QTest` bypasses real OS-level input regardless of platform.
+
+The project does not have OS-level GUI automation (e.g. `pywinauto`) and isn't investing in it for now — that decision can be revisited if this class of bug keeps recurring. Until then: **for any change touching mouse interaction, drag handling, event filters, or Z-order/stacking in `view/plot_area.py` or `view/cursors.py`, remind the user to manually test the live app before considering the change verified** — do not rely on automated tests alone for these areas, even when they pass. Logic/data tests remain valuable and should still be written as usual; this only applies to the "does the interaction actually reach the right widget" layer.
+
 ### Branching & Release Policy (#20)
 
 **Lazy release-branch model** — chosen for low overhead given infrequent releases and a small team:
