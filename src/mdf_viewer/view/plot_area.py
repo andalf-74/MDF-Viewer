@@ -278,7 +278,7 @@ class PlotArea(QWidget):
 
         curve = pg.PlotDataItem(
             pen=pen,
-            stepMode="left" if active.step_mode else False,
+            stepMode="right" if active.step_mode else False,
             symbol=sym,
             symbolPen=sym_pen,
             symbolBrush=sym_brush,
@@ -478,7 +478,7 @@ class PlotArea(QWidget):
         if active not in self._data:
             return
         spd = self._data[active]
-        spd.curve.opts["stepMode"] = "left" if enabled else False
+        spd.curve.opts["stepMode"] = "right" if enabled else False
         spd.curve.setData(active.data.timestamps, active.data.samples)
 
     def zoom_to_fit(self) -> None:

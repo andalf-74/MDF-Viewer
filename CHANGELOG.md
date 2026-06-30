@@ -2,6 +2,15 @@
 
 All notable changes to MDF-Viewer are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- Step mode line jumped to the next sample's value one timestamp early,
+  causing markers to sit at the end of their held segment instead of the
+  start (#83). pyqtgraph's `stepMode` was set to `"left"` while passing
+  equal-length x/y arrays; switched to `"right"` to match the zero-order-hold
+  convention already used by the cursor readout in `model/interpolate.py`.
+
 ## [2.1] - 2026-06-28
 
 ### Added
