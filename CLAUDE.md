@@ -127,6 +127,8 @@ Synthetic Qt mouse-event tests (`QTest.mousePress/mouseMove/mouseRelease`, or di
 
 The project does not have OS-level GUI automation (e.g. `pywinauto`) and isn't investing in it for now — that decision can be revisited if this class of bug keeps recurring. Until then: **for any change touching mouse interaction, drag handling, event filters, or Z-order/stacking in `view/plot_area.py` or `view/cursors.py`, remind the user to manually test the live app before considering the change verified** — do not rely on automated tests alone for these areas, even when they pass. Logic/data tests remain valuable and should still be written as usual; this only applies to the "does the interaction actually reach the right widget" layer.
 
+**Resolution (2026-07-01):** #78 is fixed — along with #80 (Z-order broken on shared Y-axis) and #81 (some signals not selectable), which turned out to share related causes. What finally worked, after two more theoretical fixes still failed live: temporary `print()` diagnostics added directly to `PlotArea.eventFilter`/`CursorView`, with the user reproducing in their real running app and pasting console output. That ruled out the event-routing plumbing as broken and pointed to the actual (unrelated) cause — `pi.vb`'s autoRange tracking the cursor/delta lines' own bounding boxes because they were added without `ignoreBounds=True`. Lesson reinforced, not just theorized: when a live-only mouse bug resists two rounds of "looks right in tests," add print statements to the real code path and get real console output before trying a third theoretical fix — don't remove that logging until the user has personally confirmed the fix live, even after you're confident you've root-caused it.
+
 ### Branching & Release Policy (#20)
 
 **Lazy release-branch model** — chosen for low overhead given infrequent releases and a small team:
@@ -151,10 +153,12 @@ See `docs/release.md` for the full build and publish steps.
 
 ## Current Status
 
-**As of 2026-06-30:** v2.1 released — 924 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45, #44) merged to main; #30 (line width), #38 (line style), #24 (selected signal highlight), #69 (show only selected signal Y-axis), #40 (enum signal display), #16 (shared/linked Y-axes), #36 (keep signals on new file load), #37 (save/load configuration) implemented.
+**As of 2026-07-02:** v2.1 released — 965 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45, #44) merged to main; #30 (line width), #38 (line style), #24 (selected signal highlight), #69 (show only selected signal Y-axis), #40 (enum signal display), #16 (shared/linked Y-axes), #36 (keep signals on new file load), #37 (save/load configuration) implemented.
+
+Since the 2026-06-30 status: #83, #82, #79 (already fixed by then), plus #78/#80/#81 (one shared root-cause fix — drag-claimant routing in `PlotArea`/`CursorView`, per-signal Z tracking, and a numpy-truthiness crash in `_hit_test`), #84 (swimlanes/zoom not collapsing Linked Y-axis groups — new `PlotArea._display_units()` helper), and #89 (shorten-signal-names preference not applied on startup) have all been fixed, verified live, and closed.
 
 Two active milestones on GitHub:
-- **2.1.1 Bugfixing** — 7 open bugs found post-release: #83 (step mode display jump), #82 (cursor value labels hidden on shared/linked axes), #81 (some signals not selectable in plot view), #80 (Z-order broken on shared Y-axis), #79 (Y-axis not refreshed on enum display toggle), #78 (horizontal delta-t line immovable), #77 (config doesn't save widget sizes).
+- **2.1.1 Bugfixing** — 2 open bugs remain: #85 (blurry splash-screen icon), #77 (config doesn't save widget sizes).
 - **2.2 Plugins** — new plugin architecture effort: #43 (umbrella), #70 (event bus on AppController), #71 (PluginContext API facade), #72 (Plugin base class/lifecycle), #73 (UI extension points in MainWindow), #74 (plugin loader/discovery), #75 (proof-of-concept built-in plugin), #76 (convert update checker into a first-party plugin).
 
 #17 (multi-file support) has been moved to the **Backlog** milestone (due 2028-12-31, i.e. unscheduled), along with #55, #57, #58, #60, #61.
@@ -167,7 +171,7 @@ Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update i
 ## Environment
 
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (924 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` (965 passing) and `python -m mdf_viewer` both work.
 - `cryptography` must be installed separately on macOS: `.venv/bin/pip install cryptography`
 
 ---
