@@ -1430,6 +1430,44 @@ def test_capture_config_cursor_snapshot_used(ctrl: AppController, deps: dict, tm
     assert config.cursor_positions == (1.0, 4.0)
 
 
+def test_capture_config_no_settings_uses_defaults(
+    ctrl: AppController, deps: dict, tmp_path
+) -> None:
+    """No Settings wired in (settings=None) must not crash (#89)."""
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    deps["loader"].is_open = False
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+    assert config.display_name_separator == "."
+    assert config.display_name_direction == "right"
+    assert config.display_name_segments == 1
+
+
+def test_capture_config_uses_settings_display_name_rule(deps: dict, tmp_path) -> None:
+    """The session's shortening-rule *parameters* are captured from Settings (#89)."""
+    from mdf_viewer.settings import Settings
+    s = Settings(path=tmp_path / "s.json")
+    s.display_name_separator = "_"
+    s.display_name_direction = "left"
+    s.display_name_segments = 4
+    ctrl_with_settings = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+        settings=s,
+    )
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    deps["loader"].is_open = False
+    config = ctrl_with_settings.capture_config(tmp_path / "session.mvc")
+    assert config.display_name_separator == "_"
+    assert config.display_name_direction == "left"
+    assert config.display_name_segments == 4
+
+
 # ---------------------------------------------------------------------------
 # restore_config
 # ---------------------------------------------------------------------------
@@ -1448,6 +1486,9 @@ def _make_viewer_config(**kwargs):
         cursor_mode="HIDDEN",
         cursor_positions=(0.0, 0.0),
         selected_signal=None,
+        display_name_separator=".",
+        display_name_direction="right",
+        display_name_segments=1,
     )
     defaults.update(kwargs)
     return ViewerConfig(**defaults)
@@ -1484,6 +1525,57 @@ def test_restore_config_sets_selection(ctrl: AppController, deps: dict) -> None:
     ctrl.restore_config(config, [(snap, 0, 1)])
     assert ctrl.selected_signal is not None
     assert ctrl.selected_signal.metadata.name == "RPM"
+
+
+def test_restore_config_no_settings_does_not_crash(ctrl: AppController, deps: dict) -> None:
+    """No Settings wired in (settings=None) must not crash (#89)."""
+    config = _make_viewer_config()
+    ctrl.restore_config(config, [])  # must not raise
+
+
+def test_restore_config_applies_display_name_rule_to_settings(
+    deps: dict, tmp_path
+) -> None:
+    """Restoring a session writes its saved shortening-rule parameters back
+    into Settings — becoming the new global default too (#89)."""
+    from mdf_viewer.settings import Settings
+    s = Settings(path=tmp_path / "s.json")
+    ctrl_with_settings = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+        settings=s,
+    )
+    config = _make_viewer_config(
+        display_name_separator="_",
+        display_name_direction="left",
+        display_name_segments=4,
+    )
+    ctrl_with_settings.restore_config(config, [])
+    assert s.display_name_separator == "_"
+    assert s.display_name_direction == "left"
+    assert s.display_name_segments == 4
+
+
+def test_restore_config_refreshes_display_names(deps: dict, tmp_path) -> None:
+    from mdf_viewer.settings import Settings
+    s = Settings(path=tmp_path / "s.json")
+    ctrl_with_settings = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+        settings=s,
+    )
+    config = _make_viewer_config()
+    deps["table"].reset_mock()
+    ctrl_with_settings.restore_config(config, [])
+    deps["table"].set_name_formatter.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

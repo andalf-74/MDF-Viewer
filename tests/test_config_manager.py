@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -40,6 +41,9 @@ def _make_config(measurement_path: str = "/data/test.mf4") -> ViewerConfig:
         cursor_mode="ONE",
         cursor_positions=(3.5, 0.0),
         selected_signal="Speed",
+        display_name_separator=".",
+        display_name_direction="right",
+        display_name_segments=1,
     )
 
 
@@ -105,6 +109,60 @@ def test_round_trip_cursors(tmp_path: Path) -> None:
     assert loaded.cursor_positions == (3.5, 0.0)
 
 
+def test_round_trip_display_name_rule_custom_values(tmp_path: Path) -> None:
+    """The display-name-shortening rule *parameters* used for this session
+    round-trip through a saved .mvc — not whether the rule is enabled,
+    which stays governed solely by Preferences (#89)."""
+    sig = SignalConfig(
+        name="Speed", group_name="Engine", color=(255, 85, 85), line_width=1,
+        line_style="solid", display_mode="line", marker_shape="circle",
+        step_mode=False, enum_display_table=True, enum_display_cursor=False,
+        enum_display_yaxis=False,
+    )
+    config = ViewerConfig(
+        format_version=CONFIG_FORMAT_VERSION,
+        measurement_path="/data/test.mf4",
+        signals=(sig,),
+        x_range=(0.0, 10.0),
+        y_ranges={},
+        shared_groups=(),
+        linked_groups=(),
+        cursor_mode="HIDDEN",
+        cursor_positions=(0.0, 0.0),
+        selected_signal=None,
+        display_name_separator="_",
+        display_name_direction="left",
+        display_name_segments=3,
+    )
+    path = tmp_path / "session.mvc"
+    ConfigManager.save(config, path)
+    loaded = ConfigManager.load(path)
+
+    assert loaded.display_name_separator == "_"
+    assert loaded.display_name_direction == "left"
+    assert loaded.display_name_segments == 3
+
+
+def test_load_missing_display_name_rule_uses_defaults(tmp_path: Path) -> None:
+    """A .mvc saved before this field existed must still load cleanly (#89)."""
+    path = tmp_path / "old.mvc"
+    path.write_text(json.dumps({
+        "format_version": "1.0",
+        "measurement_path": "/data/test.mf4",
+        "signals": [],
+        "zoom": {"x_range": [0.0, 1.0], "y_ranges": {}},
+        "axes": {"shared": [], "linked": []},
+        "cursors": {"mode": "HIDDEN", "positions": [0.0, 0.0]},
+        "selection": None,
+    }), encoding="utf-8")
+
+    loaded = ConfigManager.load(path)
+
+    assert loaded.display_name_separator == "."
+    assert loaded.display_name_direction == "right"
+    assert loaded.display_name_segments == 1
+
+
 def test_round_trip_selection(tmp_path: Path) -> None:
     config = _make_config()
     path = tmp_path / "session.mvc"
@@ -126,6 +184,9 @@ def test_round_trip_no_selection(tmp_path: Path) -> None:
         cursor_mode="HIDDEN",
         cursor_positions=(0.0, 0.0),
         selected_signal=None,
+        display_name_separator=".",
+        display_name_direction="right",
+        display_name_segments=1,
     )
     path = tmp_path / "session.mvc"
     ConfigManager.save(config, path)

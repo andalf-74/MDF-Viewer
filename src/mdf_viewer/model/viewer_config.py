@@ -39,3 +39,8 @@ class ViewerConfig:
     cursor_mode: str                                  # "HIDDEN" | "ONE" | "TWO"
     cursor_positions: tuple[float, float]
     selected_signal: str | None
+    # Display-name-shortening rule *parameters* used by this session — not
+    # whether the rule is enabled, which stays governed solely by Preferences.
+    display_name_separator: str
+    display_name_direction: str                       # "left" | "right"
+    display_name_segments: int

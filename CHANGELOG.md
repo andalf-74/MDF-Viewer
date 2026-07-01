@@ -5,6 +5,22 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- The "Shorten Signal Names" preference had no effect after restarting the
+  app — the checkbox showed the correct saved state once you opened
+  Preferences again, but names weren't actually shortened until you
+  re-toggled it (#89). `Settings.display_name_rule_enabled` was already
+  being persisted and loaded correctly; nothing ever *applied* it at
+  startup. `app.py` now calls `AppController.refresh_display_names()` and
+  syncs the Active Signals Table's checkbox right after wiring the
+  controller, before the window is shown.
+  - Also added a place to remember shortening-rule *parameters*
+    (separator, direction, segment count) per saved session: `.mvc` config
+    files now capture and restore them via new fields on `ViewerConfig`.
+    Restoring a session applies its saved rule and — since every `Settings`
+    setter auto-persists — that also becomes the new global default. The
+    on/off toggle itself is intentionally not part of the `.mvc` format; it
+    stays governed solely by Preferences. Old `.mvc` files without these
+    fields still load with the same defaults `Settings` itself uses.
 - Swimlane layout, "Zoom Y to View", and "Zoom to Fit" didn't collapse a
   Linked Y-axes group into one lane/unit (#84). All three grouped active
   signals into units by unique `ViewBox` identity, which correctly

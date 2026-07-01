@@ -124,6 +124,12 @@ def run(argv: list[str]) -> int:
 
     window.set_settings(settings)
     window.set_controller(controller)
+
+    # Apply the persisted display-name-shortening setting — set_settings()/
+    # set_controller() only store references, they don't sync it in (#89).
+    controller.refresh_display_names()
+    window.active_signals_table.set_shorten_names_enabled(settings.display_name_rule_enabled)
+
     window.show()
     splash.finish(window)
 

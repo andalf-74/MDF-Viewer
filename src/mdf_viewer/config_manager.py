@@ -72,6 +72,11 @@ class ConfigManager:
                 "positions": list(config.cursor_positions),
             },
             "selection": config.selected_signal,
+            "display_name_rule": {
+                "separator": config.display_name_separator,
+                "direction": config.display_name_direction,
+                "segments": config.display_name_segments,
+            },
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -138,6 +143,13 @@ class ConfigManager:
             selection = data.get("selection")
             selected_signal = str(selection) if selection is not None else None
 
+            # Absent in files saved before this field existed — default to the
+            # same values Settings itself defaults to.
+            name_rule = data.get("display_name_rule", {})
+            display_name_separator = str(name_rule.get("separator", "."))
+            display_name_direction = str(name_rule.get("direction", "right"))
+            display_name_segments = max(1, min(10, int(name_rule.get("segments", 1))))
+
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise ConfigLoadError(
                 f"'{path.name}' has an unexpected structure: {exc}"
@@ -154,6 +166,9 @@ class ConfigManager:
             cursor_mode=cursor_mode,
             cursor_positions=cursor_positions,
             selected_signal=selected_signal,
+            display_name_separator=display_name_separator,
+            display_name_direction=display_name_direction,
+            display_name_segments=display_name_segments,
         )
 
     @staticmethod

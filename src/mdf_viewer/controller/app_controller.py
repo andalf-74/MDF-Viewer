@@ -646,6 +646,13 @@ class AppController:
         if self._loader.is_open and self._loader._path is not None:
             meas_path = str(self._loader._path)
 
+        if self._settings is not None:
+            name_separator = self._settings.display_name_separator
+            name_direction = self._settings.display_name_direction
+            name_segments = self._settings.display_name_segments
+        else:
+            name_separator, name_direction, name_segments = ".", "right", 1
+
         from mdf_viewer.config_manager import CONFIG_FORMAT_VERSION
         return ViewerConfig(
             format_version=CONFIG_FORMAT_VERSION,
@@ -658,6 +665,9 @@ class AppController:
             cursor_mode=cursor_mode,
             cursor_positions=cursor_positions,
             selected_signal=selected_name,
+            display_name_separator=name_separator,
+            display_name_direction=name_direction,
+            display_name_segments=name_segments,
         )
 
     def restore_config(
@@ -703,6 +713,16 @@ class AppController:
                 if active.metadata.name == config.selected_signal:
                     self.set_selected_signal(active)
                     break
+
+        # Restore display-name-shortening rule *parameters* used by this
+        # session (not whether the rule is enabled — that stays governed
+        # solely by Preferences). Settings' setters auto-persist, so this
+        # becomes the new global default too (#89).
+        if self._settings is not None:
+            self._settings.display_name_separator = config.display_name_separator
+            self._settings.display_name_direction = config.display_name_direction
+            self._settings.display_name_segments = config.display_name_segments
+            self.refresh_display_names()
 
     # ------------------------------------------------------------------
     # Read-only state accessors
