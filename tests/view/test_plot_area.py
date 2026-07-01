@@ -1363,6 +1363,30 @@ def test_unshared_signal_not_in_get_grouped(plot: PlotArea) -> None:
     assert c not in grouped
 
 
+def test_get_shared_signals_includes_only_shared(plot: PlotArea) -> None:
+    a, b, c, d = (_make_active(n) for n in "abcd")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.add_signal(c)
+    plot.add_signal(d)
+    plot.share_signals([a, b])
+    plot.link_signals([c, d])
+    shared = plot.get_shared_signals()
+    assert shared == {a, b}
+
+
+def test_get_linked_signals_includes_only_linked(plot: PlotArea) -> None:
+    a, b, c, d = (_make_active(n) for n in "abcd")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.add_signal(c)
+    plot.add_signal(d)
+    plot.share_signals([a, b])
+    plot.link_signals([c, d])
+    linked = plot.get_linked_signals()
+    assert linked == {c, d}
+
+
 def test_share_signals_three_signals(plot: PlotArea) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
@@ -1652,3 +1676,104 @@ def test_swimlanes_counts_shared_group_as_one_lane(plot: PlotArea) -> None:
     # a+b share one VB → 2 unique lanes total (1 shared + 1 for c)
     unique_vbs = {id(plot._data[s].view_box) for s in (a, b, c)}
     assert len(unique_vbs) == 2
+
+
+# ---------------------------------------------------------------------------
+# _display_units / swimlanes / zoom with linked groups (#84)
+# ---------------------------------------------------------------------------
+
+def _make_active_range(name: str, y_min: float, y_max: float, n: int = 50) -> ActiveSignal:
+    """Signal whose samples span exactly [y_min, y_max] — for distinguishing
+    "combined extent of all group members" from "just one member's extent"."""
+    t = np.linspace(0.0, 1.0, n)
+    data = SignalData(timestamps=t, samples=np.linspace(y_min, y_max, n))
+    meta = SignalMetadata(name=name, unit="V", group_index=0, channel_index=0)
+    return ActiveSignal(data=data, metadata=meta, color=QColor(100, 100, 200))
+
+
+def test_display_units_treats_linked_group_as_one_unit(plot: PlotArea) -> None:
+    a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.add_signal(c)
+    plot.link_signals([a, b])
+    units = plot._display_units([a, b, c])
+    assert len(units) == 2
+    linked_unit = next(u for u in units if u[2])
+    assert set(linked_unit[1]) == {a, b}
+
+
+def test_display_units_shared_group_still_one_unit(plot: PlotArea) -> None:
+    a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.add_signal(c)
+    plot.share_signals([a, b])
+    units = plot._display_units([a, b, c])
+    assert len(units) == 2
+    assert all(not is_linked for _, _, is_linked in units)
+
+
+def test_display_units_ungrouped_signals_each_own_unit(plot: PlotArea) -> None:
+    a, b = _make_active("a"), _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    units = plot._display_units([a, b])
+    assert len(units) == 2
+
+
+def test_swimlanes_linked_group_uses_combined_data_extent(plot: PlotArea) -> None:
+    """A linked group's lane must fit the union of all members' data (#84).
+
+    Before the fix, swimlanes() treated each linked member as its own unit;
+    the linked-sync handler then forced them to match whichever member's
+    setYRange() call ran last, which reflected only that one member's data
+    — not the combined extent — while wasting a second lane's worth of
+    layout space that was computed for the other member and never used.
+    """
+    a = _make_active_range("a", 0.0, 10.0)
+    b = _make_active_range("b", 100.0, 110.0)
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.link_signals([a, b])
+
+    assert plot.swimlanes([a, b]) is True
+
+    y_a = a.view_box.viewRange()[1]
+    y_b = b.view_box.viewRange()[1]
+    assert y_a == pytest.approx(y_b)
+    # Must include both members' ranges, not just one.
+    assert y_a[0] < 10.0
+    assert y_a[1] > 100.0
+
+
+def test_zoom_y_to_view_linked_group_uses_combined_data_extent(plot: PlotArea) -> None:
+    a = _make_active_range("a", 0.0, 10.0)
+    b = _make_active_range("b", 100.0, 110.0)
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.link_signals([a, b])
+
+    assert plot.zoom_y_to_view() is True
+
+    y_a = a.view_box.viewRange()[1]
+    y_b = b.view_box.viewRange()[1]
+    assert y_a == pytest.approx(y_b)
+    assert y_a[0] < 10.0
+    assert y_a[1] > 100.0
+
+
+def test_zoom_to_fit_linked_group_uses_combined_data_extent(plot: PlotArea) -> None:
+    a = _make_active_range("a", 0.0, 10.0)
+    b = _make_active_range("b", 100.0, 110.0)
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.link_signals([a, b])
+
+    plot.zoom_to_fit()
+
+    y_a = a.view_box.viewRange()[1]
+    y_b = b.view_box.viewRange()[1]
+    assert y_a == pytest.approx(y_b)
+    assert y_a[0] < 10.0
+    assert y_a[1] > 100.0

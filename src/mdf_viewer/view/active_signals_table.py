@@ -96,7 +96,8 @@ class ActiveSignalsTable(QWidget):
         self._pending_reorder: tuple[list[int], int] | None = None
         self._name_formatter: Callable[[str], str] = lambda n: n
         self._shorten_names_enabled: bool = False
-        self._grouped_signals: set = set()
+        self._shared_signals: set = set()
+        self._linked_signals: set = set()
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -133,9 +134,10 @@ class ActiveSignalsTable(QWidget):
         """Keep the context menu checkbox in sync with the current rule state."""
         self._shorten_names_enabled = enabled
 
-    def set_grouped_signals(self, grouped: set) -> None:
-        """Update the set of signals that are in any shared or linked group."""
-        self._grouped_signals = set(grouped)
+    def set_group_membership(self, shared: set, linked: set) -> None:
+        """Update which signals are currently in a Shared or Linked Y-axis group."""
+        self._shared_signals = set(shared)
+        self._linked_signals = set(linked)
 
     def set_row_color(self, active: ActiveSignal, color: QColor) -> None:
         """Update the color swatch for *active*. No-op if the signal is not in the table."""
@@ -355,7 +357,12 @@ class ActiveSignalsTable(QWidget):
 
         menu.addSeparator()
 
-        if n >= 2:
+        # A signal already in one group type can't join the other (#84) — hide
+        # the action rather than let it silently no-op in the controller.
+        any_linked = any(s in self._linked_signals for s in selected)
+        any_shared = any(s in self._shared_signals for s in selected)
+
+        if n >= 2 and not any_linked:
             share_action = QAction("Share Y-axis", self)
             share_action.setToolTip(
                 "All selected signals share one ViewBox and one Y-axis — same Y scale, zoomed together."
@@ -363,6 +370,7 @@ class ActiveSignalsTable(QWidget):
             share_action.triggered.connect(lambda: self.share_y_axis_requested.emit(selected))
             menu.addAction(share_action)
 
+        if n >= 2 and not any_shared:
             link_action = QAction("Link Y-axes", self)
             link_action.setToolTip(
                 "Selected signals keep separate Y-axes but pan/zoom together to the same absolute Y range."
@@ -370,7 +378,7 @@ class ActiveSignalsTable(QWidget):
             link_action.triggered.connect(lambda: self.link_y_axes_requested.emit(selected))
             menu.addAction(link_action)
 
-        grouped_selected = [s for s in selected if s in self._grouped_signals]
+        grouped_selected = [s for s in selected if s in self._shared_signals or s in self._linked_signals]
         if grouped_selected:
             ungroup_action = QAction("Remove from shared/linked axis", self)
             ungroup_action.triggered.connect(

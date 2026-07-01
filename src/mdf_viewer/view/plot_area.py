@@ -543,12 +543,22 @@ class PlotArea(QWidget):
         t_max = max(float(a.data.timestamps[-1]) for a in self._data if len(a.data.timestamps))
         self._pi.vb.setXRange(t_min, t_max, padding=0.02)
 
-        # Auto-range Y per unique ViewBox (shared groups share one ViewBox).
-        seen: set[int] = set()
-        for spd in self._data.values():
-            if id(spd.view_box) not in seen:
-                seen.add(id(spd.view_box))
-                spd.view_box.autoRange()
+        # Auto-range Y per display unit (ungrouped signal, Shared group, or
+        # Linked group). autoRange() only sees one ViewBox's own content, so
+        # it can't fit a Linked group's combined data on its own — compute
+        # that explicitly instead of relying on autoRange() there.
+        for vb, members, is_linked in self._display_units():
+            if not is_linked:
+                vb.autoRange()
+                continue
+            all_ys = [y for a in members for y in a.data.samples.tolist()]
+            if not all_ys:
+                continue
+            y_min, y_max = min(all_ys), max(all_ys)
+            if y_min == y_max:
+                y_min -= 1.0
+                y_max += 1.0
+            vb.setYRange(y_min, y_max, padding=0.05)
 
     def zoom_to_x_range(self, x_min: float, x_max: float) -> None:
         """Set the shared X range to [x_min, x_max] with standard padding."""
@@ -565,24 +575,12 @@ class PlotArea(QWidget):
         if not self._data or not ordered_signals:
             return False
 
-        # Build ordered list of unique (ViewBox, [signals]) units.
-        seen_vb_ids: set[int] = set()
-        units: list[tuple] = []
-        for active in ordered_signals:
-            if active not in self._data:
-                continue
-            spd = self._data[active]
-            vb_id = id(spd.view_box)
-            if vb_id not in seen_vb_ids:
-                seen_vb_ids.add(vb_id)
-                # All signals sharing this ViewBox, in ordered_signals order.
-                grp = [s for s in ordered_signals if s in self._data and id(self._data[s].view_box) == vb_id]
-                units.append((spd.view_box, grp))
+        units = self._display_units(ordered_signals)
 
         n = len(units)
         x_min, x_max = self._pi.vb.viewRange()[0]
 
-        for i, (vb, unit_signals) in enumerate(units):
+        for i, (vb, unit_signals, _is_linked) in enumerate(units):
             ys_all: list[float] = []
             for active in unit_signals:
                 ts = active.data.timestamps
@@ -628,7 +626,7 @@ class PlotArea(QWidget):
         if not self._data:
             return False
         x_min, x_max = self._pi.vb.viewRange()[0]
-        for vb, signals in self._unique_vb_signals().items():
+        for vb, signals, _is_linked in self._display_units():
             ys_all: list[float] = []
             for active in signals:
                 ts = active.data.timestamps
@@ -901,6 +899,20 @@ class PlotArea(QWidget):
             result.update(grp)
         return result
 
+    def get_shared_signals(self) -> set[ActiveSignal]:
+        """Return the set of all signals currently in a Shared Y-axis group."""
+        result: set[ActiveSignal] = set()
+        for grp in self._shared_groups:
+            result.update(grp)
+        return result
+
+    def get_linked_signals(self) -> set[ActiveSignal]:
+        """Return the set of all signals currently in a Linked Y-axes group."""
+        result: set[ActiveSignal] = set()
+        for grp in self._linked_groups:
+            result.update(grp)
+        return result
+
     def get_axis_grouping(self) -> tuple[list[list[str]], list[list[str]]]:
         """Return current shared and linked groups as signal-name lists.
 
@@ -1091,15 +1103,52 @@ class PlotArea(QWidget):
         vb.sigRangeChanged.connect(self._on_vb_range_changed)
         vb.enableAutoRange()
 
-    def _unique_vb_signals(self) -> dict:
-        """Return {viewbox: [active, ...]} grouped by unique ViewBox."""
-        result: dict = {}
-        for active, spd in self._data.items():
-            vb_id = id(spd.view_box)
-            if vb_id not in result:
-                result[vb_id] = (spd.view_box, [])
-            result[vb_id][1].append(active)
-        return {vb: sigs for vb, sigs in result.values()}
+    def _display_units(
+        self, ordered_signals: list[ActiveSignal] | None = None,
+    ) -> list[tuple[object, list[ActiveSignal], bool]]:
+        """Group active signals into independent Y-display units.
+
+        Returns (view_box, member_signals, is_linked_group) tuples. A unit is
+        either a unique ViewBox and everything sharing it (covers ungrouped
+        signals and Shared groups, which already collapse onto one ViewBox —
+        is_linked_group False), or an entire Linked group treated as a single
+        unit even though each member keeps its own ViewBox (is_linked_group
+        True). Linked members' Y-ranges are externally forced to match by the
+        sync handler in _connect_linked_handler, so treating them as N
+        independent units makes each one's setYRange()/autoRange() call
+        clobber the others (#84). *view_box* is one representative member's —
+        applying a range to it is enough, since the sync handler propagates
+        it to the rest of the linked group automatically.
+
+        If *ordered_signals* is given, unit order follows the earliest-
+        appearing member; otherwise falls back to internal dict order.
+        """
+        signals = ordered_signals if ordered_signals is not None else list(self._data)
+        seen_vb_ids: set[int] = set()
+        seen_linked_ids: set[int] = set()
+        units: list[tuple[object, list[ActiveSignal], bool]] = []
+        for active in signals:
+            if active not in self._data:
+                continue
+            linked_grp = self._find_linked_group(active)
+            if linked_grp is not None:
+                grp_id = id(linked_grp)
+                if grp_id in seen_linked_ids:
+                    continue
+                seen_linked_ids.add(grp_id)
+                members = [s for s in signals if s in self._data and s in linked_grp]
+                units.append((self._data[active].view_box, members, True))
+                continue
+            vb_id = id(self._data[active].view_box)
+            if vb_id in seen_vb_ids:
+                continue
+            seen_vb_ids.add(vb_id)
+            members = [
+                s for s in signals
+                if s in self._data and id(self._data[s].view_box) == vb_id
+            ]
+            units.append((self._data[active].view_box, members, False))
+        return units
 
     # ------------------------------------------------------------------
     # Internal helpers — general

@@ -257,9 +257,15 @@ class AppController:
             self.recolor_signal(active, color)
 
     def on_share_y_axis_requested(self, signals: list) -> None:
-        """Share a single Y-axis (ViewBox) across all given signals."""
+        """Share a single Y-axis (ViewBox) across all given signals.
+
+        No-op if any signal is already in a Linked group — a signal can't be
+        both shared and linked at once (#84).
+        """
         actives = [s for s in signals if s in self._active]
         if len(actives) < 2:
+            return
+        if any(self._plot.get_group_type(a) == "linked" for a in actives):
             return
         self._plot.share_signals(actives)
         self._refresh_table_group_state()
@@ -267,9 +273,15 @@ class AppController:
             self._cursor_ctrl.refresh()
 
     def on_link_y_axes_requested(self, signals: list) -> None:
-        """Link the Y-axes of all given signals so they pan/zoom together."""
+        """Link the Y-axes of all given signals so they pan/zoom together.
+
+        No-op if any signal is already in a Shared group — a signal can't be
+        both shared and linked at once (#84).
+        """
         actives = [s for s in signals if s in self._active]
         if len(actives) < 2:
+            return
+        if any(self._plot.get_group_type(a) == "shared" for a in actives):
             return
         self._plot.link_signals(actives)
         self._refresh_table_group_state()
@@ -286,8 +298,10 @@ class AppController:
             self._cursor_ctrl.refresh()
 
     def _refresh_table_group_state(self) -> None:
-        """Push the current grouped-signal set to the Active Signals Table."""
-        self._table.set_grouped_signals(self._plot.get_grouped_signals())
+        """Push current Shared/Linked group membership to the Active Signals Table."""
+        self._table.set_group_membership(
+            self._plot.get_shared_signals(), self._plot.get_linked_signals(),
+        )
 
     def remove_signals(self, actives: list) -> None:
         """Remove multiple signals from the plot and the table."""

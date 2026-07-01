@@ -5,6 +5,25 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Swimlane layout, "Zoom Y to View", and "Zoom to Fit" didn't collapse a
+  Linked Y-axes group into one lane/unit (#84). All three grouped active
+  signals into units by unique `ViewBox` identity, which correctly
+  collapses Shared groups (one literal ViewBox) but not Linked groups
+  (each member keeps its own ViewBox, externally forced to match by the
+  Link sync handler) — so each linked member's own `setYRange()`/
+  `autoRange()` call clobbered the others, leaving whichever was processed
+  last as the "winner" and wasting the layout space computed for the rest.
+  Added `PlotArea._display_units()`, a shared helper that treats an entire
+  Linked group as one unit (sized from the combined data of all its
+  members), and rewrote `swimlanes()`, `zoom_y_to_view()`, and
+  `zoom_to_fit()` to use it.
+  - Along the way, found that a signal could end up in both a Shared and a
+    Linked group simultaneously — nothing prevented it, though nothing was
+    designed to handle it either. Closed the gap: `AppController` now
+    rejects a Share/Link request if any target signal is already in the
+    other group type, and `ActiveSignalsTable`'s context menu hides the
+    corresponding action instead of offering something that would silently
+    no-op.
 - Three related Z-order/hit-testing bugs shared one root cause: click
   selection (`PlotArea._hit_test`) and native mouse routing depended on Qt's
   real scene Z-order, which doesn't compare consistently between per-signal

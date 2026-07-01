@@ -1484,3 +1484,55 @@ def test_restore_config_sets_selection(ctrl: AppController, deps: dict) -> None:
     ctrl.restore_config(config, [(snap, 0, 1)])
     assert ctrl.selected_signal is not None
     assert ctrl.selected_signal.metadata.name == "RPM"
+
+
+# ---------------------------------------------------------------------------
+# on_share_y_axis_requested / on_link_y_axes_requested — dual-group guard (#84)
+# ---------------------------------------------------------------------------
+
+def test_share_y_axis_calls_share_signals_when_ungrouped(ctrl: AppController, deps: dict) -> None:
+    deps["plot"].get_group_type.return_value = None
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    ctrl.on_share_y_axis_requested(ctrl.active_signals)
+    deps["plot"].share_signals.assert_called_once()
+
+
+def test_share_y_axis_rejected_when_signal_already_linked(
+    ctrl: AppController, deps: dict
+) -> None:
+    deps["plot"].get_group_type.return_value = "linked"
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    ctrl.on_share_y_axis_requested(ctrl.active_signals)
+    deps["plot"].share_signals.assert_not_called()
+
+
+def test_link_y_axes_calls_link_signals_when_ungrouped(ctrl: AppController, deps: dict) -> None:
+    deps["plot"].get_group_type.return_value = None
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    ctrl.on_link_y_axes_requested(ctrl.active_signals)
+    deps["plot"].link_signals.assert_called_once()
+
+
+def test_link_y_axes_rejected_when_signal_already_shared(
+    ctrl: AppController, deps: dict
+) -> None:
+    deps["plot"].get_group_type.return_value = "shared"
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    ctrl.on_link_y_axes_requested(ctrl.active_signals)
+    deps["plot"].link_signals.assert_not_called()
+
+
+def test_refresh_table_group_state_pushes_shared_and_linked_sets(
+    ctrl: AppController, deps: dict
+) -> None:
+    deps["plot"].get_group_type.return_value = None
+    deps["plot"].get_shared_signals.return_value = {"shared-marker"}
+    deps["plot"].get_linked_signals.return_value = {"linked-marker"}
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    ctrl.on_share_y_axis_requested(ctrl.active_signals)
+    deps["table"].set_group_membership.assert_called_with({"shared-marker"}, {"linked-marker"})

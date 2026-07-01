@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 from PyQt6.QtCore import QByteArray, QEvent, QMimeData
 from PyQt6.QtGui import QColor
+from PyQt6.QtWidgets import QMenu
 from pytestqt.qtbot import QtBot
 
 from mdf_viewer.model.signal_data import SignalData
@@ -692,3 +693,71 @@ def test_set_shorten_names_enabled_updates_field(table: ActiveSignalsTable) -> N
     assert table._shorten_names_enabled is False
     table.set_shorten_names_enabled(True)
     assert table._shorten_names_enabled is True
+
+
+# ---------------------------------------------------------------------------
+# Context menu — Share/Link Y-axis mutual exclusivity (#84)
+# ---------------------------------------------------------------------------
+
+def _select_rows(t: ActiveSignalsTable, *rows: int) -> None:
+    t._table.selectRow(rows[0])
+    for row in rows[1:]:
+        t._table.selectionModel().select(
+            t._table.model().index(row, 0),
+            t._table.selectionModel().SelectionFlag.Select
+            | t._table.selectionModel().SelectionFlag.Rows,
+        )
+
+
+def _open_context_menu(t: ActiveSignalsTable) -> QMenu:
+    pos = t._table.visualRect(t._table.model().index(0, 0)).center()
+    captured: dict = {}
+
+    def fake_exec(self, *args, **kwargs):
+        captured["menu"] = self
+
+    with patch.object(QMenu, "exec", fake_exec):
+        t._on_context_menu(pos)
+    return captured["menu"]
+
+
+def test_both_group_actions_shown_when_selection_ungrouped(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    _select_rows(t, 0, 1)
+    titles = [a.text() for a in _open_context_menu(t).actions()]
+    assert "Share Y-axis" in titles
+    assert "Link Y-axes" in titles
+
+
+def test_share_action_hidden_when_selection_includes_linked_signal(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    t.set_group_membership(shared=set(), linked={sigs[1]})
+    _select_rows(t, 0, 1)
+    titles = [a.text() for a in _open_context_menu(t).actions()]
+    assert "Share Y-axis" not in titles
+    assert "Link Y-axes" in titles
+
+
+def test_link_action_hidden_when_selection_includes_shared_signal(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    t.set_group_membership(shared={sigs[1]}, linked=set())
+    _select_rows(t, 0, 1)
+    titles = [a.text() for a in _open_context_menu(t).actions()]
+    assert "Link Y-axes" not in titles
+    assert "Share Y-axis" in titles
+
+
+def test_ungroup_action_covers_both_shared_and_linked_selection(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    t.set_group_membership(shared={sigs[0]}, linked={sigs[1]})
+    _select_rows(t, 0, 1)
+    titles = [a.text() for a in _open_context_menu(t).actions()]
+    assert "Remove from shared/linked axis" in titles
