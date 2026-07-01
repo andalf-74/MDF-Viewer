@@ -89,6 +89,7 @@ def run(argv: list[str]) -> int:
     window.set_recent_files_provider(settings.get_and_prune)
 
     cursor_view = CursorView(window.plot_area.plot_item)
+    window.plot_area.register_drag_claimant(cursor_view)
     cursor_ctrl = CursorController(
         cursor_view=cursor_view,
         get_x_range=lambda: tuple(window.plot_area.plot_item.vb.viewRange()[0]),

@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import numpy as np
+import pyqtgraph as pg
 import pytest
 from unittest.mock import patch
 
@@ -106,6 +107,51 @@ def test_mouse_mode_menu_item_removed(plot: PlotArea) -> None:
     menu = plot._pi.vb.getMenu(ev)
     titles = [a.text() for a in menu.actions()]
     assert not any('mouse' in t.lower() for t in titles)
+
+
+def _drag_event(button, last_pos, pos, axis_finish=False):
+    ev = MagicMock()
+    ev.button.return_value = button
+    ev.lastPos.return_value = pg.Point(*last_pos)
+    ev.pos.return_value = pg.Point(*pos)
+    ev.isFinish.return_value = axis_finish
+    ev.buttonDownPos.return_value = pg.Point(*last_pos)
+    ev.screenPos.return_value = pg.Point(*pos)
+    ev.lastScreenPos.return_value = pg.Point(*last_pos)
+    return ev
+
+
+def test_interior_left_drag_pans_x_only(plot: PlotArea) -> None:
+    """Left-drag in the plot interior must not change an individual signal's Y (#78 follow-up).
+
+    Y-panning a signal is only meant to happen via dragging its own Y-axis
+    column (axis=1) — an interior drag used to pan both X and Y of whichever
+    ViewBox was topmost, which was reported as confusing/unwanted behaviour.
+    """
+    active = _make_active()
+    plot.add_signal(active)
+    vb = active.view_box
+    vb.setRange(xRange=(0.0, 10.0), yRange=(0.0, 10.0), padding=0)
+    y_before = vb.viewRange()[1]
+
+    ev = _drag_event(Qt.MouseButton.LeftButton, (0, 0), (0, 50))
+    vb.mouseDragEvent(ev, axis=None)
+
+    assert vb.viewRange()[1] == pytest.approx(y_before)
+
+
+def test_y_axis_drag_still_pans_y(plot: PlotArea) -> None:
+    """Dragging the Y-axis item itself (axis=1) must still pan that signal's Y."""
+    active = _make_active()
+    plot.add_signal(active)
+    vb = active.view_box
+    vb.setRange(xRange=(0.0, 10.0), yRange=(0.0, 10.0), padding=0)
+    y_before = vb.viewRange()[1]
+
+    ev = _drag_event(Qt.MouseButton.LeftButton, (0, 0), (0, 50))
+    vb.mouseDragEvent(ev, axis=1)
+
+    assert vb.viewRange()[1] != pytest.approx(y_before)
 
 
 # ---------------------------------------------------------------------------
@@ -959,6 +1005,172 @@ def test_hit_consumes_event(plot: PlotArea) -> None:
 def test_hit_test_returns_none_with_no_signals(plot: PlotArea) -> None:
     from PyQt6.QtCore import QPointF
     assert plot._hit_test(QPointF(0, 0)) is None
+
+
+def test_hit_test_shared_axis_prefers_selected_signal(plot: PlotArea) -> None:
+    """Two signals sharing a Y-axis must still hit-test in per-signal Z order (#80).
+
+    Before the fix, _hit_test sorted by view_box.zValue(), which is identical
+    for every member of a shared group since they use the same ViewBox object
+    — so an overlapping click could resolve to the wrong signal regardless of
+    selection. It must now use the per-signal Z tracked independently of the
+    (possibly shared) ViewBox.
+    """
+    from PyQt6.QtCore import QPointF
+
+    a, b = _make_active("a"), _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.share_signals([a, b])
+    plot.set_selected_signals([b], all_signals=[a, b])
+
+    # Simulate both curves' shapes covering the same screen point (overlap).
+    always_hit = MagicMock()
+    always_hit.contains.return_value = True
+    a.curve.curve.mouseShape = MagicMock(return_value=always_hit)
+    b.curve.curve.mouseShape = MagicMock(return_value=always_hit)
+
+    assert plot._hit_test(QPointF(100, 100)) is b
+
+
+def test_hit_test_marker_scatter_miss_does_not_raise(plot: PlotArea) -> None:
+    """A marker-only signal's scatter miss must not crash _hit_test (#81).
+
+    ScatterPlotItem.pointsAt() returns a numpy array; treating it as a bare
+    bool raised "truth value of an empty array is ambiguous" whenever the
+    click missed every marker.
+    """
+    from PyQt6.QtCore import QPointF
+
+    active = _make_active()
+    active.display_mode = "marker"
+    plot.add_signal(active)
+    # Far outside the data's screen position -> pointsAt() returns an empty array.
+    assert plot._hit_test(QPointF(-99999, -99999)) is None
+
+
+def test_hit_test_marker_scatter_miss_does_not_block_lower_z_signal(plot: PlotArea) -> None:
+    """A scatter-miss exception on a higher-Z marker signal must not abort
+    the loop before it reaches lower-Z signals (#81).
+
+    Before the fix, the crash above aborted _hit_test mid-iteration, so every
+    signal ranked below a marker-only one in Z order became unselectable too
+    — matching the reported symptom exactly.
+    """
+    from PyQt6.QtCore import QPointF
+
+    marker_sig, line_sig = _make_active("marker_sig"), _make_active("line_sig")
+    plot.add_signal(marker_sig)
+    plot.add_signal(line_sig)
+    marker_sig.display_mode = "marker"
+    # marker_sig ranks above line_sig in Z (table order: marker_sig first).
+    plot.set_selected_signals([], all_signals=[marker_sig, line_sig])
+
+    always_hit = MagicMock()
+    always_hit.contains.return_value = True
+    line_sig.curve.curve.mouseShape = MagicMock(return_value=always_hit)
+
+    assert plot._hit_test(QPointF(-99999, -99999)) is line_sig
+
+
+def test_near_any_point_hits_within_tolerance(plot: PlotArea) -> None:
+    """Marker fallback hit-test (#81): a near-miss a few px away still counts."""
+    from PyQt6.QtCore import QPointF
+
+    scatter = pg.ScatterPlotItem(x=[5.0], y=[5.0], symbol="o", size=6)
+    vb = MagicMock()
+    vb.viewPixelSize.return_value = (0.1, 0.1)  # 0.1 data units per pixel
+    near_pos = QPointF(5.0 + 3 * 0.1, 5.0 + 3 * 0.1)  # 3 px away in each axis
+    assert plot._near_any_point(vb, scatter, near_pos) is True
+
+
+def test_near_any_point_misses_beyond_tolerance(plot: PlotArea) -> None:
+    from PyQt6.QtCore import QPointF
+
+    scatter = pg.ScatterPlotItem(x=[5.0], y=[5.0], symbol="o", size=6)
+    vb = MagicMock()
+    vb.viewPixelSize.return_value = (0.1, 0.1)
+    far_pos = QPointF(5.0 + 20 * 0.1, 5.0 + 20 * 0.1)  # 20 px away
+    assert plot._near_any_point(vb, scatter, far_pos) is False
+
+
+def test_near_any_point_returns_false_on_viewpixelsize_error(plot: PlotArea) -> None:
+    """A ViewBox without real geometry raises inside viewPixelSize(); must not crash."""
+    from PyQt6.QtCore import QPointF
+
+    scatter = pg.ScatterPlotItem(x=[5.0], y=[5.0], symbol="o", size=6)
+    vb = MagicMock()
+    vb.viewPixelSize.side_effect = TypeError("no view")
+    assert plot._near_any_point(vb, scatter, QPointF(5.0, 5.0)) is False
+
+
+# ---------------------------------------------------------------------------
+# register_drag_claimant / eventFilter routing
+# ---------------------------------------------------------------------------
+
+class _FakeClaimant:
+    """Minimal DragClaimant stub for testing PlotArea's press/move/release routing."""
+
+    def __init__(self, claim: bool = True) -> None:
+        self._claim = claim
+        self.events: list[str] = []
+
+    def hit_test(self, scene_pos):
+        return "token" if self._claim else None
+
+    def on_press(self, token, scene_pos):
+        self.events.append("press")
+
+    def on_move(self, token, scene_pos):
+        self.events.append("move")
+
+    def on_release(self, token, scene_pos):
+        self.events.append("release")
+
+
+def test_drag_claimant_claims_press_and_skips_hit_test(plot: PlotArea) -> None:
+    claimant = _FakeClaimant()
+    plot.register_drag_claimant(claimant)
+    received = []
+    plot.signal_clicked.connect(received.append)
+
+    result = plot.eventFilter(plot._pw.viewport(), _left_press_event())
+
+    assert result is True
+    assert claimant.events == ["press"]
+    assert received == []  # curve hit-test never ran
+
+
+def test_drag_claimant_miss_falls_through_to_hit_test(plot: PlotArea) -> None:
+    claimant = _FakeClaimant(claim=False)
+    plot.register_drag_claimant(claimant)
+    received = []
+    plot.signal_clicked.connect(received.append)
+
+    result = plot.eventFilter(plot._pw.viewport(), _left_press_event())
+
+    assert result is False
+    assert claimant.events == []
+    assert received == [None]
+
+
+def test_drag_claimant_receives_move_and_release(plot: PlotArea) -> None:
+    claimant = _FakeClaimant()
+    plot.register_drag_claimant(claimant)
+    plot.eventFilter(plot._pw.viewport(), _left_press_event())
+
+    move_ev = MagicMock()
+    move_ev.type.return_value = QEvent.Type.MouseMove
+    move_ev.pos.return_value = QPoint(105, 105)
+    plot.eventFilter(plot._pw.viewport(), move_ev)
+
+    release_ev = MagicMock()
+    release_ev.type.return_value = QEvent.Type.MouseButtonRelease
+    release_ev.pos.return_value = QPoint(105, 105)
+    plot.eventFilter(plot._pw.viewport(), release_ev)
+
+    assert claimant.events == ["press", "move", "release"]
+    assert plot._active_claimant is None
 
 
 # ---------------------------------------------------------------------------

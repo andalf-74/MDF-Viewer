@@ -73,12 +73,16 @@ class CursorView(QObject):
         self._mode = CursorMode.HIDDEN
         self._nearest_cursor: int = 0
 
+        # DragClaimant state (see PlotArea.register_drag_claimant).
+        self._drag_line: pg.InfiniteLine | None = None
+        self._dragged: bool = False
+
         # Two InfiniteLines, both hidden initially.
         self._lines: list[pg.InfiniteLine] = []
         for i in range(2):
             line = pg.InfiniteLine(angle=90, movable=True, pen=_CURSOR_PEN)
             line.setVisible(False)
-            self._pi.addItem(line)
+            self._pi.addItem(line, ignoreBounds=True)
             line.sigPositionChanged.connect(
                 lambda ln, idx=i: self.cursor_moved.emit(idx, ln.value())
             )
@@ -90,7 +94,7 @@ class CursorView(QObject):
         # Horizontal delta-time line (angle=0), hidden until TWO mode.
         self._delta_line = pg.InfiniteLine(angle=0, movable=True, pen=_DELTA_PEN)
         self._delta_line.setVisible(False)
-        self._pi.addItem(self._delta_line)
+        self._pi.addItem(self._delta_line, ignoreBounds=True)
         self._delta_line.sigPositionChanged.connect(self._on_delta_line_pos_changed)
 
         # Delta-time label, parented to the main ViewBox.
@@ -142,6 +146,40 @@ class CursorView(QObject):
 
         # Reposition chevrons whenever the view range is panned or zoomed.
         self._pi.vb.sigRangeChanged.connect(lambda *_: self._update_chevrons())
+
+    # ------------------------------------------------------------------
+    # DragClaimant protocol (registered with PlotArea.register_drag_claimant)
+    # ------------------------------------------------------------------
+    #
+    # Cursor/delta lines live in pi.vb, while each signal gets its own
+    # top-level ViewBox — real Qt scene Z-order does not compare consistently
+    # between the two (#78). Rather than fight that comparison, PlotArea gives
+    # this claimant first look at every left-button press: hit_test() uses
+    # each line's own sceneBoundingRect() (the same margin pyqtgraph's native
+    # drag/hover already uses) to decide, independent of Z-order entirely.
+    # Once claimed, the drag is driven directly via setValue() instead of
+    # pyqtgraph's native mouseDragEvent, which never runs for a claimed press.
+
+    def hit_test(self, scene_pos) -> pg.InfiniteLine | None:
+        """Return the topmost visible cursor/delta line under scene_pos, or None."""
+        for line in (self._delta_line, *self._lines):
+            if line.isVisible() and line.sceneBoundingRect().contains(scene_pos):
+                return line
+        return None
+
+    def on_press(self, line: pg.InfiniteLine, scene_pos) -> None:
+        self._drag_line = line
+        self._dragged = False
+
+    def on_move(self, line: pg.InfiniteLine, scene_pos) -> None:
+        self._dragged = True
+        v = self._pi.vb.mapSceneToView(scene_pos)
+        line.setValue(v.x() if line.angle == 90 else v.y())
+
+    def on_release(self, line: pg.InfiniteLine, scene_pos) -> None:
+        if not self._dragged and line in self._lines:
+            self.cursor_clicked.emit(self._lines.index(line))
+        self._drag_line = None
 
     # ------------------------------------------------------------------
     # Public API (called by CursorController)

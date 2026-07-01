@@ -359,6 +359,68 @@ def test_delta_fetch_signal_emitted(cv: CursorView, qtbot: QtBot) -> None:
         cv._dt_chevron._clicked_cb(QPointF(0.0, 0.0))
 
 
+# ---------------------------------------------------------------------------
+# DragClaimant protocol (registered with PlotArea.register_drag_claimant)
+# ---------------------------------------------------------------------------
+
+def test_hit_test_misses_when_no_line_visible(cv: CursorView, pw: pg.PlotWidget) -> None:
+    from PyQt6.QtCore import QPointF
+    assert cv.hit_test(QPointF(0.0, 0.0)) is None
+
+
+def test_hit_test_hits_visible_cursor_line(cv: CursorView, pw: pg.PlotWidget) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.ONE, [5.0, 7.5])
+    scene_pos = cv._lines[0].mapToScene(cv._lines[0].boundingRect().center())
+    assert cv.hit_test(scene_pos) is cv._lines[0]
+
+
+def test_hit_test_hits_visible_delta_line(cv: CursorView, pw: pg.PlotWidget) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.TWO, [2.5, 7.5])
+    cv.update_delta_time(2.5, 7.5, "1.0 s", y_pos=0.0, show=True, color=(200, 200, 200))
+    scene_pos = cv._delta_line.mapToScene(cv._delta_line.boundingRect().center())
+    assert cv.hit_test(scene_pos) is cv._delta_line
+
+
+def test_on_move_drives_line_value_directly(cv: CursorView, pw: pg.PlotWidget) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.ONE, [5.0, 7.5])
+    line = cv._lines[0]
+    cv.on_press(line, line.mapToScene(line.boundingRect().center()))
+    scene_pos = cv._pi.vb.mapViewToScene(pg.Point(3.0, 0.0))
+    cv.on_move(line, scene_pos)
+    assert line.value() == pytest.approx(3.0)
+
+
+def test_on_release_without_move_emits_cursor_clicked(
+    cv: CursorView, pw: pg.PlotWidget, qtbot: QtBot
+) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.ONE, [5.0, 7.5])
+    line = cv._lines[0]
+    scene_pos = line.mapToScene(line.boundingRect().center())
+    cv.on_press(line, scene_pos)
+    with qtbot.waitSignal(cv.cursor_clicked, timeout=500) as blocker:
+        cv.on_release(line, scene_pos)
+    assert blocker.args[0] == 0
+
+
+def test_on_release_after_move_does_not_emit_cursor_clicked(
+    cv: CursorView, pw: pg.PlotWidget, qtbot: QtBot
+) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.ONE, [5.0, 7.5])
+    line = cv._lines[0]
+    scene_pos = line.mapToScene(line.boundingRect().center())
+    cv.on_press(line, scene_pos)
+    cv.on_move(line, cv._pi.vb.mapViewToScene(pg.Point(3.0, 0.0)))
+    received = []
+    cv.cursor_clicked.connect(received.append)
+    cv.on_release(line, scene_pos)
+    assert received == []
+
+
 def test_set_cursor_names_updates_tooltip(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:

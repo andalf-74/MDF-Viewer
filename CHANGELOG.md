@@ -5,6 +5,44 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Three related Z-order/hit-testing bugs shared one root cause: click
+  selection (`PlotArea._hit_test`) and native mouse routing depended on Qt's
+  real scene Z-order, which doesn't compare consistently between per-signal
+  `ViewBox`es and `pi.vb` (host of the cursor/delta-time lines), and collapses
+  entirely when signals share one `ViewBox`.
+  - The horizontal delta-time line (and, defensively, the vertical cursor
+    lines) were undraggable (#78). `PlotArea` now exposes
+    `register_drag_claimant()`: `CursorView` claims a left-button press via
+    each line's own `sceneBoundingRect()` — sidestepping the Z-order
+    comparison entirely — and drives the line's value directly instead of
+    relying on pyqtgraph's native drag, which never sees a claimed press.
+    This alone wasn't sufficient to fix the delta line, though: `pi.vb`
+    (the ViewBox hosting these lines) auto-ranges by default, and the lines
+    were added via `addItem()` without `ignoreBounds=True` — unlike the
+    labels/chevrons, which already had it. Each line's own bounding box was
+    feeding back into `pi.vb`'s Y auto-fit, so the view re-centered on the
+    delta line's value every time it changed, cancelling out any visible
+    movement and snapping it back to the vertical middle after any range
+    recompute (e.g. a zoom). Cursor lines only looked fine because X kept
+    getting explicitly overridden elsewhere, masking the same defect.
+  - Z-order was ineffective when signals shared a Y-axis (#80): all members
+    of a shared group use the *same* `ViewBox`, so stamping Z only on the
+    `ViewBox` couldn't distinguish between them. Selection Z is now tracked
+    per-signal (`PlotArea._z_by_signal`) and also applied to each curve, not
+    just the `ViewBox`.
+  - Some signals — reported after switching a signal to "Marker only" — became
+    unselectable in the plot view (though still selectable in the Active
+    Signals table), along with every signal ranked below it in Z-order (#81).
+    Two issues, the second masking the first: `ScatterPlotItem.pointsAt()`
+    requires a pixel-exact hit, far stricter than a line curve's stroked
+    `mouseShape()`, so a near-miss on a marker was common; `_hit_test` now
+    falls back to a small pixel-tolerance check (`_near_any_point`) around
+    each rendered marker. But the near-miss case itself was crashing:
+    `pointsAt()` returns a numpy array, and `if spd.curve.scatter.pointsAt(...)`
+    raised `ValueError: The truth value of an empty array is ambiguous`
+    whenever it returned empty — silently aborting `_hit_test`'s loop before
+    it ever reached signals ranked below the marker-only one, exactly matching
+    the reported symptom. Fixed by checking `.size > 0` explicitly.
 - Step mode line jumped to the next sample's value one timestamp early,
   causing markers to sit at the end of their held segment instead of the
   start (#83). pyqtgraph's `stepMode` was set to `"left"` while passing

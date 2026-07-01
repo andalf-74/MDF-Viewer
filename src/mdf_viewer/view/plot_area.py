@@ -29,7 +29,28 @@ from mdf_viewer.view_model.active_signal import ActiveSignal
 from mdf_viewer.view_model.zoom_state import ZoomState
 
 if TYPE_CHECKING:
-    pass
+    from typing import Protocol
+
+    class DragClaimant(Protocol):
+        """Something that gets first refusal on a left-button press in the plot.
+
+        Registered via PlotArea.register_drag_claimant(). hit_test() returns an
+        opaque token identifying what was hit (e.g. a specific line), or None on
+        a miss; the same token is passed back to on_move/on_release for the
+        remainder of that gesture.
+
+        This exists so cursor/delta-time lines (owned by CursorView, living in
+        pi.vb) can claim a drag before curve-click hit-testing or native
+        ViewBox panning ever see the event. Real Qt scene Z-order does not
+        compare consistently between pi.vb and each signal's own top-level
+        ViewBox (see #78) — routing through one authoritative, coordinate-based
+        check here avoids depending on that comparison at all.
+        """
+
+        def hit_test(self, scene_pos: QPointF) -> object | None: ...
+        def on_press(self, token: object, scene_pos: QPointF) -> None: ...
+        def on_move(self, token: object, scene_pos: QPointF) -> None: ...
+        def on_release(self, token: object, scene_pos: QPointF) -> None: ...
 
 _MDF_SUFFIXES = {'.mf4', '.mdf', '.dat'}
 
@@ -65,8 +86,11 @@ def _make_pen(color, width: int, style: str) -> QPen:
 class _ViewBox(pg.ViewBox):
     """ViewBox with fixed mouse behaviour for MDF-Viewer.
 
-    Left drag: pan. Right drag: rectangle zoom. Wheel: X-axis zoom only,
-    except when the mouse is over a Y-axis (axis=1), which zooms Y.
+    Left drag inside the plot interior: pans X only (Y-panning an individual
+    signal is only available by dragging that signal's own Y-axis column,
+    which pyqtgraph routes here as axis=1 — not a use case for interior
+    drags). Right drag: rectangle zoom. Wheel: X-axis zoom only, except when
+    the mouse is over a Y-axis (axis=1), which zooms Y.
     The 'Mouse Mode' context-menu item is removed since the mode is fixed.
     """
 
@@ -104,6 +128,10 @@ class _ViewBox(pg.ViewBox):
             else:
                 self.updateScaleBox(ev.buttonDownPos(), ev.pos())
             ev.accept()
+        elif ev.button() == Qt.MouseButton.LeftButton and axis is None:
+            # Interior drag: X only. Passing axis=0 masks out Y in the base
+            # implementation (see ViewBox.mouseDragEvent's mask[1-axis]=0).
+            super().mouseDragEvent(ev, axis=0)
         else:
             super().mouseDragEvent(ev, axis=axis)
 
@@ -214,6 +242,15 @@ class PlotArea(QWidget):
         self._selected_signals: list[ActiveSignal] = []
         self._selected_line_boost: int = 1
         self._show_only_selected_y_axis: bool = False
+        # Authoritative per-signal Z, independent of the ViewBox: shared-axis
+        # groups put multiple signals in the *same* ViewBox, so a Z stamped
+        # only on the ViewBox can't distinguish between them (#80). This dict
+        # is the source of truth for _hit_test's stacking order.
+        self._z_by_signal: dict[ActiveSignal, int] = {}
+
+        # Objects that get first refusal on a left-button press (see DragClaimant).
+        self._drag_claimants: list["DragClaimant"] = []
+        self._active_claimant: tuple["DragClaimant", object] | None = None
 
         # Axis grouping state
         self._shared_groups: list[list[ActiveSignal]] = []
@@ -236,6 +273,15 @@ class PlotArea(QWidget):
     # ------------------------------------------------------------------
     # Public API (called by AppController)
     # ------------------------------------------------------------------
+
+    def register_drag_claimant(self, claimant: "DragClaimant") -> None:
+        """Register an object that gets first refusal on left-button presses.
+
+        Checked in registration order before curve-click hit-testing. Used by
+        CursorView so cursor/delta-time line drags are claimed here rather
+        than left to native ViewBox panning.
+        """
+        self._drag_claimants.append(claimant)
 
     def add_signal(self, active: ActiveSignal) -> None:
         """Add a signal curve with its own ViewBox and right Y-axis.
@@ -306,6 +352,7 @@ class PlotArea(QWidget):
         if active not in self._data:
             return
         spd = self._data.pop(active)
+        self._z_by_signal.pop(active, None)
 
         # Always remove the curve from its ViewBox.
         spd.view_box.removeItem(spd.curve)
@@ -378,9 +425,13 @@ class PlotArea(QWidget):
 
             if active in selected_set:
                 idx = selected.index(active)
-                spd.view_box.setZValue(n + _SELECTION_Z + idx)
+                z = n + _SELECTION_Z + idx
             else:
-                spd.view_box.setZValue(base_z)
+                z = base_z
+
+            self._z_by_signal[active] = z
+            spd.view_box.setZValue(z)
+            spd.curve.setZValue(z)
 
             if active.display_mode != "marker":
                 spd.curve.setPen(_make_pen(active.color, self._effective_width(active), active.line_style))
@@ -1054,10 +1105,17 @@ class PlotArea(QWidget):
     # Internal helpers — general
     # ------------------------------------------------------------------
 
+    # Pixel tolerance for the marker fallback hit-test below — a few px wider
+    # than an exact pointsAt() hit so near-misses on small markers still
+    # register instead of falling through to native ViewBox panning (#81).
+    _MARKER_HIT_TOLERANCE_PX = 6
+
     def _hit_test(self, viewport_pos: QPointF) -> "ActiveSignal | None":
         """Return the topmost ActiveSignal whose curve/markers contain viewport_pos, or None."""
         scene_pos = self._pw.mapToScene(viewport_pos.toPoint())
-        ordered = sorted(self._data.items(), key=lambda kv: kv[1].view_box.zValue(), reverse=True)
+        ordered = sorted(
+            self._data.items(), key=lambda kv: self._z_by_signal.get(kv[0], 0), reverse=True
+        )
         for active, spd in ordered:
             if active.display_mode != "marker":
                 data_pos = spd.view_box.mapSceneToView(scene_pos)
@@ -1065,17 +1123,56 @@ class PlotArea(QWidget):
                     return active
             if active.display_mode != "line":
                 local_pos = spd.curve.scatter.mapFromScene(scene_pos)
-                if spd.curve.scatter.pointsAt(local_pos):
+                if spd.curve.scatter.pointsAt(local_pos).size > 0:
+                    return active
+                if self._near_any_point(spd.view_box, spd.curve.scatter, local_pos):
                     return active
         return None
+
+    def _near_any_point(self, view_box, scatter, local_pos: QPointF) -> bool:
+        """Generous fallback for marker-only signals: hit if within a few px of any point.
+
+        ScatterPlotItem.pointsAt() only hits if the click lands exactly inside a
+        rendered symbol — a much smaller target than a curve's stroked
+        mouseShape(). Distance is measured in screen pixels (via
+        viewPixelSize()) since local_pos/point positions are in data units.
+        """
+        try:
+            dx, dy = view_box.viewPixelSize()
+        except Exception:
+            return False
+        if not dx or not dy:
+            return False
+        tol = self._MARKER_HIT_TOLERANCE_PX
+        for point in scatter.points():
+            pos = point.pos()
+            if abs(pos.x() - local_pos.x()) / dx <= tol and abs(pos.y() - local_pos.y()) / dy <= tol:
+                return True
+        return False
 
     def eventFilter(self, watched, event):
         if watched is self._pw.viewport():
             t = event.type()
             if t == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                scene_pos = self._pw.mapToScene(event.pos())
+                for claimant in self._drag_claimants:
+                    token = claimant.hit_test(scene_pos)
+                    if token is not None:
+                        self._active_claimant = (claimant, token)
+                        claimant.on_press(token, scene_pos)
+                        return True
                 hit = self._hit_test(QPointF(event.pos()))
                 self.signal_clicked.emit(hit)
                 return hit is not None  # True (consume) on hit, False (pass through) on miss
+            if t == QEvent.Type.MouseMove and self._active_claimant is not None:
+                claimant, token = self._active_claimant
+                claimant.on_move(token, self._pw.mapToScene(event.pos()))
+                return True
+            if t == QEvent.Type.MouseButtonRelease and self._active_claimant is not None:
+                claimant, token = self._active_claimant
+                claimant.on_release(token, self._pw.mapToScene(event.pos()))
+                self._active_claimant = None
+                return True
             if t == QEvent.Type.DragEnter:
                 if self._accepts_drag(event.mimeData()):
                     event.acceptProposedAction()
