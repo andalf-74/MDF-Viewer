@@ -4,6 +4,8 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-07-02
+
 ### Added
 - `.mvc` config files now also capture and restore the window's size,
   position, and maximized state, plus every splitter's sizes (left, right,

@@ -153,7 +153,7 @@ See `docs/release.md` for the full build and publish steps.
 
 ## Current Status
 
-**As of 2026-07-02:** v2.1 released — 977 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45, #44) merged to main; #30 (line width), #38 (line style), #24 (selected signal highlight), #69 (show only selected signal Y-axis), #40 (enum signal display), #16 (shared/linked Y-axes), #36 (keep signals on new file load), #37 (save/load configuration) implemented.
+**As of 2026-07-02:** v2.1.1 released — 977 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45, #44) merged to main; #30 (line width), #38 (line style), #24 (selected signal highlight), #69 (show only selected signal Y-axis), #40 (enum signal display), #16 (shared/linked Y-axes), #36 (keep signals on new file load), #37 (save/load configuration) implemented.
 
 Since the 2026-06-30 status: #83, #82, #79 (already fixed by then), plus #78/#80/#81 (one shared root-cause fix — drag-claimant routing in `PlotArea`/`CursorView`, per-signal Z tracking, and a numpy-truthiness crash in `_hit_test`), #84 (swimlanes/zoom not collapsing Linked Y-axis groups — new `PlotArea._display_units()` helper), #89 (shorten-signal-names preference not applied on startup), #77 (`.mvc` config files now capture/restore window and splitter sizes, via `MainWindow`-owned fields on `ViewerConfig` that the Controller treats as opaque), and #85 (blurry splash-screen icon — `QPixmap(path)` on the multi-resolution `.ico` was picking its smallest 16x16 frame and upscaling it; now uses `QIcon.pixmap()` to grab the largest embedded frame and also sets `devicePixelRatio` for HiDPI displays) have all been fixed and closed.
 
