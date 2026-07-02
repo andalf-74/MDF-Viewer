@@ -15,8 +15,8 @@ def run(argv: list[str]) -> int:
     import sys
     from pathlib import Path
 
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QFont, QPainter, QPixmap
+    from PyQt6.QtCore import QSize, Qt
+    from PyQt6.QtGui import QFont, QIcon, QPainter, QPixmap
     from PyQt6.QtWidgets import QApplication, QMessageBox, QSplashScreen
 
     from mdf_viewer import __version__
@@ -40,21 +40,39 @@ def run(argv: list[str]) -> int:
         )
 
     def _build_splash_pixmap() -> QPixmap:
+        # QPixmap(path) on a multi-resolution .ico picks the *smallest* embedded
+        # frame (16x16 here) with no way to request a bigger one; scaling that up
+        # to 96x96 is what made the splash icon blurry (#85). QIcon lets us ask
+        # for the icon at its largest embedded size (256x256) and downscale from
+        # there instead. The whole pixmap is also built at the screen's actual
+        # device pixel ratio so it renders crisply on HiDPI displays too.
         icons_dir = Path(__file__).parent / "resources" / "icons"
-        icon = QPixmap(str(icons_dir / "app_icon.ico")).scaled(
-            96,
-            96,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
+        dpr = QApplication.primaryScreen().devicePixelRatio()
 
-        pixmap = QPixmap(360, 140)
+        icon_logical = 96
+        icon_physical = round(icon_logical * dpr)
+        icon = (
+            QIcon(str(icons_dir / "app_icon.ico"))
+            .pixmap(QSize(256, 256))
+            .scaled(
+                icon_physical,
+                icon_physical,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        )
+        icon.setDevicePixelRatio(dpr)
+
+        logical_w, logical_h = 360, 140
+        pixmap = QPixmap(round(logical_w * dpr), round(logical_h * dpr))
+        pixmap.setDevicePixelRatio(dpr)
         pixmap.fill(Qt.GlobalColor.white)
 
         painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
         painter.drawPixmap(22, 22, icon)
 
-        text_x = 22 + icon.width() + 20
+        text_x = 22 + round(icon.width() / dpr) + 20
         painter.setFont(QFont(painter.font().family(), 16, QFont.Weight.Bold))
         painter.drawText(text_x, 60, "MDF-Viewer")
         painter.setFont(QFont(painter.font().family(), 10))

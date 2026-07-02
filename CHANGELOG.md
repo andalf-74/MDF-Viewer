@@ -16,6 +16,14 @@ All notable changes to MDF-Viewer are documented in this file.
   default window size.
 
 ### Fixed
+- Splash screen icon was very blurry (#85). `QPixmap(path)` on the
+  multi-resolution app icon `.ico` (16/32/48/128/256 px frames embedded)
+  picked the 16x16 frame with no way to request a bigger one, then upscaled
+  it ~6x to 96x96. Now uses `QIcon(path).pixmap(QSize(256, 256))` to grab
+  the largest embedded frame and downscale from there instead. Also fixed
+  a related HiDPI issue: the splash pixmap never set a `devicePixelRatio`,
+  so on scaled displays Qt stretched the whole thing a second time; it's
+  now built at the screen's actual device pixel ratio.
 - The "Shorten Signal Names" preference had no effect after restarting the
   app — the checkbox showed the correct saved state once you opened
   Preferences again, but names weren't actually shortened until you
