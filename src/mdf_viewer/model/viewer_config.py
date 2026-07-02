@@ -44,3 +44,7 @@ class ViewerConfig:
     display_name_separator: str
     display_name_direction: str                       # "left" | "right"
     display_name_segments: int
+    # Opaque to everything except MainWindow, which captures/applies them —
+    # keeps window/splitter geometry out of the Model/Controller's vocabulary.
+    window_geometry: dict | None = None                # {x, y, width, height, maximized}
+    splitter_sizes: dict | None = None                 # {left, right, content, outer, left_panel}

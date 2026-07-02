@@ -153,12 +153,12 @@ See `docs/release.md` for the full build and publish steps.
 
 ## Current Status
 
-**As of 2026-07-02:** v2.1 released — 965 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45, #44) merged to main; #30 (line width), #38 (line style), #24 (selected signal highlight), #69 (show only selected signal Y-axis), #40 (enum signal display), #16 (shared/linked Y-axes), #36 (keep signals on new file load), #37 (save/load configuration) implemented.
+**As of 2026-07-02:** v2.1 released — 977 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45, #44) merged to main; #30 (line width), #38 (line style), #24 (selected signal highlight), #69 (show only selected signal Y-axis), #40 (enum signal display), #16 (shared/linked Y-axes), #36 (keep signals on new file load), #37 (save/load configuration) implemented.
 
-Since the 2026-06-30 status: #83, #82, #79 (already fixed by then), plus #78/#80/#81 (one shared root-cause fix — drag-claimant routing in `PlotArea`/`CursorView`, per-signal Z tracking, and a numpy-truthiness crash in `_hit_test`), #84 (swimlanes/zoom not collapsing Linked Y-axis groups — new `PlotArea._display_units()` helper), and #89 (shorten-signal-names preference not applied on startup) have all been fixed, verified live, and closed.
+Since the 2026-06-30 status: #83, #82, #79 (already fixed by then), plus #78/#80/#81 (one shared root-cause fix — drag-claimant routing in `PlotArea`/`CursorView`, per-signal Z tracking, and a numpy-truthiness crash in `_hit_test`), #84 (swimlanes/zoom not collapsing Linked Y-axis groups — new `PlotArea._display_units()` helper), #89 (shorten-signal-names preference not applied on startup), and #77 (`.mvc` config files now capture/restore window and splitter sizes, via `MainWindow`-owned fields on `ViewerConfig` that the Controller treats as opaque) have all been fixed, verified live, and closed.
 
 Two active milestones on GitHub:
-- **2.1.1 Bugfixing** — 2 open bugs remain: #85 (blurry splash-screen icon), #77 (config doesn't save widget sizes).
+- **2.1.1 Bugfixing** — 1 open bug remains: #85 (blurry splash-screen icon).
 - **2.2 Plugins** — new plugin architecture effort: #43 (umbrella), #70 (event bus on AppController), #71 (PluginContext API facade), #72 (Plugin base class/lifecycle), #73 (UI extension points in MainWindow), #74 (plugin loader/discovery), #75 (proof-of-concept built-in plugin), #76 (convert update checker into a first-party plugin).
 
 #17 (multi-file support) has been moved to the **Backlog** milestone (due 2028-12-31, i.e. unscheduled), along with #55, #57, #58, #60, #61.

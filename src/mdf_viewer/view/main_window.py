@@ -370,7 +370,8 @@ class MainWindow(QMainWindow):
         _pin_font.setPointSize(16)
         self._pin_button.setFont(_pin_font)
 
-        left_splitter = _make_splitter(Qt.Orientation.Vertical)
+        self._left_splitter = _make_splitter(Qt.Orientation.Vertical)
+        left_splitter = self._left_splitter
         left_splitter.addWidget(self.signal_browser)
         left_splitter.addWidget(self.measurement_info_box)
         left_splitter.setStretchFactor(0, 3)
@@ -389,7 +390,8 @@ class MainWindow(QMainWindow):
 
         # ── Right panel ───────────────────────────────────────────────────
         right_panel = QWidget()
-        right_splitter = _make_splitter(Qt.Orientation.Vertical)
+        self._right_splitter = _make_splitter(Qt.Orientation.Vertical)
+        right_splitter = self._right_splitter
         right_splitter.addWidget(self.active_signals_table)
         right_splitter.addWidget(self.signal_info_box)
         right_splitter.setStretchFactor(0, 3)
@@ -471,6 +473,62 @@ class MainWindow(QMainWindow):
             if self._panel_anim.state() != QAbstractAnimation.State.Running:
                 x = 0 if self._drawer_shown else -self._panel_w
                 self._left_panel.move(x, 0)
+
+    # ------------------------------------------------------------------
+    # Layout persistence (.mvc window/splitter state)
+    # ------------------------------------------------------------------
+
+    def _capture_window_geometry(self) -> dict:
+        geo = self.normalGeometry()
+        return {
+            "x": geo.x(),
+            "y": geo.y(),
+            "width": geo.width(),
+            "height": geo.height(),
+            "maximized": self.isMaximized(),
+        }
+
+    def _capture_splitter_sizes(self) -> dict:
+        return {
+            "left": self._left_splitter.sizes(),
+            "right": self._right_splitter.sizes(),
+            "content": self._content_splitter.sizes(),
+            "outer": self._outer_splitter.sizes(),
+            "left_panel": {"pinned": self._pinned, "width": self._panel_w},
+        }
+
+    def _apply_window_geometry(self, geometry: dict | None) -> None:
+        if not geometry:
+            return
+        w, h = geometry.get("width"), geometry.get("height")
+        if isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0:
+            self.resize(w, h)
+            x, y = geometry.get("x"), geometry.get("y")
+            if isinstance(x, int) and isinstance(y, int):
+                self.move(x, y)
+        if geometry.get("maximized"):
+            self.showMaximized()
+
+    def _apply_splitter_sizes(self, sizes: dict | None) -> None:
+        if not sizes:
+            return
+        for attr, key in (
+            ("_left_splitter", "left"),
+            ("_right_splitter", "right"),
+            ("_content_splitter", "content"),
+            ("_outer_splitter", "outer"),
+        ):
+            values = sizes.get(key)
+            if isinstance(values, list) and all(isinstance(v, int) for v in values):
+                getattr(self, attr).setSizes(values)
+
+        left_panel = sizes.get("left_panel")
+        if isinstance(left_panel, dict):
+            width = left_panel.get("width")
+            if isinstance(width, int) and width > 0:
+                self._panel_w = width
+            if left_panel.get("pinned") is False and self._pinned:
+                self._toggle_pin()
 
     # ------------------------------------------------------------------
     # Collapse / drawer
@@ -878,11 +936,17 @@ class MainWindow(QMainWindow):
         self._save_config_to(Path(path_str))
 
     def _save_config_to(self, path: Path) -> None:
+        import dataclasses
         from mdf_viewer.config_manager import ConfigManager
         if self._controller is None or self._settings is None:
             return
         try:
             config = self._controller.capture_config(path)
+            config = dataclasses.replace(
+                config,
+                window_geometry=self._capture_window_geometry(),
+                splitter_sizes=self._capture_splitter_sizes(),
+            )
             ConfigManager.save(config, path, self._settings.config_path_mode)
         except Exception as exc:
             QMessageBox.critical(self, "Save Config Error", str(exc))
@@ -906,6 +970,9 @@ class MainWindow(QMainWindow):
         except ConfigLoadError as exc:
             QMessageBox.critical(self, "Config Load Error", str(exc))
             return
+
+        self._apply_window_geometry(config.window_geometry)
+        self._apply_splitter_sizes(config.splitter_sizes)
 
         mdf_path = ConfigManager.resolve_measurement_path(config.measurement_path, path)
         if mdf_path is None:

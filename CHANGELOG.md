@@ -4,6 +4,17 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- `.mvc` config files now also capture and restore the window's size,
+  position, and maximized state, plus every splitter's sizes (left, right,
+  content, and outer splitters) and the left panel's pinned-vs-drawer state
+  and width (#77). Restoring a saved session now returns the whole window
+  layout, not just the signals and axes. Captured and applied entirely by
+  `MainWindow`; `ViewerConfig`/`ConfigManager` treat the data as an opaque
+  blob so the Controller never needs to know what a splitter is. Older
+  `.mvc` files without this data still load cleanly and keep the app's
+  default window size.
+
 ### Fixed
 - The "Shorten Signal Names" preference had no effect after restarting the
   app — the checkbox showed the correct saved state once you opened

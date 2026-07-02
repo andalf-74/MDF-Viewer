@@ -702,3 +702,105 @@ def test_open_config_mvc_not_routed_to_load_file(
         with patch.object(window, "_load_file") as mock_lf:
             window.open_config(mvc)
             mock_lf.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Layout persistence (#77) — window geometry and splitter sizes
+# ---------------------------------------------------------------------------
+
+def _minimal_config(**overrides):
+    from mdf_viewer.config_manager import CONFIG_FORMAT_VERSION
+    from mdf_viewer.model.viewer_config import ViewerConfig
+    fields = dict(
+        format_version=CONFIG_FORMAT_VERSION, measurement_path="", signals=(),
+        x_range=(0.0, 1.0), y_ranges={}, shared_groups=(), linked_groups=(),
+        cursor_mode="HIDDEN", cursor_positions=(0.0, 0.0), selected_signal=None,
+        display_name_separator=".", display_name_direction="right", display_name_segments=1,
+    )
+    fields.update(overrides)
+    return ViewerConfig(**fields)
+
+
+def test_capture_window_geometry_reflects_current_size(window: MainWindow) -> None:
+    window.resize(999, 555)
+    geo = window._capture_window_geometry()
+    assert geo == {"x": geo["x"], "y": geo["y"], "width": 999, "height": 555, "maximized": False}
+
+
+def test_apply_window_geometry_resizes_and_moves(window: MainWindow) -> None:
+    window._apply_window_geometry({"x": 10, "y": 20, "width": 900, "height": 600, "maximized": False})
+    assert window.width() == 900
+    assert window.height() == 600
+
+
+def test_apply_window_geometry_none_is_noop(window: MainWindow) -> None:
+    window.resize(1280, 800)
+    window._apply_window_geometry(None)
+    assert window.width() == 1280
+    assert window.height() == 800
+
+
+def test_capture_splitter_sizes_includes_all_splitters_and_left_panel(window: MainWindow) -> None:
+    sizes = window._capture_splitter_sizes()
+    assert set(sizes) == {"left", "right", "content", "outer", "left_panel"}
+    assert sizes["left_panel"] == {"pinned": True, "width": window._panel_w}
+
+
+def test_apply_splitter_sizes_sets_each_splitter(window: MainWindow) -> None:
+    with patch.object(window._content_splitter, "setSizes") as mock_content, \
+         patch.object(window._outer_splitter, "setSizes") as mock_outer:
+        window._apply_splitter_sizes({"content": [500, 400], "outer": [300, 600]})
+    mock_content.assert_called_once_with([500, 400])
+    mock_outer.assert_called_once_with([300, 600])
+
+
+def test_apply_splitter_sizes_ignores_malformed_values(window: MainWindow) -> None:
+    with patch.object(window._content_splitter, "setSizes") as mock_content:
+        window._apply_splitter_sizes({"content": "not-a-list"})
+    mock_content.assert_not_called()
+
+
+def test_apply_splitter_sizes_none_is_noop(window: MainWindow) -> None:
+    with patch.object(window._content_splitter, "setSizes") as mock_content:
+        window._apply_splitter_sizes(None)
+    mock_content.assert_not_called()
+
+
+def test_save_config_to_attaches_window_and_splitter_state(
+    window: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    window._controller = mock_controller
+    window._settings = MagicMock()
+    window._settings.config_path_mode = "absolute"
+    mock_controller.capture_config.return_value = _minimal_config()
+    mock_controller.active_signals = []  # prevent teardown from triggering the real "Save Config?" dialog
+
+    with patch("mdf_viewer.config_manager.ConfigManager.save") as mock_save:
+        window._save_config_to(tmp_path / "session.mvc")
+
+    saved_config = mock_save.call_args[0][0]
+    assert saved_config.window_geometry is not None
+    assert saved_config.window_geometry["width"] == window.width()
+    assert saved_config.splitter_sizes is not None
+    assert "left" in saved_config.splitter_sizes
+
+
+def test_load_config_applies_saved_window_geometry(
+    window: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mvc = tmp_path / "session.mvc"
+    mvc.touch()
+    window._controller = mock_controller
+    window._settings = MagicMock()
+    mock_controller.active_signals = []  # prevent teardown from triggering the real "Save Config?" dialog
+    config = _minimal_config(
+        window_geometry={"x": 5, "y": 5, "width": 1000, "height": 700, "maximized": False},
+    )
+
+    with patch("mdf_viewer.config_manager.ConfigManager.load", return_value=config), \
+         patch("mdf_viewer.config_manager.ConfigManager.resolve_measurement_path", return_value=None), \
+         patch("PyQt6.QtWidgets.QFileDialog.getOpenFileName", return_value=("", "")):
+        window._load_config(mvc)
+
+    assert window.width() == 1000
+    assert window.height() == 700

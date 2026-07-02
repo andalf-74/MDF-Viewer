@@ -77,6 +77,8 @@ class ConfigManager:
                 "direction": config.display_name_direction,
                 "segments": config.display_name_segments,
             },
+            "window_geometry": config.window_geometry,
+            "splitter_sizes": config.splitter_sizes,
         }
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -150,6 +152,16 @@ class ConfigManager:
             display_name_direction = str(name_rule.get("direction", "right"))
             display_name_segments = max(1, min(10, int(name_rule.get("segments", 1))))
 
+            # Absent in older files, and defensively ignored if malformed —
+            # MainWindow applies these opaquely and layout restore is not
+            # critical enough to fail the whole config load over.
+            window_geometry = data.get("window_geometry")
+            if not isinstance(window_geometry, dict):
+                window_geometry = None
+            splitter_sizes = data.get("splitter_sizes")
+            if not isinstance(splitter_sizes, dict):
+                splitter_sizes = None
+
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise ConfigLoadError(
                 f"'{path.name}' has an unexpected structure: {exc}"
@@ -169,6 +181,8 @@ class ConfigManager:
             display_name_separator=display_name_separator,
             display_name_direction=display_name_direction,
             display_name_segments=display_name_segments,
+            window_geometry=window_geometry,
+            splitter_sizes=splitter_sizes,
         )
 
     @staticmethod

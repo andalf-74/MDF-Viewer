@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -161,6 +162,47 @@ def test_load_missing_display_name_rule_uses_defaults(tmp_path: Path) -> None:
     assert loaded.display_name_separator == "."
     assert loaded.display_name_direction == "right"
     assert loaded.display_name_segments == 1
+
+
+def test_round_trip_layout(tmp_path: Path) -> None:
+    config = _make_config()
+    window_geometry = {"x": 10, "y": 20, "width": 1400, "height": 900, "maximized": False}
+    splitter_sizes = {
+        "left": [400, 200], "right": [300, 150],
+        "content": [900, 300], "outer": [260, 940],
+        "left_panel": {"pinned": True, "width": 260},
+    }
+    config = dataclasses.replace(
+        config, window_geometry=window_geometry, splitter_sizes=splitter_sizes
+    )
+    path = tmp_path / "session.mvc"
+    ConfigManager.save(config, path)
+    loaded = ConfigManager.load(path)
+
+    assert loaded.window_geometry == window_geometry
+    assert loaded.splitter_sizes == splitter_sizes
+
+
+def test_load_missing_layout_defaults_to_none(tmp_path: Path) -> None:
+    """A .mvc saved before layout persistence existed must still load cleanly (#77)."""
+    config = _make_config()
+    path = tmp_path / "session.mvc"
+    ConfigManager.save(config, path)
+    loaded = ConfigManager.load(path)
+
+    assert loaded.window_geometry is None
+    assert loaded.splitter_sizes is None
+
+
+def test_load_malformed_layout_ignored(tmp_path: Path) -> None:
+    mvc = tmp_path / "session.mvc"
+    mvc.write_text(
+        json.dumps({"signals": [], "window_geometry": "not-a-dict", "splitter_sizes": [1, 2]}),
+        encoding="utf-8",
+    )
+    loaded = ConfigManager.load(mvc)
+    assert loaded.window_geometry is None
+    assert loaded.splitter_sizes is None
 
 
 def test_round_trip_selection(tmp_path: Path) -> None:
