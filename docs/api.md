@@ -2,34 +2,36 @@
 
 ## Implemented Modules
 
-| Module | Description | Tests |
-|--------|-------------|-------|
-| `errors.py` | `MdfLoadError` — shared error type imported by model and view | — |
-| `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` | 32 |
-| `model/signal_data.py` | `SignalData` dataclass | 2 |
-| `model/interpolate.py` | `interpolate(active, x)` — shared linear interpolation helper used by `CursorController` and `CursorView` | — |
-| `view/_mime.py` | Shared MIME type constant for signal drag-and-drop | — |
-| `view/signal_browser.py` | `SignalBrowser` — TreeView, multi-select, Add Signal button, drag | 43 |
-| `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, status bar, wiring | 48 |
-| `view/measurement_info_box.py` | `MeasurementInfoBox` — file metadata, QFormLayout + placeholder | 21 |
-| `view/signal_info_box.py` | `SignalInfoBox` — Info tab (metadata, incl. raster) + Properties tab (display mode, marker shape); QTabWidget | 41 |
-| `view/widgets/color_swatch.py` | `ColorSwatch` — flat `QPushButton` color indicator; reusable across views | — |
-| `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons, drop target; multi-select | 54 |
-| `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target, zoom state snapshot | 62 |
-| `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic, delta-time line + label, off-screen chevron indicators | 33 |
-| `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color + display mode + marker shape + line width) | — |
-| `view_model/zoom_state.py` | `ZoomState` dataclass — snapshot of X range + per-signal Y ranges | — |
-| `controller/interfaces.py` | Protocol contracts for all controller-view dependencies | — |
-| `controller/app_controller.py` | `AppController` — coordinates all layers | 84 |
-| `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation, delta-time | 93 |
-| `controller/zoom_controller.py` | `ZoomController` — zoom undo/redo, gesture coalescing, stable-state pre-capture | 27 |
-| `settings.py` | `Settings` — JSON persistence for recent files + preferences | 43 |
-| `update_checker.py` | `fetch_latest_release()`, `is_newer()`, `ReleaseInfo`, `UpdateCheckError` — GitHub releases API, no Qt | 13 |
-| `license/license_info.py` | `LicenseInfo` dataclass, `Tier` enum, `FORMAT_VERSION`, embedded public key | — |
-| `license/license_manager.py` | `LicenseManager` — verify, import, load_stored, export_license; `LicenseError` | 29 |
-| `view/license_dialog.py` | `LicenseDialog` — import mode (browse/drop) + view mode (details + expiry notice + Retrieve License button); on successful import shows a "restart required" message and closes | — |
-| `view/preferences_dialog.py` | `PreferencesDialog` — tabbed `QDialog`; General tab with "Check for updates on startup" checkbox and "Undo steps" spinbox (1–100); Cursors tab with mode, persistent, 4 cursor color swatches (C1/C2/CL/CR), Show ∆-Time checkbox + color swatch, arrow-key step (unit combobox + spinbox), reset button | 4 |
-| `app.py` | MVC assembly point | — |
+| Module | Description |
+|--------|-------------|
+| `errors.py` | `MdfLoadError` — shared error type imported by model and view |
+| `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` |
+| `model/signal_data.py` | `SignalData` dataclass |
+| `model/interpolate.py` | `interpolate(active, x)` — shared linear interpolation helper used by `CursorController` and `CursorView` |
+| `view/_mime.py` | Shared MIME type constant for signal drag-and-drop |
+| `view/signal_browser.py` | `SignalBrowser` — TreeView, multi-select, Add Signal button, drag |
+| `view/main_window.py` | `MainWindow` — splitter layout, menu, toolbar, status bar, wiring |
+| `view/measurement_info_box.py` | `MeasurementInfoBox` — file metadata, QFormLayout + placeholder |
+| `view/signal_info_box.py` | `SignalInfoBox` — Info tab (metadata, incl. raster) + Properties tab (display mode, marker shape); QTabWidget |
+| `view/widgets/color_swatch.py` | `ColorSwatch` — flat `QPushButton` color indicator; reusable across views |
+| `view/active_signals_table.py` | `ActiveSignalsTable` — color swatch, name, cursor cols, buttons, drop target; multi-select |
+| `view/plot_area.py` | `PlotArea` — PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, drop target, zoom state snapshot |
+| `view/cursors.py` | `CursorView` — InfiniteLine items, value labels, nearest-cursor logic, delta-time line + label, off-screen chevron indicators |
+| `view_model/active_signal.py` | `ActiveSignal` dataclass (model data + plot objects + color + display mode + marker shape + line width) |
+| `view_model/zoom_state.py` | `ZoomState` dataclass — snapshot of X range + per-signal Y ranges |
+| `controller/interfaces.py` | Protocol contracts for all controller-view dependencies |
+| `controller/app_controller.py` | `AppController` — coordinates all layers |
+| `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation, delta-time |
+| `controller/zoom_controller.py` | `ZoomController` — zoom undo/redo, gesture coalescing, stable-state pre-capture |
+| `settings.py` | `Settings` — JSON persistence for recent files + preferences |
+| `update_checker.py` | `fetch_latest_release()`, `is_newer()`, `ReleaseInfo`, `UpdateCheckError` — GitHub releases API, no Qt |
+| `license/license_info.py` | `LicenseInfo` dataclass, `Tier` enum, `FORMAT_VERSION`, embedded public key |
+| `license/license_manager.py` | `LicenseManager` — verify, import, load_stored, export_license; `LicenseError` |
+| `view/license_dialog.py` | `LicenseDialog` — import mode (browse/drop) + view mode (details + expiry notice + Retrieve License button); on successful import shows a "restart required" message and closes |
+| `view/preferences_dialog.py` | `PreferencesDialog` — tabbed `QDialog`; General tab with "Check for updates on startup" checkbox and "Undo steps" spinbox (1–100); Cursors tab with mode, persistent, 4 cursor color swatches (C1/C2/CL/CR), Show ∆-Time checkbox + color swatch, arrow-key step (unit combobox + spinbox), reset button |
+| `app.py` | MVC assembly point |
+
+Run `pytest --collect-only -q` for current per-file test counts — not tracked here since they drift on every change.
 
 ---
 
@@ -215,6 +217,9 @@ Public API:
 - `set_y_grid(active, enabled)` — shows or hides horizontal Y-grid lines on a signal's `ViewBox`; no-op for unknowns
 - `zoom_to_fit()` — full X range from timestamps, auto Y per signal; no-op when empty
 - `zoom_to_x_range(x_min, x_max)` — sets the shared X axis to the given range without touching Y axes; used by `AppController.zoom_to_cursors()`
+- `swimlanes(ordered_signals) -> bool` — arranges display units in equal horizontal lanes by adjusting each unit's Y range to its visible-data band plus 5% padding; returns `False` if there are no active signals
+- `zoom_y_to_view() -> bool` — rescales each display unit's Y-axis to fit the currently visible X range; returns `False` if there are no active signals
+- `_display_units(ordered_signals=None) -> list[(view_box, member_signals, is_linked_group)]` — groups active signals into independent Y-display units for `zoom_to_fit`/`swimlanes`/`zoom_y_to_view` (#84): an ungrouped signal or Shared group is one unit (already one ViewBox); a Linked group is one unit spanning multiple ViewBoxes, since the Link sync handler forces their ranges to match and treating them as N independent units would have each `setYRange()`/`autoRange()` call clobber the others
 - `get_zoom_state(active_signals) -> ZoomState` — snapshots current X range and each active signal's Y range; keyed by `ActiveSignal` identity
 - `set_zoom_state(state, active_signals)` — restores X and per-signal Y ranges from a `ZoomState`; signals in `active_signals` but absent from state keep their current Y; removed signals are silently skipped
 - `plot_item` — read-only property exposing the inner `pg.PlotItem` (used by `CursorView`)

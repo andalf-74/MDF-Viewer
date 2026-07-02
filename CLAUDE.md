@@ -63,7 +63,7 @@ See [`docs/release.md`](docs/release.md) for release build instructions.
 
 - **Single file only (MVP)** – loading a new file replaces the current one
 - **Recently opened files** – up to 4 entries persisted in `settings.json`; shown in File menu; stale paths pruned silently on menu open; failed loads are not recorded
-- **No session persistence (MVP)** – application always starts fresh; saving/restoring active signals, colors, and window state is planned for a future version
+- **Session persistence is manual, not automatic** – the app always starts fresh (no auto-restore of the last session), but a session (active signals, colors, axis grouping, zoom, cursor state, window/splitter layout) can be saved to and restored from a `.mvc` file via File → Save Config / Save Config As… (#37, #77). Auto-restore-on-startup is not implemented.
 - **Robust error handling is mandatory** – the application must never crash on malformed, incomplete, or unexpected MDF content; errors must be caught and communicated to the user gracefully
 
 ---
@@ -89,7 +89,7 @@ This is printed to stderr but does **not** affect app behaviour — `MdfLoader.o
 ## Todo / Future Features (not MVP)
 
 - Multi-file support with multiple X-axes and synchronization (by timestamp overlap, manual time offset, or signal-based alignment)
-- Session persistence (active signals, colors, window layout)
+- Auto-restore last session on startup (manual save/load via `.mvc` files already implemented, see File Handling above)
 - Additional toolbar and menu items (TBD)
 
 ---
@@ -153,11 +153,7 @@ See `docs/release.md` for the full build and publish steps.
 
 ## Current Status
 
-**As of 2026-07-02:** v2.1.1 released — 977 tests passing. Cursor Stuff (#59, #62, #63, #25, #26, #29, #39) and Signal Stuff (#56, #65, #66, #45, #44) merged to main; #30 (line width), #38 (line style), #24 (selected signal highlight), #69 (show only selected signal Y-axis), #40 (enum signal display), #16 (shared/linked Y-axes), #36 (keep signals on new file load), #37 (save/load configuration) implemented.
-
-Since the 2026-06-30 status: #83, #82, #79 (already fixed by then), plus #78/#80/#81 (one shared root-cause fix — drag-claimant routing in `PlotArea`/`CursorView`, per-signal Z tracking, and a numpy-truthiness crash in `_hit_test`), #84 (swimlanes/zoom not collapsing Linked Y-axis groups — new `PlotArea._display_units()` helper), #89 (shorten-signal-names preference not applied on startup), #77 (`.mvc` config files now capture/restore window and splitter sizes, via `MainWindow`-owned fields on `ViewerConfig` that the Controller treats as opaque), and #85 (blurry splash-screen icon — `QPixmap(path)` on the multi-resolution `.ico` was picking its smallest 16x16 frame and upscaling it; now uses `QIcon.pixmap()` to grab the largest embedded frame and also sets `devicePixelRatio` for HiDPI displays) have all been fixed and closed.
-
-**2.1.1 Bugfixing milestone is now fully resolved** — all bugs closed.
+**As of 2026-07-02:** v2.1.1 released (https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.1.1) — 977 tests passing. The **2.1.1 Bugfixing milestone is fully resolved**, all bugs closed. Fix-by-fix detail lives in `CHANGELOG.md`'s `[2.1.1]` entry, not repeated here.
 
 One active milestone remains on GitHub:
 - **2.2 Plugins** — new plugin architecture effort: #43 (umbrella), #70 (event bus on AppController), #71 (PluginContext API facade), #72 (Plugin base class/lifecycle), #73 (UI extension points in MainWindow), #74 (plugin loader/discovery), #75 (proof-of-concept built-in plugin), #76 (convert update checker into a first-party plugin).
@@ -172,7 +168,7 @@ Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update i
 ## Environment
 
 - `.venv` exists with deps installed (`pip install -e ".[dev]"`). Python 3.14.5. asammdf resolved to 8.x.
-- Activate with `.venv\Scripts\activate`, then `pytest` (965 passing) and `python -m mdf_viewer` both work.
+- Activate with `.venv\Scripts\activate`, then `pytest` and `python -m mdf_viewer` both work. Current test count is tracked in Current Status below, not duplicated here.
 - `cryptography` must be installed separately on macOS: `.venv/bin/pip install cryptography`
 
 ---
