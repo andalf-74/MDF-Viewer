@@ -127,6 +127,7 @@ def test_load_file_clears_info_box_first(ctrl: AppController, deps: dict) -> Non
 
 @pytest.mark.requirement("REQ-PLOT-021")
 @pytest.mark.requirement("REQ-FILE-012")
+@pytest.mark.requirement("REQ-FILE-010")
 def test_load_file_resets_color_index(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     ctrl.add_signal(0, 2)
@@ -138,6 +139,7 @@ def test_load_file_resets_color_index(ctrl: AppController, deps: dict) -> None:
 
 
 @pytest.mark.requirement("REQ-FILE-012")
+@pytest.mark.requirement("REQ-FILE-010")
 def test_load_file_removes_existing_signals(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     ctrl.load_file("test.mf4")
@@ -145,6 +147,7 @@ def test_load_file_removes_existing_signals(ctrl: AppController, deps: dict) -> 
 
 
 @pytest.mark.requirement("REQ-FILE-012")
+@pytest.mark.requirement("REQ-FILE-010")
 def test_load_file_clears_selection(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     ctrl.set_selected_signal(ctrl.active_signals[0])
@@ -153,6 +156,7 @@ def test_load_file_clears_selection(ctrl: AppController, deps: dict) -> None:
 
 
 @pytest.mark.requirement("REQ-FILE-041")
+@pytest.mark.requirement("REQ-FILE-040")
 def test_load_file_propagates_mdf_load_error(ctrl: AppController, deps: dict) -> None:
     deps["loader"].open.side_effect = MdfLoadError("bad file")
     with pytest.raises(MdfLoadError):
@@ -220,6 +224,7 @@ def test_add_signal_appends_to_active_list(ctrl: AppController) -> None:
 
 @pytest.mark.requirement("REQ-PLOT-020")
 @pytest.mark.requirement("REQ-BROWSER-040")
+@pytest.mark.requirement("REQ-MDF-034")
 def test_add_signal_duplicate_is_noop(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     ctrl.add_signal(0, 1)
@@ -1557,6 +1562,7 @@ def test_current_config_path_can_be_set(ctrl: AppController, tmp_path) -> None:
 
 
 @pytest.mark.requirement("REQ-FILE-012")
+@pytest.mark.requirement("REQ-FILE-010")
 def test_load_file_clears_config_path(ctrl: AppController, deps: dict, tmp_path) -> None:
     ctrl.current_config_path = tmp_path / "session.mvc"
     ctrl.load_file(tmp_path / "test.mf4")

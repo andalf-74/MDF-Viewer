@@ -201,6 +201,7 @@ def test_add_multiple_signals(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-011")
+@pytest.mark.requirement("REQ-PLOT-030")
 def test_add_signal_view_boxes_are_distinct(plot: PlotArea) -> None:
     a = _make_active("a")
     b = _make_active("b")
@@ -215,6 +216,30 @@ def test_add_signal_curves_are_distinct(plot: PlotArea) -> None:
     plot.add_signal(a)
     plot.add_signal(b)
     assert a.curve is not b.curve
+
+
+# ---------------------------------------------------------------------------
+# Shared X-axis (REQ-PLOT-010)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-010")
+def test_add_signal_links_x_axis_to_main_plot(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    assert active.view_box.linkedView(0) is plot._pi.vb
+
+
+@pytest.mark.requirement("REQ-PLOT-010")
+def test_zoom_to_x_range_moves_all_signal_viewboxes_in_lockstep(plot: PlotArea) -> None:
+    a = _make_active("a")
+    b = _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+
+    plot.zoom_to_x_range(2.0, 8.0)
+
+    assert a.view_box.viewRange()[0] == pytest.approx(plot._pi.vb.viewRange()[0])
+    assert b.view_box.viewRange()[0] == pytest.approx(plot._pi.vb.viewRange()[0])
 
 
 # ---------------------------------------------------------------------------

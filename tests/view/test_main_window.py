@@ -282,6 +282,8 @@ def test_load_file_cancelled_does_not_call_controller(
 
 
 @pytest.mark.requirement("REQ-FILE-041")
+@pytest.mark.requirement("REQ-FILE-040")
+@pytest.mark.requirement("REQ-NFR-011")
 def test_load_error_shows_message_box(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
@@ -297,6 +299,7 @@ def test_load_error_shows_message_box(
 
 
 @pytest.mark.requirement("REQ-BROWSER-041")
+@pytest.mark.requirement("REQ-NFR-011")
 def test_add_signal_error_shows_message_box(
     wired: MainWindow, mock_controller: MagicMock, qtbot: QtBot
 ) -> None:
@@ -365,6 +368,7 @@ def test_open_recent_calls_controller(
 
 
 @pytest.mark.requirement("REQ-FILE-041")
+@pytest.mark.requirement("REQ-FILE-040")
 def test_open_recent_error_shows_message_box(
     wired: MainWindow, mock_controller: MagicMock, tmp_path, qtbot: QtBot
 ) -> None:
@@ -478,6 +482,7 @@ def test_file_dropped_loads_when_confirmed(
 
 
 @pytest.mark.requirement("REQ-FILE-041")
+@pytest.mark.requirement("REQ-FILE-040")
 def test_file_dropped_error_shows_message_box(
     wired: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:

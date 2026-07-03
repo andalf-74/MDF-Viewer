@@ -891,6 +891,7 @@ def test_channel_tree_raises_when_groups_enumeration_fails() -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-MDF-070")
+@pytest.mark.requirement("REQ-NFR-010")
 def test_open_known_corrupt_faultfile_raises_cleanly() -> None:
     """data/faultfile.mf4 is a known-corrupt MDF4 documented in CLAUDE.md.
 

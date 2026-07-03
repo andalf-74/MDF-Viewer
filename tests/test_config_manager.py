@@ -348,12 +348,14 @@ def test_resolve_empty_string_returns_none(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-FILE-068")
+@pytest.mark.requirement("REQ-NFR-010")
 def test_load_missing_file_raises(tmp_path: Path) -> None:
     with pytest.raises(ConfigLoadError):
         ConfigManager.load(tmp_path / "nonexistent.mvc")
 
 
 @pytest.mark.requirement("REQ-FILE-068")
+@pytest.mark.requirement("REQ-NFR-010")
 def test_load_invalid_json_raises(tmp_path: Path) -> None:
     bad = tmp_path / "bad.mvc"
     bad.write_text("this is not json", encoding="utf-8")

@@ -105,12 +105,14 @@ def test_add_recent_persists_across_instances(
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-NFR-020")
+@pytest.mark.requirement("REQ-NFR-010")
 def test_load_handles_missing_file(tmp_path: Path) -> None:
     s = Settings(path=tmp_path / "nonexistent" / "settings.json")
     assert s.recent_files() == []
 
 
 @pytest.mark.requirement("REQ-NFR-020")
+@pytest.mark.requirement("REQ-NFR-010")
 def test_load_handles_invalid_json(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("not valid json", encoding="utf-8")
