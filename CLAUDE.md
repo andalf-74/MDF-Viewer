@@ -100,21 +100,32 @@ This is printed to stderr but does **not** affect app behaviour — `MdfLoader.o
 When asked to look at / check / review the GitHub issues, always fetch and display them grouped by milestone so the current development priority is immediately visible.
 
 ### Grill-Me Skill
-When the user says **"grill me"** about a feature or topic, Claude should enter interview mode: ask focused, one-at-a-time questions to surface requirements, edge cases, and design decisions before writing any code. Summarize findings before proceeding.
+When the user says **"grill me"** about a feature or topic, Claude should enter interview mode: ask focused, one-at-a-time questions to surface requirements, edge cases, and design decisions before writing any code. Summarize findings before proceeding — and write that summary into the relevant `docs/requirements/*.md` file(s), not just into the conversation. For a Feature issue, this *is* the "write requirements before implementation" step from Issue Triage below, not a separate later task.
 
 ### Requirements Workflow
 
-`docs/requirements/` is the single source of truth for **what the app does** — distinct from GitHub issues (a bug/idea reservoir where anything gets jotted down) and from `docs/architecture.md` / `docs/ui.md` (the **how**, i.e. MVC/View implementation detail).
+`docs/requirements/` is the single source of truth for **what the app does** — distinct from GitHub issues (a bug/idea reservoir where anything gets jotted down) and from `docs/architecture.md` / `docs/ui.md` (the **how**, i.e. MVC/View implementation detail). Put another way: **the code is the source of truth for what the app currently does; the requirements docs are the source of truth for what it should do.** When the two disagree, that disagreement is a Bug (see Issue Triage below) — either the requirements doc was silent, or the code drifted from a requirement that was correct.
 
 - **Structure** – one file per capability/domain (e.g. `file-handling.md`, `mdf-support.md`), not one monolithic file, and not split by UI-vs-non-UI — that split is an architecture-stage decision, not a requirements-stage one.
 - **Style** – prose per section; each individually-testable sentence is tagged inline with a stable ID, `REQ-<DOMAIN>-NNN` (e.g. `REQ-FILE-010`), numbered in steps of 10 per sub-topic so new requirements can be inserted later without renumbering.
 - **Traceability** – tests cite the requirement they verify via `@pytest.mark.requirement("REQ-FILE-010")`.
 
-Workflow when picking up a GitHub issue:
-- **Feature issue** → write or update the relevant `docs/requirements/*.md` file(s) *before* implementation starts.
-- **Bug issue** → check whether the fix implies a requirements doc needs updating too — either the requirement was silent on this case, or the code deviated from a requirement that was correct.
-
 First file drafted: `docs/requirements/file-handling.md`.
+
+### Issue Triage
+
+GitHub issues are the only backlog and arrive in different flavors. **Before starting work on an issue, state which flavor it is and get the user's agreement** — don't silently assume it, since the flavor decides which docs must stay in sync. Then follow that flavor's rule below — this is what keeps `docs/requirements/`, `docs/architecture.md`, the user manual, and `CHANGELOG.md` from going stale as issues get closed:
+
+- **Feature** → write or update the relevant `docs/requirements/*.md` file(s) *before* implementation starts.
+- **Bug** → after root-causing, check whether a requirements doc needs updating too: either the requirement was silent on this case, or the code deviated from a requirement that was correct. If the fix is purely a wording correction to a requirements/architecture/ui doc with no code change (e.g. the REQ-PLOT-121 case), that edit *is* the fix — there's no separate "Documentation" flavor for this, it's a Bug variant.
+- **Test-coverage** → tag the new/existing test(s) with the REQ-ID(s) they verify (`@pytest.mark.requirement("REQ-...")`). No requirements doc change unless writing the test surfaces an actual behavior gap — if it does, that part follows the Bug rule above (e.g. #91's MDF3 fixture surfacing a real `channel_tree()` unit/comment bug).
+- **Investigation / Spike** → no doc changes during the investigation itself. Must close by either filing a follow-up Feature/Bug issue, or an explicit no-action note on the issue explaining why nothing further is needed — never leave it closed with no trace of the conclusion.
+- **Documentation** → means the end-user manual (not `docs/requirements/`, `docs/architecture.md`, or `docs/ui.md`, which are internal). Tracked starting with #55, which will establish where it lives. No requirements/architecture doc changes, since app behavior isn't changing.
+- **Refactor / Tech debt** → no requirements doc change (behavior is unchanged by definition). Add a `docs/architecture.md` decision-log entry if the restructuring reflects a real architectural decision worth recording.
+- **Chore / Maintenance** → dependency bumps, CI, packaging. No requirements impact; update `docs/release.md` if it changes the release/build process.
+- **Design / Architecture question** → resolve into a `docs/architecture.md` decision-log entry.
+
+**CHANGELOG.md** is reserved for user-visible changes only (Keep a Changelog style) — Feature and Bug entries. Test-coverage, Investigation, Refactor/Tech debt, Chore, and Design-question issues do not get a CHANGELOG entry unless they also produce a user-visible side effect.
 
 ### Plugin vs. Built-in Decision Rule
 Before implementing any new feature, ask: **does this belong in the base app, or should it be a plugin?**
