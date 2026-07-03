@@ -4,6 +4,13 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- `docs/requirements/plotting.md`'s REQ-PLOT-121 incorrectly stated that
+  "line only" display mode disables the line style control. It doesn't —
+  only the marker shape control is disabled in that mode, which is what
+  the code (`signal_info_box.py`) already did. Wording corrected to match
+  the implementation; no code change.
+
 ## [2.1.1] - 2026-07-02
 
 ### Added
