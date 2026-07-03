@@ -57,10 +57,12 @@ def cv(pw: pg.PlotWidget) -> CursorView:
 # Construction
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-070")
 def test_two_lines_added_to_plot(cv: CursorView) -> None:
     assert len(cv._lines) == 2
 
 
+@pytest.mark.requirement("REQ-PLOT-070")
 def test_lines_hidden_initially(cv: CursorView) -> None:
     assert not cv._lines[0].isVisible()
     assert not cv._lines[1].isVisible()
@@ -74,18 +76,21 @@ def test_no_labels_initially(cv: CursorView) -> None:
 # apply_mode
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-070")
 def test_apply_mode_one_shows_line_0(cv: CursorView) -> None:
     cv.apply_mode(CursorMode.ONE, [0.3, 0.6])
     assert cv._lines[0].isVisible()
     assert not cv._lines[1].isVisible()
 
 
+@pytest.mark.requirement("REQ-PLOT-070")
 def test_apply_mode_two_shows_both_lines(cv: CursorView) -> None:
     cv.apply_mode(CursorMode.TWO, [0.3, 0.6])
     assert cv._lines[0].isVisible()
     assert cv._lines[1].isVisible()
 
 
+@pytest.mark.requirement("REQ-PLOT-070")
 def test_apply_mode_hidden_hides_both(cv: CursorView) -> None:
     cv.apply_mode(CursorMode.TWO, [0.3, 0.6])
     cv.apply_mode(CursorMode.HIDDEN, [0.3, 0.6])
@@ -93,6 +98,7 @@ def test_apply_mode_hidden_hides_both(cv: CursorView) -> None:
     assert not cv._lines[1].isVisible()
 
 
+@pytest.mark.requirement("REQ-PLOT-073")
 def test_apply_mode_sets_line_positions(cv: CursorView) -> None:
     cv.apply_mode(CursorMode.TWO, [0.25, 0.75])
     assert cv._lines[0].value() == pytest.approx(0.25)
@@ -103,6 +109,7 @@ def test_apply_mode_sets_line_positions(cv: CursorView) -> None:
 # update_labels
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-080")
 def test_update_labels_creates_label_for_signal(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -112,6 +119,7 @@ def test_update_labels_creates_label_for_signal(
     assert len(cv._labels) == 1
 
 
+@pytest.mark.requirement("REQ-PLOT-080")
 def test_update_labels_two_mode_creates_two_per_signal(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -121,6 +129,7 @@ def test_update_labels_two_mode_creates_two_per_signal(
     assert len(cv._labels) == 2
 
 
+@pytest.mark.requirement("REQ-PLOT-080")
 def test_update_labels_multiple_signals(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -130,6 +139,7 @@ def test_update_labels_multiple_signals(
     assert len(cv._labels) == 3
 
 
+@pytest.mark.requirement("REQ-PLOT-080")
 def test_update_labels_removes_stale_labels(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -141,6 +151,7 @@ def test_update_labels_removes_stale_labels(
     assert len(cv._labels) == 1
 
 
+@pytest.mark.requirement("REQ-PLOT-082")
 def test_update_labels_out_of_range_hides_label(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -163,6 +174,7 @@ def test_update_labels_skips_signal_without_view_box(cv: CursorView) -> None:
 # Label visibility rules
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-080")
 def test_one_mode_label_always_visible(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -173,6 +185,7 @@ def test_one_mode_label_always_visible(
     assert lbl.isVisible()
 
 
+@pytest.mark.requirement("REQ-PLOT-070")
 def test_hidden_mode_labels_not_visible(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -233,17 +246,20 @@ def _set_view_range(pw: pg.PlotWidget, x: tuple, y: tuple) -> None:
     pw.getViewBox().setRange(xRange=x, yRange=y, padding=0)
 
 
+@pytest.mark.requirement("REQ-PLOT-110")
 def test_chevrons_created(cv: CursorView) -> None:
     assert len(cv._c_chevrons) == 2
     assert cv._dt_chevron is not None
 
 
+@pytest.mark.requirement("REQ-PLOT-113")
 def test_chevrons_hidden_initially(cv: CursorView) -> None:
     assert not cv._c_chevrons[0].isVisible()
     assert not cv._c_chevrons[1].isVisible()
     assert not cv._dt_chevron.isVisible()
 
 
+@pytest.mark.requirement("REQ-PLOT-113")
 def test_cursor_chevron_hidden_when_mode_is_hidden(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -253,6 +269,7 @@ def test_cursor_chevron_hidden_when_mode_is_hidden(
     assert not cv._c_chevrons[0].isVisible()
 
 
+@pytest.mark.requirement("REQ-PLOT-110")
 def test_cursor_chevron_left_shown_when_off_screen(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -262,6 +279,7 @@ def test_cursor_chevron_left_shown_when_off_screen(
     assert cv._c_chevrons[0].toPlainText() == "<"
 
 
+@pytest.mark.requirement("REQ-PLOT-110")
 def test_cursor_chevron_right_shown_when_off_screen(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -271,6 +289,7 @@ def test_cursor_chevron_right_shown_when_off_screen(
     assert cv._c_chevrons[0].toPlainText() == ">"
 
 
+@pytest.mark.requirement("REQ-PLOT-110")
 def test_cursor_chevron_hidden_when_on_screen(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -279,6 +298,7 @@ def test_cursor_chevron_hidden_when_on_screen(
     assert not cv._c_chevrons[0].isVisible()
 
 
+@pytest.mark.requirement("REQ-PLOT-070")
 def test_cursor_1_chevron_hidden_in_one_mode(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -287,6 +307,7 @@ def test_cursor_1_chevron_hidden_in_one_mode(
     assert not cv._c_chevrons[1].isVisible()
 
 
+@pytest.mark.requirement("REQ-PLOT-110")
 def test_both_cursors_off_screen_same_side(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -298,6 +319,7 @@ def test_both_cursors_off_screen_same_side(
     assert cv._c_chevrons[0].pos().y() != cv._c_chevrons[1].pos().y()
 
 
+@pytest.mark.requirement("REQ-PLOT-112")
 def test_delta_chevron_shown_above(cv: CursorView, pw: pg.PlotWidget) -> None:
     _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
     cv.apply_mode(CursorMode.TWO, [2.5, 7.5])
@@ -309,6 +331,7 @@ def test_delta_chevron_shown_above(cv: CursorView, pw: pg.PlotWidget) -> None:
     assert cv._dt_chevron.toPlainText() == "^"
 
 
+@pytest.mark.requirement("REQ-PLOT-112")
 def test_delta_chevron_shown_below(cv: CursorView, pw: pg.PlotWidget) -> None:
     _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
     cv.apply_mode(CursorMode.TWO, [2.5, 7.5])
@@ -320,6 +343,7 @@ def test_delta_chevron_shown_below(cv: CursorView, pw: pg.PlotWidget) -> None:
     assert cv._dt_chevron.toPlainText() == "v"
 
 
+@pytest.mark.requirement("REQ-PLOT-112")
 def test_delta_chevron_hidden_when_on_screen(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -332,6 +356,7 @@ def test_delta_chevron_hidden_when_on_screen(
     assert not cv._dt_chevron.isVisible()
 
 
+@pytest.mark.requirement("REQ-PLOT-112")
 def test_delta_chevron_hidden_when_show_false(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:
@@ -343,6 +368,7 @@ def test_delta_chevron_hidden_when_show_false(
     assert not cv._dt_chevron.isVisible()
 
 
+@pytest.mark.requirement("REQ-PLOT-111")
 def test_cursor_fetch_signal_emitted(cv: CursorView, qtbot: QtBot) -> None:
     # Simulate a click by calling the callback with a dummy scene position.
     # The real conversion (scenePos → data-X) needs a live scene, so we test
@@ -353,6 +379,7 @@ def test_cursor_fetch_signal_emitted(cv: CursorView, qtbot: QtBot) -> None:
     assert blocker.args[0] == 0  # cursor index
 
 
+@pytest.mark.requirement("REQ-PLOT-112")
 def test_delta_fetch_signal_emitted(cv: CursorView, qtbot: QtBot) -> None:
     from PyQt6.QtCore import QPointF
     with qtbot.waitSignal(cv.delta_fetch_requested, timeout=500):
@@ -375,6 +402,7 @@ def test_hit_test_hits_visible_cursor_line(cv: CursorView, pw: pg.PlotWidget) ->
     assert cv.hit_test(scene_pos) is cv._lines[0]
 
 
+@pytest.mark.requirement("REQ-PLOT-102")
 def test_hit_test_hits_visible_delta_line(cv: CursorView, pw: pg.PlotWidget) -> None:
     _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
     cv.apply_mode(CursorMode.TWO, [2.5, 7.5])
@@ -393,6 +421,7 @@ def test_on_move_drives_line_value_directly(cv: CursorView, pw: pg.PlotWidget) -
     assert line.value() == pytest.approx(3.0)
 
 
+@pytest.mark.requirement("REQ-PLOT-090")
 def test_on_release_without_move_emits_cursor_clicked(
     cv: CursorView, pw: pg.PlotWidget, qtbot: QtBot
 ) -> None:
@@ -406,6 +435,7 @@ def test_on_release_without_move_emits_cursor_clicked(
     assert blocker.args[0] == 0
 
 
+@pytest.mark.requirement("REQ-PLOT-090")
 def test_on_release_after_move_does_not_emit_cursor_clicked(
     cv: CursorView, pw: pg.PlotWidget, qtbot: QtBot
 ) -> None:
@@ -421,6 +451,7 @@ def test_on_release_after_move_does_not_emit_cursor_clicked(
     assert received == []
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_set_cursor_names_updates_tooltip(
     cv: CursorView, pw: pg.PlotWidget
 ) -> None:

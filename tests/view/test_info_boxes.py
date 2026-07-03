@@ -64,56 +64,67 @@ def _full_info(**kwargs) -> MeasurementInfo:
     return MeasurementInfo(**defaults)
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_mbox_set_info_switches_to_form(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info())
     assert mbox._stack.currentIndex() == 1
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_mbox_set_info_shows_file_name(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info(file_name="recording.mf4"))
     assert "recording.mf4" in _all_texts(_form_texts(mbox))
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_mbox_set_info_shows_version(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info(mdf_version="4.10"))
     assert "4.10" in _all_texts(_form_texts(mbox))
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_mbox_set_info_shows_author(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info(author="Bob"))
     assert "Bob" in _all_texts(_form_texts(mbox))
 
 
+@pytest.mark.requirement("REQ-MDF-051")
 def test_mbox_set_info_omits_empty_author(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info(author=""))
     assert "Author" not in _all_texts(_form_texts(mbox))
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_mbox_set_info_shows_recorded_at(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info(recorded_at="2026-01-01 09:00:00"))
     assert "2026-01-01" in _all_texts(_form_texts(mbox))
 
 
+@pytest.mark.requirement("REQ-MDF-051")
 def test_mbox_set_info_omits_empty_recorded_at(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info(recorded_at=""))
     assert "Recorded" not in _all_texts(_form_texts(mbox))
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_mbox_set_info_shows_duration(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info(duration_s=10.5))
     assert "10.500 s" in _all_texts(_form_texts(mbox))
 
 
+@pytest.mark.requirement("REQ-MDF-051")
 def test_mbox_set_info_omits_none_duration(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info(duration_s=None))
     assert "Duration" not in _all_texts(_form_texts(mbox))
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_mbox_set_info_shows_comment(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info(comment="My comment"))
     assert "My comment" in _all_texts(_form_texts(mbox))
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_mbox_set_info_strips_xml_from_comment(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info(comment="<HDcomment><TX>Clean text</TX></HDcomment>"))
     texts = _all_texts(_form_texts(mbox))
@@ -121,11 +132,13 @@ def test_mbox_set_info_strips_xml_from_comment(mbox: MeasurementInfoBox) -> None
     assert "<TX>" not in texts
 
 
+@pytest.mark.requirement("REQ-MDF-051")
 def test_mbox_set_info_omits_empty_comment(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info(comment=""))
     assert "Comment" not in _all_texts(_form_texts(mbox))
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_mbox_set_info_shows_extra_fields(mbox: MeasurementInfoBox) -> None:
     info = MeasurementInfo(file_name="x.mf4", extra={"project": "DemoProject"})
     mbox.set_info(info)
@@ -134,6 +147,7 @@ def test_mbox_set_info_shows_extra_fields(mbox: MeasurementInfoBox) -> None:
     assert "DemoProject" in texts
 
 
+@pytest.mark.requirement("REQ-FILE-012")
 def test_mbox_set_info_replaces_previous(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info(file_name="first.mf4"))
     mbox.set_info(_full_info(file_name="second.mf4"))
@@ -146,12 +160,14 @@ def test_mbox_set_info_replaces_previous(mbox: MeasurementInfoBox) -> None:
 # MeasurementInfoBox – clear
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-012")
 def test_mbox_clear_shows_placeholder(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info())
     mbox.clear()
     assert mbox._stack.currentIndex() == 0
 
 
+@pytest.mark.requirement("REQ-FILE-012")
 def test_mbox_clear_removes_form_rows(mbox: MeasurementInfoBox) -> None:
     mbox.set_info(_full_info())
     mbox.clear()
@@ -188,10 +204,12 @@ def sbox(qtbot: QtBot) -> SignalInfoBox:
     return w
 
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_sbox_placeholder_shown_initially(sbox: SignalInfoBox) -> None:
     assert sbox._stack.currentIndex() == 0
 
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_sbox_form_empty_initially(sbox: SignalInfoBox) -> None:
     assert sbox._form.rowCount() == 0
 
@@ -213,36 +231,43 @@ def _make_meta(**kwargs) -> SignalMetadata:
     return SignalMetadata(**defaults)
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_switches_to_form(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta())
     assert sbox._stack.currentIndex() == 1
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_shows_name(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(name="engine_speed"))
     assert "engine_speed" in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_shows_unit(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(unit="rpm"))
     assert "rpm" in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_omits_empty_unit(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(unit=""))
     assert "Unit" not in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_shows_sample_count(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(sample_count=12345))
     assert "12,345" in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_omits_none_sample_count(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(sample_count=None))
     assert "Samples" not in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_shows_min_max(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(min_value=-3.14, max_value=3.14))
     texts = _all_texts(_form_texts(sbox))
@@ -250,6 +275,7 @@ def test_sbox_set_metadata_shows_min_max(sbox: SignalInfoBox) -> None:
     assert "3.14" in texts
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_omits_none_min_max(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(min_value=None, max_value=None))
     texts = _all_texts(_form_texts(sbox))
@@ -257,47 +283,56 @@ def test_sbox_set_metadata_omits_none_min_max(sbox: SignalInfoBox) -> None:
     assert "Max" not in texts
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_shows_data_type(sbox: SignalInfoBox) -> None:
     meta = SignalMetadata(name="gear", data_type="uint8", is_integer=True)
     sbox.set_metadata(meta)
     assert "uint8" in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_omits_empty_data_type(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta())  # data_type="" by default
     assert "Data type" not in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_shows_comment(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(comment="measured at pin 3"))
     assert "measured at pin 3" in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_omits_empty_comment(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(comment=""))
     assert "Comment" not in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-151")
 def test_sbox_set_metadata_shows_fixed_raster(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(sample_count=100, raster_s=0.01))
     assert "10 ms" in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-151")
 def test_sbox_set_metadata_shows_raster_in_seconds_above_500ms(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(sample_count=100, raster_s=1.0))
     assert "1 s" in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-151")
 def test_sbox_set_metadata_shows_variable_raster(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(sample_count=100, raster_s=None))
     assert "variable" in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-151")
 def test_sbox_set_metadata_omits_raster_for_single_sample(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(sample_count=1, raster_s=None))
     assert "Raster" not in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-151")
 def test_sbox_set_metadata_omits_raster_when_sample_count_none(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(sample_count=None, raster_s=None))
     assert "Raster" not in _all_texts(_form_texts(sbox))
@@ -307,22 +342,27 @@ def test_sbox_set_metadata_omits_raster_when_sample_count_none(sbox: SignalInfoB
 # _format_raster
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-151")
 def test_format_raster_milliseconds() -> None:
     assert _format_raster(0.01) == "10 ms"
 
 
+@pytest.mark.requirement("REQ-PLOT-151")
 def test_format_raster_boundary_500ms() -> None:
     assert _format_raster(0.5) == "500 ms"
 
 
+@pytest.mark.requirement("REQ-PLOT-151")
 def test_format_raster_above_500ms_shows_seconds() -> None:
     assert _format_raster(0.501) == "0.501 s"
 
 
+@pytest.mark.requirement("REQ-PLOT-151")
 def test_format_raster_large_value_seconds() -> None:
     assert _format_raster(1.0) == "1 s"
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_shows_extra_fields(sbox: SignalInfoBox) -> None:
     meta = SignalMetadata(name="x", extra={"source": "CAN1"})
     sbox.set_metadata(meta)
@@ -331,6 +371,7 @@ def test_sbox_set_metadata_shows_extra_fields(sbox: SignalInfoBox) -> None:
     assert "CAN1" in texts
 
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_sbox_set_metadata_replaces_previous(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(name="first"))
     sbox.set_metadata(_make_meta(name="second"))
@@ -343,12 +384,14 @@ def test_sbox_set_metadata_replaces_previous(sbox: SignalInfoBox) -> None:
 # SignalInfoBox – clear
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_sbox_clear_shows_placeholder(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta())
     sbox.clear()
     assert sbox._stack.currentIndex() == 0
 
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_sbox_clear_removes_form_rows(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta())
     sbox.clear()
@@ -363,69 +406,82 @@ def test_sbox_has_two_tabs(sbox: SignalInfoBox) -> None:
     assert sbox._tabs.count() == 2
 
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_sbox_properties_tab_disabled_initially(sbox: SignalInfoBox) -> None:
     assert not sbox._tabs.isTabEnabled(1)
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_sbox_enable_properties_enables_tab(sbox: SignalInfoBox) -> None:
     sbox.enable_properties(True)
     assert sbox._tabs.isTabEnabled(1)
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_sbox_enable_properties_disables_tab(sbox: SignalInfoBox) -> None:
     sbox.enable_properties(True)
     sbox.enable_properties(False)
     assert not sbox._tabs.isTabEnabled(1)
 
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_sbox_clear_disables_properties_tab(sbox: SignalInfoBox) -> None:
     sbox.enable_properties(True)
     sbox.clear()
     assert not sbox._tabs.isTabEnabled(1)
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_sbox_set_properties_sets_line_mode(sbox: SignalInfoBox) -> None:
     sbox.set_properties("line", "circle")
     assert sbox._props_widget._mode_combo.currentIndex() == 0
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_sbox_set_properties_sets_line_marker_mode(sbox: SignalInfoBox) -> None:
     sbox.set_properties("line_marker", "circle")
     assert sbox._props_widget._mode_combo.currentIndex() == 1
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_sbox_set_properties_sets_marker_only_mode(sbox: SignalInfoBox) -> None:
     sbox.set_properties("marker", "circle")
     assert sbox._props_widget._mode_combo.currentIndex() == 2
 
 
+@pytest.mark.requirement("REQ-PLOT-140")
 def test_sbox_set_properties_none_mode_shows_blank(sbox: SignalInfoBox) -> None:
     sbox.set_properties(None, "circle")
     assert sbox._props_widget._mode_combo.currentIndex() == -1
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_sbox_set_properties_sets_shape(sbox: SignalInfoBox) -> None:
     sbox.set_properties("line_marker", "diamond")
     assert sbox._props_widget._shape_combo.currentIndex() == 2  # diamond is index 2
 
 
+@pytest.mark.requirement("REQ-PLOT-140")
 def test_sbox_set_properties_none_shape_shows_blank(sbox: SignalInfoBox) -> None:
     sbox.set_properties("line_marker", None)
     assert sbox._props_widget._shape_combo.currentIndex() == -1
 
 
+@pytest.mark.requirement("REQ-PLOT-121")
 def test_sbox_set_properties_line_mode_disables_shape(sbox: SignalInfoBox) -> None:
     sbox.enable_properties(True)  # enable tab so parent isn't disabled
     sbox.set_properties("line", "circle")
     assert not sbox._props_widget._shape_combo.isEnabled()
 
 
+@pytest.mark.requirement("REQ-PLOT-121")
 def test_sbox_set_properties_marker_mode_enables_shape(sbox: SignalInfoBox) -> None:
     sbox.enable_properties(True)  # enable tab so parent isn't disabled
     sbox.set_properties("marker", "circle")
     assert sbox._props_widget._shape_combo.isEnabled()
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_sbox_display_mode_requested_emitted(sbox: SignalInfoBox, qtbot: QtBot) -> None:
     sbox.set_properties("line", "circle")
     with qtbot.waitSignal(sbox.display_mode_requested, timeout=1000) as blocker:
@@ -433,6 +489,7 @@ def test_sbox_display_mode_requested_emitted(sbox: SignalInfoBox, qtbot: QtBot) 
     assert blocker.args == ["line_marker"]
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_sbox_marker_shape_requested_emitted(sbox: SignalInfoBox, qtbot: QtBot) -> None:
     sbox.set_properties("line_marker", "circle")
     with qtbot.waitSignal(sbox.marker_shape_requested, timeout=1000) as blocker:
@@ -450,17 +507,20 @@ def test_sbox_no_signal_emitted_when_setting_programmatically(
     assert emitted == []
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_sbox_set_properties_sets_line_width(sbox: SignalInfoBox) -> None:
     sbox.set_properties("line", "circle", 3)
     assert sbox._props_widget._width_spin.value() == 3
 
 
+@pytest.mark.requirement("REQ-PLOT-140")
 def test_sbox_set_properties_none_width_shows_mixed(sbox: SignalInfoBox) -> None:
     sbox.set_properties("line", "circle", None)
     assert sbox._props_widget._width_spin.value() == 0
     assert sbox._props_widget._width_spin.text() == "—"
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_sbox_line_width_requested_emitted(sbox: SignalInfoBox, qtbot: QtBot) -> None:
     sbox.set_properties("line", "circle", 2)
     with qtbot.waitSignal(sbox.line_width_requested, timeout=1000) as blocker:
@@ -485,16 +545,19 @@ def test_sbox_no_line_width_signal_when_setting_programmatically(
     assert emitted == []
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_sbox_set_properties_sets_line_style(sbox: SignalInfoBox) -> None:
     sbox.set_properties("line", "circle", 1, "dashes")
     assert sbox._props_widget._style_combo.currentIndex() == 1  # dashes is index 1
 
 
+@pytest.mark.requirement("REQ-PLOT-140")
 def test_sbox_set_properties_none_style_shows_blank(sbox: SignalInfoBox) -> None:
     sbox.set_properties("line", "circle", 1, None)
     assert sbox._props_widget._style_combo.currentIndex() == -1
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_sbox_line_style_requested_emitted(sbox: SignalInfoBox, qtbot: QtBot) -> None:
     sbox.set_properties("line", "circle", 1, "solid")
     with qtbot.waitSignal(sbox.line_style_requested, timeout=1000) as blocker:
@@ -502,18 +565,21 @@ def test_sbox_line_style_requested_emitted(sbox: SignalInfoBox, qtbot: QtBot) ->
     assert blocker.args == ["dots"]
 
 
+@pytest.mark.requirement("REQ-PLOT-121")
 def test_sbox_line_style_disabled_in_marker_only_mode(sbox: SignalInfoBox) -> None:
     sbox.enable_properties(True)
     sbox.set_properties("marker", "circle", 1, "solid")
     assert not sbox._props_widget._style_combo.isEnabled()
 
 
+@pytest.mark.requirement("REQ-PLOT-121")
 def test_sbox_line_style_enabled_in_line_mode(sbox: SignalInfoBox) -> None:
     sbox.enable_properties(True)
     sbox.set_properties("line", "circle", 1, "solid")
     assert sbox._props_widget._style_combo.isEnabled()
 
 
+@pytest.mark.requirement("REQ-PLOT-121")
 def test_sbox_line_style_enabled_in_line_marker_mode(sbox: SignalInfoBox) -> None:
     sbox.enable_properties(True)
     sbox.set_properties("line_marker", "circle", 1, "solid")

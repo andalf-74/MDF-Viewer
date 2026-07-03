@@ -82,11 +82,13 @@ def test_initially_no_selection(ctrl: AppController) -> None:
 # load_file
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-012")
 def test_load_file_calls_loader_open(ctrl: AppController, deps: dict) -> None:
     ctrl.load_file("test.mf4")
     deps["loader"].open.assert_called_once_with("test.mf4")
 
 
+@pytest.mark.requirement("REQ-FILE-012")
 def test_load_file_populates_browser(ctrl: AppController, deps: dict) -> None:
     groups = [MagicMock()]
     deps["loader"].channel_tree.return_value = groups
@@ -94,6 +96,7 @@ def test_load_file_populates_browser(ctrl: AppController, deps: dict) -> None:
     deps["browser"].populate.assert_called_once_with(groups)
 
 
+@pytest.mark.requirement("REQ-FILE-012")
 def test_load_file_updates_info_box(ctrl: AppController, deps: dict) -> None:
     info = _make_measurement_info()
     deps["loader"].measurement_info.return_value = info
@@ -101,6 +104,7 @@ def test_load_file_updates_info_box(ctrl: AppController, deps: dict) -> None:
     deps["info_box"].set_info.assert_called_once_with(info)
 
 
+@pytest.mark.requirement("REQ-FILE-012")
 def test_load_file_clears_browser_first(ctrl: AppController, deps: dict) -> None:
     ctrl.load_file("test.mf4")
     # clear() must be called before populate()
@@ -111,6 +115,7 @@ def test_load_file_clears_browser_first(ctrl: AppController, deps: dict) -> None
     assert clear_pos[0] < pop_pos[0]
 
 
+@pytest.mark.requirement("REQ-FILE-012")
 def test_load_file_clears_info_box_first(ctrl: AppController, deps: dict) -> None:
     ctrl.load_file("test.mf4")
     info_box = deps["info_box"]
@@ -120,6 +125,8 @@ def test_load_file_clears_info_box_first(ctrl: AppController, deps: dict) -> Non
     assert clear_pos[0] < set_pos[0]
 
 
+@pytest.mark.requirement("REQ-PLOT-021")
+@pytest.mark.requirement("REQ-FILE-012")
 def test_load_file_resets_color_index(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     ctrl.add_signal(0, 2)
@@ -130,12 +137,14 @@ def test_load_file_resets_color_index(ctrl: AppController, deps: dict) -> None:
     assert ctrl.active_signals[0].color == first_color
 
 
+@pytest.mark.requirement("REQ-FILE-012")
 def test_load_file_removes_existing_signals(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     ctrl.load_file("test.mf4")
     assert ctrl.active_signals == []
 
 
+@pytest.mark.requirement("REQ-FILE-012")
 def test_load_file_clears_selection(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     ctrl.set_selected_signal(ctrl.active_signals[0])
@@ -143,12 +152,14 @@ def test_load_file_clears_selection(ctrl: AppController, deps: dict) -> None:
     assert ctrl.selected_signal is None
 
 
+@pytest.mark.requirement("REQ-FILE-041")
 def test_load_file_propagates_mdf_load_error(ctrl: AppController, deps: dict) -> None:
     deps["loader"].open.side_effect = MdfLoadError("bad file")
     with pytest.raises(MdfLoadError):
         ctrl.load_file("bad.mf4")
 
 
+@pytest.mark.requirement("REQ-FILE-041")
 def test_load_file_clears_ui_even_on_error(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     deps["loader"].open.side_effect = MdfLoadError("bad file")
@@ -158,6 +169,7 @@ def test_load_file_clears_ui_even_on_error(ctrl: AppController, deps: dict) -> N
     deps["browser"].clear.assert_called()
 
 
+@pytest.mark.requirement("REQ-FILE-053")
 def test_load_file_adds_to_recent_on_success(deps: dict) -> None:
     settings = MagicMock()
     ctrl = AppController(
@@ -173,6 +185,7 @@ def test_load_file_adds_to_recent_on_success(deps: dict) -> None:
     settings.add_recent.assert_called_once_with("test.mf4")
 
 
+@pytest.mark.requirement("REQ-FILE-053")
 def test_load_file_does_not_add_to_recent_on_failure(deps: dict) -> None:
     settings = MagicMock()
     deps["loader"].open.side_effect = MdfLoadError("bad file")
@@ -205,6 +218,8 @@ def test_add_signal_appends_to_active_list(ctrl: AppController) -> None:
     assert len(ctrl.active_signals) == 1
 
 
+@pytest.mark.requirement("REQ-PLOT-020")
+@pytest.mark.requirement("REQ-BROWSER-040")
 def test_add_signal_duplicate_is_noop(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     ctrl.add_signal(0, 1)
@@ -227,11 +242,13 @@ def test_add_signal_calls_table_add_row(ctrl: AppController, deps: dict) -> None
     assert isinstance(active, ActiveSignal)
 
 
+@pytest.mark.requirement("REQ-PLOT-021")
 def test_add_signal_assigns_color(ctrl: AppController) -> None:
     ctrl.add_signal(0, 1)
     assert isinstance(ctrl.active_signals[0].color, QColor)
 
 
+@pytest.mark.requirement("REQ-PLOT-021")
 def test_add_signal_colors_cycle_through_palette(ctrl: AppController, deps: dict) -> None:
     # Return metadata whose indices match the request so the duplicate guard
     # doesn't block distinct channels.
@@ -261,12 +278,14 @@ def test_add_signal_returns_true_when_added(ctrl: AppController) -> None:
     assert result is True
 
 
+@pytest.mark.requirement("REQ-PLOT-020")
 def test_add_signal_returns_false_for_duplicate(ctrl: AppController) -> None:
     ctrl.add_signal(0, 1)
     result = ctrl.add_signal(0, 1)
     assert result is False
 
 
+@pytest.mark.requirement("REQ-BROWSER-041")
 def test_add_signal_propagates_mdf_load_error(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.side_effect = MdfLoadError("bad channel")
     with pytest.raises(MdfLoadError):
@@ -299,6 +318,7 @@ def test_remove_signal_calls_table_remove_row(ctrl: AppController, deps: dict) -
     deps["table"].remove_row.assert_called_once_with(sig)
 
 
+@pytest.mark.requirement("REQ-PLOT-025")
 def test_remove_signal_clears_selection_when_selected(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -310,6 +330,7 @@ def test_remove_signal_clears_selection_when_selected(
     deps["signal_info"].clear.assert_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-025")
 def test_remove_signal_keeps_selection_for_other(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     ctrl.add_signal(0, 2)
@@ -319,6 +340,7 @@ def test_remove_signal_keeps_selection_for_other(ctrl: AppController, deps: dict
     assert ctrl.selected_signal is sigs[1]
 
 
+@pytest.mark.requirement("REQ-PLOT-023")
 def test_remove_signal_noop_when_not_active(ctrl: AppController, deps: dict) -> None:
     stranger = ActiveSignal(
         data=_make_signal_data(),
@@ -356,6 +378,7 @@ def test_remove_all_clears_table(ctrl: AppController, deps: dict) -> None:
     deps["table"].clear.assert_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-025")
 def test_remove_all_clears_selection(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     ctrl.set_selected_signal(ctrl.active_signals[0])
@@ -379,6 +402,7 @@ def test_set_selected_signal_updates_property(ctrl: AppController) -> None:
     assert ctrl.selected_signal is sig
 
 
+@pytest.mark.requirement("REQ-PLOT-150")
 def test_set_selected_signal_calls_set_metadata(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -388,6 +412,7 @@ def test_set_selected_signal_calls_set_metadata(
     deps["signal_info"].set_metadata.assert_called_once_with(sig.metadata)
 
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_set_selected_signal_none_calls_clear(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -462,6 +487,7 @@ def test_set_selected_signal_none_removes_grid(ctrl: AppController, deps: dict) 
 # recolor_signal
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_recolor_signal_calls_plot(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     active = ctrl.active_signals[0]
@@ -490,11 +516,13 @@ def test_recolor_signal_without_cursor_ctrl_does_not_crash(ctrl: AppController, 
 # toggle_step_mode
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-022")
 def test_add_signal_sets_step_mode_false_for_float_signal(ctrl: AppController) -> None:
     ctrl.add_signal(0, 1)  # _make_metadata() has is_integer=False
     assert ctrl.active_signals[0].step_mode is False
 
 
+@pytest.mark.requirement("REQ-PLOT-022")
 def test_add_signal_sets_step_mode_true_for_integer_signal(deps: dict) -> None:
     meta = SignalMetadata(name="gear", unit="", group_index=0, channel_index=1, is_integer=True)
     deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
@@ -507,6 +535,7 @@ def test_add_signal_sets_step_mode_true_for_integer_signal(deps: dict) -> None:
     assert ctrl.active_signals[0].step_mode is True
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_toggle_step_mode_flips_flag(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     active = ctrl.active_signals[0]
@@ -515,6 +544,7 @@ def test_toggle_step_mode_flips_flag(ctrl: AppController, deps: dict) -> None:
     assert active.step_mode is not original
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_toggle_step_mode_calls_plot(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     active = ctrl.active_signals[0]
@@ -548,6 +578,7 @@ def test_toggle_step_mode_noop_for_unknown_signal(ctrl: AppController, deps: dic
 # remove_signals
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-141")
 def test_remove_signals_removes_all(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.side_effect = [
         (_make_signal_data(), _make_metadata("a", ci=1)),
@@ -560,6 +591,7 @@ def test_remove_signals_removes_all(ctrl: AppController, deps: dict) -> None:
     assert ctrl.active_signals == []
 
 
+@pytest.mark.requirement("REQ-PLOT-141")
 def test_remove_signals_calls_plot_remove_for_each(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.side_effect = [
         (_make_signal_data(), _make_metadata("a", ci=1)),
@@ -587,6 +619,7 @@ def test_remove_signals_refreshes_cursors_once(ctrl: AppController, deps: dict) 
     assert cursor_ctrl.refresh.call_count == 1
 
 
+@pytest.mark.requirement("REQ-PLOT-023")
 def test_remove_signals_skips_unknown(ctrl: AppController, deps: dict) -> None:
     t = np.array([0.0, 1.0])
     unknown = ActiveSignal(
@@ -602,6 +635,7 @@ def test_remove_signals_skips_unknown(ctrl: AppController, deps: dict) -> None:
 # recolor_signals
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-122")
 def test_recolor_signals_calls_plot_for_each(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.side_effect = [
         (_make_signal_data(), _make_metadata("a", ci=1)),
@@ -620,6 +654,7 @@ def test_recolor_signals_calls_plot_for_each(ctrl: AppController, deps: dict) ->
 # set_step_modes
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-122")
 def test_set_step_modes_enables_all(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.side_effect = [
         (_make_signal_data(), _make_metadata("a", ci=1)),
@@ -632,6 +667,7 @@ def test_set_step_modes_enables_all(ctrl: AppController, deps: dict) -> None:
     assert all(a.step_mode for a in actives)
 
 
+@pytest.mark.requirement("REQ-PLOT-122")
 def test_set_step_modes_disables_all(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.side_effect = [
         (_make_signal_data(), _make_metadata("a", ci=1)),
@@ -645,6 +681,7 @@ def test_set_step_modes_disables_all(ctrl: AppController, deps: dict) -> None:
     assert not any(a.step_mode for a in actives)
 
 
+@pytest.mark.requirement("REQ-PLOT-122")
 def test_set_step_modes_calls_plot_for_each(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.side_effect = [
         (_make_signal_data(), _make_metadata("a", ci=1)),
@@ -658,6 +695,7 @@ def test_set_step_modes_calls_plot_for_each(ctrl: AppController, deps: dict) -> 
     assert deps["plot"].set_step_mode.call_count == 2
 
 
+@pytest.mark.requirement("REQ-PLOT-023")
 def test_set_step_modes_skips_unknown(ctrl: AppController, deps: dict) -> None:
     t = np.array([0.0, 1.0])
     unknown = ActiveSignal(
@@ -673,11 +711,13 @@ def test_set_step_modes_skips_unknown(ctrl: AppController, deps: dict) -> None:
 # on_multi_selection
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_on_multi_selection_true_calls_show_multi(ctrl: AppController, deps: dict) -> None:
     ctrl.on_multi_selection(True)
     deps["signal_info"].show_multi_selection.assert_called_once()
 
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_on_multi_selection_false_does_not_call_show_multi(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -689,6 +729,7 @@ def test_on_multi_selection_false_does_not_call_show_multi(
 # swimlanes
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-055")
 def test_swimlanes_calls_plot_with_active_list(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.side_effect = [
         (_make_signal_data(), _make_metadata("a", ci=0)),
@@ -702,6 +743,7 @@ def test_swimlanes_calls_plot_with_active_list(ctrl: AppController, deps: dict) 
     deps["plot"].swimlanes.assert_called_once_with(ctrl._active)
 
 
+@pytest.mark.requirement("REQ-PLOT-055")
 def test_swimlanes_returns_false_when_no_signals(ctrl: AppController, deps: dict) -> None:
     deps["plot"].swimlanes.return_value = False
     assert ctrl.swimlanes() is False
@@ -711,6 +753,7 @@ def test_swimlanes_returns_false_when_no_signals(ctrl: AppController, deps: dict
 # reorder_signals
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-142")
 def test_reorder_signals_updates_active_order(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.side_effect = [
         (_make_signal_data(), _make_metadata("a", ci=0)),
@@ -733,6 +776,7 @@ def test_reorder_signals_preserves_identity(ctrl: AppController, deps: dict) -> 
     assert ctrl._active[0] is original
 
 
+@pytest.mark.requirement("REQ-PLOT-042")
 def test_add_signal_calls_refresh_z_order(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.return_value = (_make_signal_data(), _make_metadata())
     deps["plot"].reset_mock()
@@ -743,6 +787,7 @@ def test_add_signal_calls_refresh_z_order(ctrl: AppController, deps: dict) -> No
     )
 
 
+@pytest.mark.requirement("REQ-PLOT-142")
 def test_reorder_signals_calls_refresh_z_order(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.side_effect = [
         (_make_signal_data(), _make_metadata("a", ci=0)),
@@ -758,6 +803,7 @@ def test_reorder_signals_calls_refresh_z_order(ctrl: AppController, deps: dict) 
     )
 
 
+@pytest.mark.requirement("REQ-PLOT-042")
 def test_refresh_z_order_uses_signal_z_order_from_settings(
     tmp_path, deps: dict
 ) -> None:
@@ -783,6 +829,7 @@ def test_refresh_z_order_uses_signal_z_order_from_settings(
     )
 
 
+@pytest.mark.requirement("REQ-PLOT-044")
 def test_refresh_z_order_pushes_line_boost_from_settings(
     tmp_path, deps: dict
 ) -> None:
@@ -803,6 +850,7 @@ def test_refresh_z_order_pushes_line_boost_from_settings(
     deps["plot"].set_selected_line_boost.assert_called_with(3)
 
 
+@pytest.mark.requirement("REQ-PLOT-044")
 def test_refresh_z_order_pushes_default_boost_without_settings(deps: dict) -> None:
     ctrl = AppController(
         loader=deps["loader"],
@@ -821,6 +869,7 @@ def test_refresh_z_order_pushes_default_boost_without_settings(deps: dict) -> No
 # refresh_display_names
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_refresh_display_names_calls_set_name_formatter(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -828,6 +877,7 @@ def test_refresh_display_names_calls_set_name_formatter(
     deps["table"].set_name_formatter.assert_called_once()
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_refresh_display_names_formatter_applies_rule(tmp_path, deps: dict) -> None:
     from mdf_viewer.settings import Settings
     s = Settings(path=tmp_path / "s.json")
@@ -849,6 +899,7 @@ def test_refresh_display_names_formatter_applies_rule(tmp_path, deps: dict) -> N
     assert formatter("a.b.PosADP") == "PosADP"
 
 
+@pytest.mark.requirement("REQ-PLOT-161")
 def test_refresh_display_names_identity_without_settings(deps: dict) -> None:
     ctrl = AppController(
         loader=deps["loader"],
@@ -867,6 +918,7 @@ def test_refresh_display_names_identity_without_settings(deps: dict) -> None:
 # set_selected_signal — Properties tab integration
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_set_selected_signal_calls_set_properties(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     sig = ctrl.active_signals[0]
@@ -876,6 +928,7 @@ def test_set_selected_signal_calls_set_properties(ctrl: AppController, deps: dic
     )
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_set_selected_signal_enables_properties(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     sig = ctrl.active_signals[0]
@@ -883,6 +936,7 @@ def test_set_selected_signal_enables_properties(ctrl: AppController, deps: dict)
     deps["signal_info"].enable_properties.assert_called_with(True)
 
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_set_selected_signal_none_disables_properties(ctrl: AppController, deps: dict) -> None:
     ctrl.set_selected_signal(None)
     # clear() is called; enable_properties is NOT called for None
@@ -919,6 +973,7 @@ def test_set_multi_selected_stores_signals(ctrl: AppController, deps: dict) -> N
     assert ctrl._selected_signals == actives
 
 
+@pytest.mark.requirement("REQ-PLOT-140")
 def test_set_multi_selected_calls_set_properties_with_matching_mode(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -934,6 +989,7 @@ def test_set_multi_selected_calls_set_properties_with_matching_mode(
     deps["signal_info"].set_properties.assert_called_with("line", "circle", 1, "solid")
 
 
+@pytest.mark.requirement("REQ-PLOT-140")
 def test_set_multi_selected_passes_none_for_mismatched_mode(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -950,6 +1006,7 @@ def test_set_multi_selected_passes_none_for_mismatched_mode(
     deps["signal_info"].set_properties.assert_called_with(None, "circle", 1, "solid")
 
 
+@pytest.mark.requirement("REQ-PLOT-122")
 def test_set_multi_selected_enables_properties_tab(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -962,6 +1019,7 @@ def test_set_multi_selected_enables_properties_tab(
 # on_display_mode_requested
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_on_display_mode_requested_updates_active(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     sig = ctrl.active_signals[0]
@@ -970,6 +1028,7 @@ def test_on_display_mode_requested_updates_active(ctrl: AppController, deps: dic
     assert sig.display_mode == "line_marker"
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_on_display_mode_requested_calls_plot(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     sig = ctrl.active_signals[0]
@@ -978,6 +1037,7 @@ def test_on_display_mode_requested_calls_plot(ctrl: AppController, deps: dict) -
     deps["plot"].set_display_mode.assert_called_once_with(sig, "marker", sig.marker_shape)
 
 
+@pytest.mark.requirement("REQ-PLOT-023")
 def test_on_display_mode_requested_skips_unknown(ctrl: AppController, deps: dict) -> None:
     t = np.array([0.0, 1.0])
     unknown = ActiveSignal(
@@ -994,6 +1054,7 @@ def test_on_display_mode_requested_skips_unknown(ctrl: AppController, deps: dict
 # on_marker_shape_requested
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_on_marker_shape_requested_updates_active(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     sig = ctrl.active_signals[0]
@@ -1003,6 +1064,7 @@ def test_on_marker_shape_requested_updates_active(ctrl: AppController, deps: dic
     assert sig.marker_shape == "diamond"
 
 
+@pytest.mark.requirement("REQ-PLOT-121")
 def test_on_marker_shape_requested_calls_plot_when_not_line(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -1015,6 +1077,7 @@ def test_on_marker_shape_requested_calls_plot_when_not_line(
     deps["plot"].set_display_mode.assert_called_once_with(sig, "line_marker", "square")
 
 
+@pytest.mark.requirement("REQ-PLOT-121")
 def test_on_marker_shape_requested_no_plot_call_in_line_mode(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -1031,6 +1094,7 @@ def test_on_marker_shape_requested_no_plot_call_in_line_mode(
 # on_line_width_requested
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_on_line_width_requested_calls_plot(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     sig = ctrl.active_signals[0]
@@ -1040,6 +1104,7 @@ def test_on_line_width_requested_calls_plot(ctrl: AppController, deps: dict) -> 
     deps["plot"].set_line_width.assert_called_once_with(sig, 4)
 
 
+@pytest.mark.requirement("REQ-PLOT-023")
 def test_on_line_width_requested_ignored_for_inactive(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     sig = ctrl.active_signals[0]
@@ -1050,6 +1115,7 @@ def test_on_line_width_requested_ignored_for_inactive(ctrl: AppController, deps:
     deps["plot"].set_line_width.assert_not_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_set_selected_signal_passes_line_width_to_info_box(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -1060,6 +1126,7 @@ def test_set_selected_signal_passes_line_width_to_info_box(
     deps["signal_info"].set_properties.assert_called_with("line", "circle", 3, "solid")
 
 
+@pytest.mark.requirement("REQ-PLOT-140")
 def test_set_multi_selected_passes_shared_line_width(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     ctrl.add_signal(0, 2)
@@ -1070,6 +1137,7 @@ def test_set_multi_selected_passes_shared_line_width(ctrl: AppController, deps: 
     deps["signal_info"].set_properties.assert_called_with("line", "circle", 2, "solid")
 
 
+@pytest.mark.requirement("REQ-PLOT-140")
 def test_set_multi_selected_none_width_when_mismatched(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     ctrl.add_signal(0, 2)
@@ -1085,6 +1153,7 @@ def test_set_multi_selected_none_width_when_mismatched(ctrl: AppController, deps
 # on_line_style_requested
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_on_line_style_requested_calls_plot(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     sig = ctrl.active_signals[0]
@@ -1094,6 +1163,7 @@ def test_on_line_style_requested_calls_plot(ctrl: AppController, deps: dict) -> 
     deps["plot"].set_line_style.assert_called_once_with(sig, "dashes")
 
 
+@pytest.mark.requirement("REQ-PLOT-023")
 def test_on_line_style_requested_ignored_for_inactive(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     sig = ctrl.active_signals[0]
@@ -1104,6 +1174,7 @@ def test_on_line_style_requested_ignored_for_inactive(ctrl: AppController, deps:
     deps["plot"].set_line_style.assert_not_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-140")
 def test_set_multi_selected_passes_none_style_when_mismatched(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -1125,6 +1196,7 @@ def test_set_multi_selected_passes_none_style_when_mismatched(
 # set_selected_signals (PlotArea call)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-043")
 def test_set_selected_signal_calls_plot_set_selected_signals(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -1137,6 +1209,7 @@ def test_set_selected_signal_calls_plot_set_selected_signals(
     )
 
 
+@pytest.mark.requirement("REQ-PLOT-043")
 def test_set_selected_signal_none_clears_selection(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -1150,6 +1223,7 @@ def test_set_selected_signal_none_clears_selection(
     )
 
 
+@pytest.mark.requirement("REQ-PLOT-043")
 def test_set_multi_selected_passes_signals_in_active_order(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -1171,10 +1245,12 @@ def test_set_multi_selected_passes_signals_in_active_order(
 # snapshot_active_signals
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_snapshot_empty_when_no_signals(ctrl: AppController) -> None:
     assert ctrl.snapshot_active_signals() == []
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_snapshot_captures_one_signal(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.return_value = (
         _make_signal_data(),
@@ -1196,6 +1272,7 @@ def test_snapshot_captures_one_signal(ctrl: AppController, deps: dict) -> None:
     assert snap.enum_display_yaxis is False
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_snapshot_captures_multiple_signals_in_order(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.side_effect = [
         (_make_signal_data(), _make_metadata("a", ci=1)),
@@ -1207,6 +1284,7 @@ def test_snapshot_captures_multiple_signals_in_order(ctrl: AppController, deps: 
     assert [s.name for s in snaps] == ["a", "b"]
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_snapshot_color_is_rgb_tuple(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     snap = ctrl.snapshot_active_signals()[0]
@@ -1218,6 +1296,7 @@ def test_snapshot_color_is_rgb_tuple(ctrl: AppController, deps: dict) -> None:
 # find_signal_by_name
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-MDF-060")
 def test_find_signal_by_name_delegates_to_loader(ctrl: AppController, deps: dict) -> None:
     meta = _make_metadata("speed", gi=0, ci=3)
     deps["loader"].find_signal_by_name.return_value = [meta]
@@ -1226,6 +1305,7 @@ def test_find_signal_by_name_delegates_to_loader(ctrl: AppController, deps: dict
     assert result == [meta]
 
 
+@pytest.mark.requirement("REQ-MDF-060")
 def test_find_signal_by_name_returns_empty_when_not_found(ctrl: AppController, deps: dict) -> None:
     deps["loader"].find_signal_by_name.return_value = []
     assert ctrl.find_signal_by_name("no_such") == []
@@ -1252,6 +1332,8 @@ def _make_snapshot(name: str = "rpm", **kwargs):
     return ActiveSignalSnapshot(name=name, **defaults)
 
 
+@pytest.mark.requirement("REQ-FILE-066")
+@pytest.mark.requirement("REQ-FILE-031")
 def test_restore_signals_adds_signal(ctrl: AppController, deps: dict) -> None:
     meta = _make_metadata("rpm", gi=0, ci=5)
     deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
@@ -1261,6 +1343,8 @@ def test_restore_signals_adds_signal(ctrl: AppController, deps: dict) -> None:
     assert ctrl.active_signals[0].metadata.name == "rpm"
 
 
+@pytest.mark.requirement("REQ-FILE-061")
+@pytest.mark.requirement("REQ-FILE-066")
 def test_restore_signals_applies_color(ctrl: AppController, deps: dict) -> None:
     meta = _make_metadata("sig", gi=0, ci=1)
     deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
@@ -1270,6 +1354,7 @@ def test_restore_signals_applies_color(ctrl: AppController, deps: dict) -> None:
     assert (active.color.red(), active.color.green(), active.color.blue()) == (10, 20, 30)
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_restore_signals_calls_recolor_on_plot(ctrl: AppController, deps: dict) -> None:
     from PyQt6.QtGui import QColor
     meta = _make_metadata("sig", gi=0, ci=1)
@@ -1282,6 +1367,7 @@ def test_restore_signals_calls_recolor_on_plot(ctrl: AppController, deps: dict) 
     assert args[1].red() == 10
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_restore_signals_updates_table_swatch(ctrl: AppController, deps: dict) -> None:
     from PyQt6.QtGui import QColor
     meta = _make_metadata("sig", gi=0, ci=1)
@@ -1294,6 +1380,7 @@ def test_restore_signals_updates_table_swatch(ctrl: AppController, deps: dict) -
     assert args[1].red() == 99
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_restore_signals_applies_line_width(ctrl: AppController, deps: dict) -> None:
     meta = _make_metadata("sig", gi=0, ci=1)
     deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
@@ -1303,6 +1390,7 @@ def test_restore_signals_applies_line_width(ctrl: AppController, deps: dict) -> 
     assert ctrl.active_signals[0].line_width == 3
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_restore_signals_applies_step_mode(ctrl: AppController, deps: dict) -> None:
     meta = _make_metadata("sig", gi=0, ci=1)
     deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
@@ -1312,6 +1400,7 @@ def test_restore_signals_applies_step_mode(ctrl: AppController, deps: dict) -> N
     assert ctrl.active_signals[0].step_mode is True
 
 
+@pytest.mark.requirement("REQ-PLOT-020")
 def test_restore_signals_skips_duplicate(ctrl: AppController, deps: dict) -> None:
     meta = _make_metadata("rpm", gi=0, ci=1)
     deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
@@ -1323,6 +1412,7 @@ def test_restore_signals_skips_duplicate(ctrl: AppController, deps: dict) -> Non
     assert len(ctrl.active_signals) == initial_count
 
 
+@pytest.mark.requirement("REQ-FILE-066")
 def test_restore_signals_multiple_signals(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.side_effect = [
         (_make_signal_data(), _make_metadata("a", gi=0, ci=1)),
@@ -1337,6 +1427,7 @@ def test_restore_signals_multiple_signals(ctrl: AppController, deps: dict) -> No
 # snapshot includes group_name
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_snapshot_includes_group_name(ctrl: AppController, deps: dict) -> None:
     meta = SignalMetadata(name="rpm", unit="rpm", group_index=0, channel_index=1, group_name="Engine")
     deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
@@ -1345,6 +1436,7 @@ def test_snapshot_includes_group_name(ctrl: AppController, deps: dict) -> None:
     assert snap.group_name == "Engine"
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_snapshot_group_name_empty_when_not_set(ctrl: AppController, deps: dict) -> None:
     ctrl.add_signal(0, 1)
     snap = ctrl.snapshot_active_signals()[0]
@@ -1365,6 +1457,7 @@ def test_current_config_path_can_be_set(ctrl: AppController, tmp_path) -> None:
     assert ctrl.current_config_path == p
 
 
+@pytest.mark.requirement("REQ-FILE-012")
 def test_load_file_clears_config_path(ctrl: AppController, deps: dict, tmp_path) -> None:
     ctrl.current_config_path = tmp_path / "session.mvc"
     ctrl.load_file(tmp_path / "test.mf4")
@@ -1380,6 +1473,7 @@ def _make_zoom_state():
     return ZoomState(x_range=(0.0, 5.0), y_ranges={})
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_capture_config_returns_viewer_config(ctrl: AppController, deps: dict, tmp_path) -> None:
     from mdf_viewer.model.viewer_config import ViewerConfig
     deps["plot"].get_zoom_state.return_value = _make_zoom_state()
@@ -1390,6 +1484,7 @@ def test_capture_config_returns_viewer_config(ctrl: AppController, deps: dict, t
     assert isinstance(config, ViewerConfig)
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_capture_config_x_range(ctrl: AppController, deps: dict, tmp_path) -> None:
     deps["plot"].get_zoom_state.return_value = _make_zoom_state()
     deps["plot"].get_axis_grouping.return_value = ([], [])
@@ -1399,6 +1494,7 @@ def test_capture_config_x_range(ctrl: AppController, deps: dict, tmp_path) -> No
     assert config.x_range == (0.0, 5.0)
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_capture_config_measurement_path(ctrl: AppController, deps: dict, tmp_path) -> None:
     meas = tmp_path / "meas.mf4"
     deps["plot"].get_zoom_state.return_value = _make_zoom_state()
@@ -1417,6 +1513,7 @@ def test_capture_config_no_file_open(ctrl: AppController, deps: dict, tmp_path) 
     assert config.measurement_path == ""
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_capture_config_cursor_snapshot_used(ctrl: AppController, deps: dict, tmp_path) -> None:
     from unittest.mock import MagicMock
     cursor = MagicMock()
@@ -1430,6 +1527,7 @@ def test_capture_config_cursor_snapshot_used(ctrl: AppController, deps: dict, tm
     assert config.cursor_positions == (1.0, 4.0)
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_capture_config_no_settings_uses_defaults(
     ctrl: AppController, deps: dict, tmp_path
 ) -> None:
@@ -1443,6 +1541,8 @@ def test_capture_config_no_settings_uses_defaults(
     assert config.display_name_segments == 1
 
 
+@pytest.mark.requirement("REQ-FILE-061")
+@pytest.mark.requirement("REQ-PLOT-170")
 def test_capture_config_uses_settings_display_name_rule(deps: dict, tmp_path) -> None:
     """The session's shortening-rule *parameters* are captured from Settings (#89)."""
     from mdf_viewer.settings import Settings
@@ -1494,6 +1594,7 @@ def _make_viewer_config(**kwargs):
     return ViewerConfig(**defaults)
 
 
+@pytest.mark.requirement("REQ-PLOT-036")
 def test_restore_config_calls_restore_axis_grouping(ctrl: AppController, deps: dict) -> None:
     config = _make_viewer_config(
         merged_groups=(("a", "b"),),
@@ -1502,12 +1603,14 @@ def test_restore_config_calls_restore_axis_grouping(ctrl: AppController, deps: d
     deps["plot"].restore_axis_grouping.assert_called_once()
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_restore_config_calls_set_zoom_state(ctrl: AppController, deps: dict) -> None:
     config = _make_viewer_config()
     ctrl.restore_config(config, [])
     deps["plot"].set_zoom_state.assert_called_once()
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_restore_config_calls_cursor_restore(ctrl: AppController, deps: dict) -> None:
     from unittest.mock import MagicMock
     cursor = MagicMock()
@@ -1517,6 +1620,7 @@ def test_restore_config_calls_cursor_restore(ctrl: AppController, deps: dict) ->
     cursor.restore.assert_called_once_with({"mode": "ONE", "positions": [2.5, 0.0]})
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_restore_config_sets_selection(ctrl: AppController, deps: dict) -> None:
     meta = _make_metadata("RPM", gi=0, ci=1)
     deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
@@ -1533,6 +1637,7 @@ def test_restore_config_no_settings_does_not_crash(ctrl: AppController, deps: di
     ctrl.restore_config(config, [])  # must not raise
 
 
+@pytest.mark.requirement("REQ-PLOT-170")
 def test_restore_config_applies_display_name_rule_to_settings(
     deps: dict, tmp_path
 ) -> None:
@@ -1560,6 +1665,7 @@ def test_restore_config_applies_display_name_rule_to_settings(
     assert s.display_name_segments == 4
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_restore_config_refreshes_display_names(deps: dict, tmp_path) -> None:
     from mdf_viewer.settings import Settings
     s = Settings(path=tmp_path / "s.json")
@@ -1582,6 +1688,7 @@ def test_restore_config_refreshes_display_names(deps: dict, tmp_path) -> None:
 # on_merge_y_axis_requested / on_sync_y_axis_requested — dual-group guard (#84)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-031")
 def test_merge_y_axis_calls_merge_signals_when_ungrouped(ctrl: AppController, deps: dict) -> None:
     deps["plot"].get_group_type.return_value = None
     ctrl.add_signal(0, 1)
@@ -1590,6 +1697,7 @@ def test_merge_y_axis_calls_merge_signals_when_ungrouped(ctrl: AppController, de
     deps["plot"].merge_signals.assert_called_once()
 
 
+@pytest.mark.requirement("REQ-PLOT-033")
 def test_merge_y_axis_rejected_when_signal_already_synced(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -1600,6 +1708,7 @@ def test_merge_y_axis_rejected_when_signal_already_synced(
     deps["plot"].merge_signals.assert_not_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-032")
 def test_sync_y_axis_calls_sync_signals_when_ungrouped(ctrl: AppController, deps: dict) -> None:
     deps["plot"].get_group_type.return_value = None
     ctrl.add_signal(0, 1)
@@ -1608,6 +1717,7 @@ def test_sync_y_axis_calls_sync_signals_when_ungrouped(ctrl: AppController, deps
     deps["plot"].sync_signals.assert_called_once()
 
 
+@pytest.mark.requirement("REQ-PLOT-033")
 def test_sync_y_axis_rejected_when_signal_already_merged(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -1618,6 +1728,8 @@ def test_sync_y_axis_rejected_when_signal_already_merged(
     deps["plot"].sync_signals.assert_not_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-031")
+@pytest.mark.requirement("REQ-PLOT-032")
 def test_refresh_table_group_state_pushes_merged_and_synced_sets(
     ctrl: AppController, deps: dict
 ) -> None:

@@ -73,10 +73,12 @@ def test_tree_initially_empty(browser: SignalBrowser) -> None:
     assert browser._model.rowCount() == 0
 
 
+@pytest.mark.requirement("REQ-BROWSER-032")
 def test_add_button_disabled_initially(browser: SignalBrowser) -> None:
     assert not browser._add_btn.isEnabled()
 
 
+@pytest.mark.requirement("REQ-BROWSER-020")
 def test_filter_field_exists(browser: SignalBrowser) -> None:
     from PyQt6.QtWidgets import QLineEdit
     assert isinstance(browser._filter_edit, QLineEdit)
@@ -90,14 +92,17 @@ def test_filter_field_has_placeholder(browser: SignalBrowser) -> None:
 # Selection mode and drag
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-BROWSER-030")
 def test_selection_mode_is_extended(browser: SignalBrowser) -> None:
     assert browser._tree.selectionMode() == QAbstractItemView.SelectionMode.ExtendedSelection
 
 
+@pytest.mark.requirement("REQ-BROWSER-031")
 def test_drag_enabled(browser: SignalBrowser) -> None:
     assert browser._tree.dragEnabled()
 
 
+@pytest.mark.requirement("REQ-BROWSER-031")
 def test_drag_mode_is_drag_only(browser: SignalBrowser) -> None:
     assert browser._tree.dragDropMode() == QAbstractItemView.DragDropMode.DragOnly
 
@@ -106,19 +111,23 @@ def test_drag_mode_is_drag_only(browser: SignalBrowser) -> None:
 # populate()
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-BROWSER-010")
 def test_populate_creates_top_level_groups(populated_browser: SignalBrowser) -> None:
     assert populated_browser._model.rowCount() == 2
 
 
+@pytest.mark.requirement("REQ-BROWSER-010")
 def test_populate_group_names(populated_browser: SignalBrowser) -> None:
     assert populated_browser._model.item(0).text() == "Group 0"
     assert populated_browser._model.item(1).text() == "Group 1"
 
 
+@pytest.mark.requirement("REQ-BROWSER-010")
 def test_populate_group_0_has_three_children(populated_browser: SignalBrowser) -> None:
     assert populated_browser._model.item(0).rowCount() == 3
 
 
+@pytest.mark.requirement("REQ-BROWSER-010")
 def test_populate_group_1_has_two_children(populated_browser: SignalBrowser) -> None:
     assert populated_browser._model.item(1).rowCount() == 2
 
@@ -133,10 +142,12 @@ def test_channel_label_omits_empty_unit(populated_browser: SignalBrowser) -> Non
     assert raw_item.text() == "raw_flag"
 
 
+@pytest.mark.requirement("REQ-BROWSER-032")
 def test_add_button_disabled_after_populate(populated_browser: SignalBrowser) -> None:
     assert not populated_browser._add_btn.isEnabled()
 
 
+@pytest.mark.requirement("REQ-BROWSER-012")
 def test_populate_replaces_previous_content(
     browser: SignalBrowser, sample_groups
 ) -> None:
@@ -153,6 +164,7 @@ def test_populate_replaces_previous_content(
     assert browser._model.item(0).text() == "Solo"
 
 
+@pytest.mark.requirement("REQ-BROWSER-012")
 def test_populate_clears_filter(browser: SignalBrowser, sample_groups) -> None:
     browser.populate(sample_groups)
     browser._filter_edit.setText("sin")
@@ -164,11 +176,13 @@ def test_populate_clears_filter(browser: SignalBrowser, sample_groups) -> None:
 # clear()
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-BROWSER-012")
 def test_clear_removes_items(populated_browser: SignalBrowser) -> None:
     populated_browser.clear()
     assert populated_browser._model.rowCount() == 0
 
 
+@pytest.mark.requirement("REQ-BROWSER-032")
 def test_clear_disables_add_button(populated_browser: SignalBrowser) -> None:
     group_item = populated_browser._model.item(0)
     populated_browser._tree.setCurrentIndex(_px(populated_browser, group_item.child(1)))
@@ -178,6 +192,7 @@ def test_clear_disables_add_button(populated_browser: SignalBrowser) -> None:
     assert not populated_browser._add_btn.isEnabled()
 
 
+@pytest.mark.requirement("REQ-BROWSER-012")
 def test_clear_resets_filter(populated_browser: SignalBrowser) -> None:
     populated_browser._filter_edit.setText("sin")
     populated_browser.clear()
@@ -188,6 +203,7 @@ def test_clear_resets_filter(populated_browser: SignalBrowser) -> None:
 # Selection → button state
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-BROWSER-032")
 def test_add_button_enabled_when_channel_selected(
     populated_browser: SignalBrowser,
 ) -> None:
@@ -197,6 +213,8 @@ def test_add_button_enabled_when_channel_selected(
     assert populated_browser._add_btn.isEnabled()
 
 
+@pytest.mark.requirement("REQ-BROWSER-011")
+@pytest.mark.requirement("REQ-BROWSER-032")
 def test_add_button_disabled_when_group_selected(
     populated_browser: SignalBrowser,
 ) -> None:
@@ -210,6 +228,7 @@ def test_add_button_disabled_when_group_selected(
 # add_signals_requested signal — single selection
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-BROWSER-031")
 def test_add_button_emits_correct_indices(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
@@ -222,6 +241,7 @@ def test_add_button_emits_correct_indices(
     assert blocker.args == [[(0, 2)]]
 
 
+@pytest.mark.requirement("REQ-BROWSER-031")
 def test_double_click_channel_emits_signal(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
@@ -233,6 +253,7 @@ def test_double_click_channel_emits_signal(
     assert blocker.args == [[(0, 1)]]
 
 
+@pytest.mark.requirement("REQ-BROWSER-011")
 def test_double_click_group_does_not_emit(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
@@ -242,6 +263,7 @@ def test_double_click_group_does_not_emit(
         )
 
 
+@pytest.mark.requirement("REQ-BROWSER-031")
 def test_speed_channel_correct_indices(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
@@ -258,6 +280,8 @@ def test_speed_channel_correct_indices(
 # add_signals_requested signal — multi-selection
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-BROWSER-030")
+@pytest.mark.requirement("REQ-BROWSER-031")
 def test_add_button_emits_all_selected_channels(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
@@ -273,6 +297,7 @@ def test_add_button_emits_all_selected_channels(
     assert (0, 2) in locations
 
 
+@pytest.mark.requirement("REQ-BROWSER-011")
 def test_selected_locations_excludes_group_items(
     populated_browser: SignalBrowser,
 ) -> None:
@@ -281,6 +306,7 @@ def test_selected_locations_excludes_group_items(
     assert populated_browser._selected_locations() == []
 
 
+@pytest.mark.requirement("REQ-BROWSER-030")
 def test_selected_locations_returns_multiple(
     populated_browser: SignalBrowser,
 ) -> None:
@@ -299,6 +325,7 @@ def test_selected_locations_returns_multiple(
 # Filter behaviour
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-BROWSER-024")
 def test_filter_is_debounced(populated_browser: SignalBrowser, qtbot) -> None:
     # Typing does not filter immediately...
     populated_browser._filter_edit.setText("sin")
@@ -308,6 +335,7 @@ def test_filter_is_debounced(populated_browser: SignalBrowser, qtbot) -> None:
     assert populated_browser._proxy.rowCount() == 1
 
 
+@pytest.mark.requirement("REQ-BROWSER-020")
 def test_filter_hides_non_matching_groups(populated_browser: SignalBrowser) -> None:
     # "sin" only appears in Group 0 → Group 1 should be hidden
     populated_browser._filter_edit.setText("sin")
@@ -315,6 +343,7 @@ def test_filter_hides_non_matching_groups(populated_browser: SignalBrowser) -> N
     assert populated_browser._proxy.rowCount() == 1
 
 
+@pytest.mark.requirement("REQ-BROWSER-023")
 def test_filter_shows_parent_group_when_child_matches(
     populated_browser: SignalBrowser,
 ) -> None:
@@ -323,6 +352,7 @@ def test_filter_shows_parent_group_when_child_matches(
     assert populated_browser._proxy.data(group0_proxy) == "Group 0"
 
 
+@pytest.mark.requirement("REQ-BROWSER-020")
 def test_filter_shows_only_matching_children(populated_browser: SignalBrowser) -> None:
     populated_browser._filter_edit.setText("sin")
     populated_browser._apply_filter()
@@ -330,12 +360,14 @@ def test_filter_shows_only_matching_children(populated_browser: SignalBrowser) -
     assert populated_browser._proxy.rowCount(group0_proxy) == 1
 
 
+@pytest.mark.requirement("REQ-BROWSER-021")
 def test_filter_case_insensitive(populated_browser: SignalBrowser) -> None:
     populated_browser._filter_edit.setText("SIN")
     populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 1
 
 
+@pytest.mark.requirement("REQ-BROWSER-020")
 def test_filter_empty_shows_all(populated_browser: SignalBrowser) -> None:
     populated_browser._filter_edit.setText("sin")
     populated_browser._apply_filter()
@@ -344,12 +376,14 @@ def test_filter_empty_shows_all(populated_browser: SignalBrowser) -> None:
     assert populated_browser._proxy.rowCount() == 2
 
 
+@pytest.mark.requirement("REQ-BROWSER-020")
 def test_filter_no_match_hides_all(populated_browser: SignalBrowser) -> None:
     populated_browser._filter_edit.setText("zzznomatch")
     populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 0
 
 
+@pytest.mark.requirement("REQ-BROWSER-022")
 def test_filter_matches_partial_name(populated_browser: SignalBrowser) -> None:
     # "speed" is in Group 1; "spee" should match it
     populated_browser._filter_edit.setText("spee")
@@ -363,6 +397,7 @@ def test_filter_matches_partial_name(populated_browser: SignalBrowser) -> None:
 # Wildcard filter behaviour
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-BROWSER-022")
 def test_filter_wildcard_star_prefix(populated_browser: SignalBrowser) -> None:
     # "*flag" should match "raw_flag" (ends with "flag")
     populated_browser._filter_edit.setText("*flag")
@@ -371,6 +406,7 @@ def test_filter_wildcard_star_prefix(populated_browser: SignalBrowser) -> None:
     assert "Group 1" in populated_browser._proxy.data(populated_browser._proxy.index(0, 0))
 
 
+@pytest.mark.requirement("REQ-BROWSER-022")
 def test_filter_wildcard_star_suffix(populated_browser: SignalBrowser) -> None:
     # "raw*" should match "raw_flag" (starts with "raw")
     populated_browser._filter_edit.setText("raw*")
@@ -378,6 +414,7 @@ def test_filter_wildcard_star_suffix(populated_browser: SignalBrowser) -> None:
     assert populated_browser._proxy.rowCount() == 1
 
 
+@pytest.mark.requirement("REQ-BROWSER-022")
 def test_filter_wildcard_star_matches_multiple_groups(populated_browser: SignalBrowser) -> None:
     # "s*" matches "sin [V]" (Group 0) and "speed [km/h]" (Group 1)
     populated_browser._filter_edit.setText("s*")
@@ -385,6 +422,7 @@ def test_filter_wildcard_star_matches_multiple_groups(populated_browser: SignalB
     assert populated_browser._proxy.rowCount() == 2
 
 
+@pytest.mark.requirement("REQ-BROWSER-022")
 def test_filter_wildcard_question_mark(populated_browser: SignalBrowser) -> None:
     # "s?n*" matches "sin [V]" (s-i-n-…) but not "speed [km/h]" (third char is 'e', not 'n')
     populated_browser._filter_edit.setText("s?n*")
@@ -393,18 +431,22 @@ def test_filter_wildcard_question_mark(populated_browser: SignalBrowser) -> None
     assert "Group 0" in populated_browser._proxy.data(populated_browser._proxy.index(0, 0))
 
 
+@pytest.mark.requirement("REQ-BROWSER-022")
 def test_filter_wildcard_no_match(populated_browser: SignalBrowser) -> None:
     populated_browser._filter_edit.setText("*zzz*")
     populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 0
 
 
+@pytest.mark.requirement("REQ-BROWSER-021")
+@pytest.mark.requirement("REQ-BROWSER-022")
 def test_filter_wildcard_case_insensitive(populated_browser: SignalBrowser) -> None:
     populated_browser._filter_edit.setText("*FLAG")
     populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 1
 
 
+@pytest.mark.requirement("REQ-BROWSER-022")
 def test_filter_plain_text_still_does_substring_match(populated_browser: SignalBrowser) -> None:
     # Without wildcards, "raw" still matches "raw_flag" as a substring
     populated_browser._filter_edit.setText("raw")

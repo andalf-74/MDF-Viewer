@@ -76,6 +76,7 @@ def _make_ctrl(
 # Initial state
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-070")
 def test_initial_mode_is_hidden(ctrl: CursorController) -> None:
     assert ctrl.mode == CursorMode.HIDDEN
 
@@ -90,18 +91,21 @@ def test_connects_to_cursor_moved(view: MagicMock, table: MagicMock) -> None:
 # toggle cycle
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-071")
 def test_toggle_hidden_to_one(ctrl: CursorController, view: MagicMock) -> None:
     ctrl.toggle()
     assert ctrl.mode == CursorMode.ONE
     view.apply_mode.assert_called_with(CursorMode.ONE, ctrl._positions)
 
 
+@pytest.mark.requirement("REQ-PLOT-071")
 def test_toggle_one_to_two(ctrl: CursorController) -> None:
     ctrl.toggle()
     ctrl.toggle()
     assert ctrl.mode == CursorMode.TWO
 
 
+@pytest.mark.requirement("REQ-PLOT-071")
 def test_toggle_two_to_hidden(ctrl: CursorController) -> None:
     ctrl.toggle()
     ctrl.toggle()
@@ -109,6 +113,7 @@ def test_toggle_two_to_hidden(ctrl: CursorController) -> None:
     assert ctrl.mode == CursorMode.HIDDEN
 
 
+@pytest.mark.requirement("REQ-PLOT-071")
 def test_toggle_shows_cursor_columns_when_active(
     ctrl: CursorController, table: MagicMock
 ) -> None:
@@ -116,6 +121,7 @@ def test_toggle_shows_cursor_columns_when_active(
     table.show_cursor_columns.assert_called_with(True)
 
 
+@pytest.mark.requirement("REQ-PLOT-071")
 def test_toggle_hides_cursor_columns_when_hidden(
     ctrl: CursorController, table: MagicMock
 ) -> None:
@@ -137,6 +143,7 @@ def test_toggle_calls_apply_mode_on_view(
 # Initial cursor placement
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-073")
 def test_first_toggle_places_cursor_at_25_percent() -> None:
     view = MagicMock()
     view.cursor_moved = MagicMock()
@@ -146,6 +153,7 @@ def test_first_toggle_places_cursor_at_25_percent() -> None:
     assert ctrl._positions[0] == pytest.approx(2.5)  # 25% of span
 
 
+@pytest.mark.requirement("REQ-PLOT-073")
 def test_first_toggle_places_second_cursor_at_75_percent() -> None:
     view = MagicMock()
     view.cursor_moved = MagicMock()
@@ -155,6 +163,7 @@ def test_first_toggle_places_second_cursor_at_75_percent() -> None:
     assert ctrl._positions[1] == pytest.approx(7.5)  # 75% of span
 
 
+@pytest.mark.requirement("REQ-PLOT-073")
 def test_subsequent_toggles_use_remembered_positions(
     ctrl: CursorController,
 ) -> None:
@@ -170,6 +179,7 @@ def test_subsequent_toggles_use_remembered_positions(
 # reset
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-074")
 def test_reset_causes_reinitialisation_on_next_toggle(ctrl: CursorController) -> None:
     ctrl.toggle()  # ONE
     ctrl._positions[0] = 0.99
@@ -191,6 +201,7 @@ def test_reset_causes_reinitialisation_on_next_toggle(ctrl: CursorController) ->
     assert ctrl2._positions[0] == pytest.approx(6.25)  # 25% of (5, 10)
 
 
+@pytest.mark.requirement("REQ-PLOT-074")
 def test_reset_hides_cursors_if_active(ctrl: CursorController, view: MagicMock) -> None:
     ctrl.toggle()
     ctrl.reset()
@@ -198,6 +209,7 @@ def test_reset_hides_cursors_if_active(ctrl: CursorController, view: MagicMock) 
     view.apply_mode.assert_called_with(CursorMode.HIDDEN, ctrl._positions)
 
 
+@pytest.mark.requirement("REQ-PLOT-074")
 def test_reset_hides_cursor_columns(ctrl: CursorController, table: MagicMock) -> None:
     ctrl.toggle()
     ctrl.reset()
@@ -214,6 +226,7 @@ def test_dragging_updates_position(ctrl: CursorController) -> None:
     assert ctrl._positions[0] == pytest.approx(0.75)
 
 
+@pytest.mark.requirement("REQ-PLOT-080")
 def test_dragging_updates_table(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
     ctrl = _make_ctrl(view, table, signals=[active])
@@ -226,6 +239,7 @@ def test_dragging_updates_table(view: MagicMock, table: MagicMock) -> None:
 # Signal list management
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-080")
 def test_refresh_updates_labels(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
     ctrl = _make_ctrl(view, table, signals=[active])
@@ -250,6 +264,7 @@ def test_on_all_signals_cleared(ctrl: CursorController, view: MagicMock) -> None
 # Table value computation
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-080")
 def test_table_values_updated_on_drag(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
     ctrl = _make_ctrl(view, table, signals=[active])
@@ -262,6 +277,7 @@ def test_table_values_updated_on_drag(view: MagicMock, table: MagicMock) -> None
     assert float(args[1]) == pytest.approx(1.0, abs=0.01)
 
 
+@pytest.mark.requirement("REQ-PLOT-100")
 def test_delta_is_empty_in_one_mode(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
     ctrl = _make_ctrl(view, table, signals=[active])
@@ -271,6 +287,7 @@ def test_delta_is_empty_in_one_mode(view: MagicMock, table: MagicMock) -> None:
     assert args[3] == ""  # delta is empty with one cursor
 
 
+@pytest.mark.requirement("REQ-PLOT-104")
 def test_delta_computed_in_two_mode(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
     ctrl = _make_ctrl(view, table, signals=[active])
@@ -288,18 +305,21 @@ def test_delta_computed_in_two_mode(view: MagicMock, table: MagicMock) -> None:
 # _interpolate helper
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-083")
 def test_interpolate_at_exact_timestamp() -> None:
     active = _make_active()
     result = _interpolate(active, 0.0)
     assert result == pytest.approx(0.0, abs=1e-9)
 
 
+@pytest.mark.requirement("REQ-PLOT-083")
 def test_interpolate_midpoint() -> None:
     active = _make_active()
     result = _interpolate(active, 0.25)
     assert result == pytest.approx(1.0, abs=0.01)  # sin(π/2) ≈ 1
 
 
+@pytest.mark.requirement("REQ-PLOT-082")
 def test_interpolate_out_of_range_returns_none() -> None:
     active = _make_active()
     assert _interpolate(active, -0.1) is None
@@ -333,26 +353,32 @@ def test_fmt_value_none_is_empty() -> None:
     assert _fmt_value(None, _ENUM, True) == ""
 
 
+@pytest.mark.requirement("REQ-PLOT-084")
 def test_fmt_value_enum_display_on_shows_label() -> None:
     assert _fmt_value(2.0, _ENUM, True) == "RUN (2)"
 
 
+@pytest.mark.requirement("REQ-PLOT-084")
 def test_fmt_value_enum_display_off_shows_raw() -> None:
     assert _fmt_value(2.0, _ENUM, False) == "2"
 
 
+@pytest.mark.requirement("REQ-PLOT-084")
 def test_fmt_value_empty_enum_map_shows_raw() -> None:
     assert _fmt_value(2.0, {}, True) == "2"
 
 
+@pytest.mark.requirement("REQ-PLOT-084")
 def test_fmt_value_unknown_key_falls_back_to_raw() -> None:
     assert _fmt_value(99.0, _ENUM, True) == "99"
 
 
+@pytest.mark.requirement("REQ-PLOT-084")
 def test_fmt_value_rounds_to_nearest_int_for_lookup() -> None:
     assert _fmt_value(1.9, _ENUM, True) == "RUN (2)"
 
 
+@pytest.mark.requirement("REQ-PLOT-084")
 def test_fmt_value_no_enum_formats_as_float() -> None:
     assert _fmt_value(1.23456789, {}, True) == "1.23457"
 
@@ -377,6 +403,7 @@ def _make_enum_active(enum_display_table: bool = True) -> ActiveSignal:
     return active
 
 
+@pytest.mark.requirement("REQ-PLOT-084")
 def test_cursor_value_shows_enum_label(view: MagicMock, table: MagicMock) -> None:
     active = _make_enum_active(enum_display_table=True)
     ctrl = _make_ctrl(view, table, signals=[active])
@@ -386,6 +413,7 @@ def test_cursor_value_shows_enum_label(view: MagicMock, table: MagicMock) -> Non
     assert "OFF" in c1_text or "ACC" in c1_text or "RUN" in c1_text
 
 
+@pytest.mark.requirement("REQ-PLOT-084")
 def test_cursor_value_raw_when_enum_display_off(view: MagicMock, table: MagicMock) -> None:
     active = _make_enum_active(enum_display_table=False)
     ctrl = _make_ctrl(view, table, signals=[active])
@@ -398,6 +426,7 @@ def test_cursor_value_raw_when_enum_display_off(view: MagicMock, table: MagicMoc
     assert "RUN" not in c1_text
 
 
+@pytest.mark.requirement("REQ-PLOT-104")
 def test_delta_column_always_numeric_for_enum_signal(view: MagicMock, table: MagicMock) -> None:
     active = _make_enum_active(enum_display_table=True)
     ctrl = _make_ctrl(view, table, signals=[active], x_range=(0.0, 3.0))
@@ -416,6 +445,7 @@ def test_delta_column_always_numeric_for_enum_signal(view: MagicMock, table: Mag
 # _place_initial_positions — always uses get_x_range (the current view span)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-073")
 def test_first_toggle_uses_get_x_range(view: MagicMock, table: MagicMock) -> None:
     ctrl = CursorController(
         cursor_view=view,
@@ -429,6 +459,7 @@ def test_first_toggle_uses_get_x_range(view: MagicMock, table: MagicMock) -> Non
     assert positions[1] == pytest.approx(3.5)   # 75% of (2, 4)
 
 
+@pytest.mark.requirement("REQ-PLOT-073")
 def test_first_toggle_uses_get_x_range_even_with_signals(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -451,17 +482,20 @@ def test_first_toggle_uses_get_x_range_even_with_signals(
 # press_cursor1 (dot key)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-071")
 def test_press_cursor1_from_hidden_goes_to_one(ctrl: CursorController) -> None:
     ctrl.press_cursor1()
     assert ctrl.mode == CursorMode.ONE
 
 
+@pytest.mark.requirement("REQ-PLOT-071")
 def test_press_cursor1_from_one_goes_to_hidden(ctrl: CursorController) -> None:
     ctrl.press_cursor1()
     ctrl.press_cursor1()
     assert ctrl.mode == CursorMode.HIDDEN
 
 
+@pytest.mark.requirement("REQ-PLOT-071")
 def test_press_cursor1_from_two_goes_to_one(ctrl: CursorController) -> None:
     ctrl.toggle()  # ONE
     ctrl.toggle()  # TWO
@@ -469,6 +503,7 @@ def test_press_cursor1_from_two_goes_to_one(ctrl: CursorController) -> None:
     assert ctrl.mode == CursorMode.ONE
 
 
+@pytest.mark.requirement("REQ-PLOT-073")
 def test_press_cursor1_initializes_positions(ctrl: CursorController) -> None:
     ctrl.press_cursor1()
     assert ctrl._initialized is True
@@ -483,28 +518,33 @@ def test_press_cursor1_calls_view(ctrl: CursorController, view: MagicMock) -> No
 # press_cursor2 (comma key)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-071")
 def test_press_cursor2_from_hidden_goes_to_two(ctrl: CursorController) -> None:
     ctrl.press_cursor2()
     assert ctrl.mode == CursorMode.TWO
 
 
+@pytest.mark.requirement("REQ-PLOT-071")
 def test_press_cursor2_from_one_goes_to_two(ctrl: CursorController) -> None:
     ctrl.toggle()  # ONE
     ctrl.press_cursor2()
     assert ctrl.mode == CursorMode.TWO
 
 
+@pytest.mark.requirement("REQ-PLOT-071")
 def test_press_cursor2_from_two_goes_to_hidden(ctrl: CursorController) -> None:
     ctrl.press_cursor2()  # TWO
     ctrl.press_cursor2()  # HIDDEN
     assert ctrl.mode == CursorMode.HIDDEN
 
 
+@pytest.mark.requirement("REQ-PLOT-073")
 def test_press_cursor2_initializes_positions(ctrl: CursorController) -> None:
     ctrl.press_cursor2()
     assert ctrl._initialized is True
 
 
+@pytest.mark.requirement("REQ-PLOT-071")
 def test_press_cursor2_shows_cursor_columns(
     ctrl: CursorController, table: MagicMock
 ) -> None:
@@ -598,6 +638,7 @@ def _make_ctrl_persistent(
     )
 
 
+@pytest.mark.requirement("REQ-PLOT-073")
 def test_persistence_on_keeps_positions_after_hide_show(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -610,6 +651,7 @@ def test_persistence_on_keeps_positions_after_hide_show(
     assert ctrl._positions[0] == pytest.approx(0.42)
 
 
+@pytest.mark.requirement("REQ-PLOT-073")
 def test_persistence_off_repositions_cursors_on_show(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -642,18 +684,21 @@ def _make_ctrl_mode(
     )
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_12_mode_sets_cursor_1_2_headers(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_mode(view, table, "1/2")
     ctrl.toggle()
     table.set_cursor_column_headers.assert_called_with("Cursor 1", "Cursor 2")
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_lr_mode_sets_cursor_lr_headers(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_mode(view, table, "L/R")
     ctrl.toggle()
     table.set_cursor_column_headers.assert_called_with("Cursor L", "Cursor R")
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_lr_mode_left_idx_follows_position(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_mode(view, table, "L/R")
     ctrl.toggle()   # ONE
@@ -663,6 +708,7 @@ def test_lr_mode_left_idx_follows_position(view: MagicMock, table: MagicMock) ->
     assert ctrl._left_idx == 1
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_lr_mode_tie_keeps_left_idx(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_mode(view, table, "L/R")
     ctrl.toggle()   # ONE
@@ -675,6 +721,7 @@ def test_lr_mode_tie_keeps_left_idx(view: MagicMock, table: MagicMock) -> None:
     assert ctrl._left_idx == 0     # tie: keep previous assignment
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_lr_mode_single_cursor_is_always_left(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
     ctrl = _make_ctrl_mode(view, table, "L/R", signals=[active])
@@ -684,6 +731,7 @@ def test_lr_mode_single_cursor_is_always_left(view: MagicMock, table: MagicMock)
     assert args[3] == ""   # delta is empty
 
 
+@pytest.mark.requirement("REQ-PLOT-104")
 def test_12_mode_delta_is_c2_minus_c1(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
     ctrl = _make_ctrl_mode(view, table, "1/2", signals=[active])
@@ -696,6 +744,7 @@ def test_12_mode_delta_is_c2_minus_c1(view: MagicMock, table: MagicMock) -> None
     assert delta == pytest.approx(1.0, abs=0.01)
 
 
+@pytest.mark.requirement("REQ-PLOT-104")
 def test_lr_mode_delta_is_r_minus_l(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
     ctrl = _make_ctrl_mode(view, table, "L/R", signals=[active])
@@ -709,12 +758,14 @@ def test_lr_mode_delta_is_r_minus_l(view: MagicMock, table: MagicMock) -> None:
     assert delta == pytest.approx(1.0, abs=0.01)
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_set_line_colors_called_on_refresh(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_mode(view, table, "1/2")
     ctrl.toggle()
     view.set_line_colors.assert_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_get_cursor_colors_called_on_refresh(view: MagicMock, table: MagicMock) -> None:
     custom = ((1, 2, 3), (4, 5, 6), (7, 8, 9), (10, 11, 12))
     calls = []
@@ -729,6 +780,7 @@ def test_get_cursor_colors_called_on_refresh(view: MagicMock, table: MagicMock) 
     view.set_line_colors.assert_called_with(custom[0], custom[1])
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_get_cursor_colors_used_in_lr_mode(view: MagicMock, table: MagicMock) -> None:
     custom = ((1, 2, 3), (4, 5, 6), (7, 8, 9), (10, 11, 12))
     ctrl = CursorController(
@@ -742,6 +794,7 @@ def test_get_cursor_colors_used_in_lr_mode(view: MagicMock, table: MagicMock) ->
     view.set_line_colors.assert_called_with(custom[2], custom[3])
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_get_cursor_colors_defaults_when_omitted(view: MagicMock, table: MagicMock) -> None:
     ctrl = CursorController(
         cursor_view=view,
@@ -752,6 +805,7 @@ def test_get_cursor_colors_defaults_when_omitted(view: MagicMock, table: MagicMo
     view.set_line_colors.assert_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-073")
 def test_persistence_defaults_to_on(view: MagicMock, table: MagicMock) -> None:
     ctrl = CursorController(
         cursor_view=view,
@@ -780,6 +834,7 @@ def _make_ctrl_delta(view, table, show=True, color=(200, 200, 200)):
     )
 
 
+@pytest.mark.requirement("REQ-PLOT-100")
 def test_delta_time_not_shown_in_one_mode(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_delta(view, table)
     ctrl.toggle()  # ONE
@@ -793,6 +848,7 @@ def test_delta_time_not_shown_in_one_mode(view: MagicMock, table: MagicMock) -> 
     )
 
 
+@pytest.mark.requirement("REQ-PLOT-100")
 def test_delta_time_shown_in_two_mode(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_delta(view, table)
     ctrl.toggle()  # ONE
@@ -802,6 +858,7 @@ def test_delta_time_shown_in_two_mode(view: MagicMock, table: MagicMock) -> None
     assert "Δt" in call_kwargs["delta_t_str"]
 
 
+@pytest.mark.requirement("REQ-PLOT-101")
 def test_delta_time_hidden_when_show_false(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_delta(view, table, show=False)
     ctrl.toggle()  # ONE
@@ -810,6 +867,7 @@ def test_delta_time_hidden_when_show_false(view: MagicMock, table: MagicMock) ->
     assert call_kwargs["show"] is False
 
 
+@pytest.mark.requirement("REQ-PLOT-101")
 def test_delta_time_color_passed_to_view(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_delta(view, table, color=(1, 2, 3))
     ctrl.toggle()  # ONE
@@ -818,6 +876,7 @@ def test_delta_time_color_passed_to_view(view: MagicMock, table: MagicMock) -> N
     assert call_kwargs["color"] == (1, 2, 3)
 
 
+@pytest.mark.requirement("REQ-PLOT-101")
 def test_delta_column_header_set_in_two_mode(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_delta(view, table)
     ctrl.toggle()  # ONE
@@ -827,18 +886,22 @@ def test_delta_column_header_set_in_two_mode(view: MagicMock, table: MagicMock) 
     assert any("Δt" in c for c in calls)
 
 
+@pytest.mark.requirement("REQ-PLOT-101")
 def test_delta_column_header_reset_when_not_two(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_delta(view, table)
     ctrl.toggle()  # ONE
     table.set_delta_column_header.assert_called_with("Δ")
 
 
+@pytest.mark.requirement("REQ-PLOT-102")
 def test_delta_y_pos_remembered_after_drag(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_delta(view, table)
     ctrl._on_delta_line_dragged(0.42)
     assert ctrl._delta_y_pos == pytest.approx(0.42)
 
 
+@pytest.mark.requirement("REQ-PLOT-074")
+@pytest.mark.requirement("REQ-PLOT-102")
 def test_delta_y_pos_reset_on_file_load(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_delta(view, table)
     ctrl._on_delta_line_dragged(0.42)
@@ -864,6 +927,7 @@ def _make_ctrl_fetch(
     )
 
 
+@pytest.mark.requirement("REQ-PLOT-111")
 def test_fetch_cursor_sets_position_to_clicked_x(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -873,6 +937,7 @@ def test_fetch_cursor_sets_position_to_clicked_x(
     assert ctrl._positions[0] == pytest.approx(1.23)
 
 
+@pytest.mark.requirement("REQ-PLOT-111")
 def test_fetch_cursor_calls_apply_mode(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_fetch(view, table)
     ctrl.toggle()
@@ -881,6 +946,7 @@ def test_fetch_cursor_calls_apply_mode(view: MagicMock, table: MagicMock) -> Non
     view.apply_mode.assert_called_once_with(CursorMode.ONE, ctrl._positions)
 
 
+@pytest.mark.requirement("REQ-PLOT-111")
 def test_fetch_cursor_calls_update_labels(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_fetch(view, table)
     ctrl.toggle()
@@ -889,6 +955,7 @@ def test_fetch_cursor_calls_update_labels(view: MagicMock, table: MagicMock) -> 
     view.update_labels.assert_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-111")
 def test_fetch_cursor_index_1(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_fetch(view, table, x_range=(0.0, 10.0))
     ctrl.toggle()  # ONE
@@ -901,6 +968,7 @@ def test_fetch_cursor_index_1(view: MagicMock, table: MagicMock) -> None:
 # Fetch — delta-time chevron clicked
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-112")
 def test_fetch_delta_sets_position_to_clicked_y(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -909,6 +977,7 @@ def test_fetch_delta_sets_position_to_clicked_y(
     assert ctrl._delta_y_pos == pytest.approx(0.42)
 
 
+@pytest.mark.requirement("REQ-PLOT-112")
 def test_fetch_delta_triggers_refresh(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_fetch(view, table)
     ctrl.toggle()  # ONE
@@ -922,6 +991,7 @@ def test_fetch_delta_triggers_refresh(view: MagicMock, table: MagicMock) -> None
 # set_cursor_names — called during refresh
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_set_cursor_names_called_on_refresh_12_mode(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -930,6 +1000,7 @@ def test_set_cursor_names_called_on_refresh_12_mode(
     view.set_cursor_names.assert_called_with("Cursor 1", "Cursor 2")
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_set_cursor_names_called_on_refresh_lr_mode(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -946,11 +1017,13 @@ def test_active_cursor_none_initially(ctrl: CursorController) -> None:
     assert ctrl._active_cursor_idx is None
 
 
+@pytest.mark.requirement("REQ-PLOT-090")
 def test_active_cursor_set_to_0_on_toggle_to_one(ctrl: CursorController) -> None:
     ctrl.toggle()  # HIDDEN → ONE
     assert ctrl._active_cursor_idx == 0
 
 
+@pytest.mark.requirement("REQ-PLOT-093")
 def test_active_cursor_set_to_none_on_toggle_to_hidden(ctrl: CursorController) -> None:
     ctrl.toggle()   # ONE
     ctrl.toggle()   # TWO
@@ -958,6 +1031,7 @@ def test_active_cursor_set_to_none_on_toggle_to_hidden(ctrl: CursorController) -
     assert ctrl._active_cursor_idx is None
 
 
+@pytest.mark.requirement("REQ-PLOT-090")
 def test_active_cursor_set_on_drag(ctrl: CursorController) -> None:
     ctrl.toggle()  # ONE
     ctrl.toggle()  # TWO
@@ -965,6 +1039,7 @@ def test_active_cursor_set_on_drag(ctrl: CursorController) -> None:
     assert ctrl._active_cursor_idx == 1
 
 
+@pytest.mark.requirement("REQ-PLOT-090")
 def test_active_cursor_set_on_click(ctrl: CursorController) -> None:
     ctrl.toggle()  # ONE
     ctrl.toggle()  # TWO
@@ -972,6 +1047,7 @@ def test_active_cursor_set_on_click(ctrl: CursorController) -> None:
     assert ctrl._active_cursor_idx == 1
 
 
+@pytest.mark.requirement("REQ-PLOT-074")
 def test_active_cursor_reset_on_file_load(ctrl: CursorController) -> None:
     ctrl.toggle()
     ctrl._on_cursor_clicked(0)
@@ -1004,6 +1080,7 @@ def _make_ctrl_step(
     )
 
 
+@pytest.mark.requirement("REQ-PLOT-090")
 def test_press_right_samples_moves_to_next_sample(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -1022,6 +1099,7 @@ def test_press_right_samples_moves_to_next_sample(
     assert ctrl._positions[0] > 0.0
 
 
+@pytest.mark.requirement("REQ-PLOT-090")
 def test_press_left_samples_moves_to_prev_sample(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -1040,6 +1118,7 @@ def test_press_left_samples_moves_to_prev_sample(
     assert ctrl._positions[0] < 0.5
 
 
+@pytest.mark.requirement("REQ-PLOT-092")
 def test_press_right_stops_at_last_sample(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -1059,6 +1138,7 @@ def test_press_right_stops_at_last_sample(
     assert ctrl._positions[0] == pytest.approx(ts_last)
 
 
+@pytest.mark.requirement("REQ-PLOT-092")
 def test_press_left_stops_at_first_sample(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -1078,6 +1158,7 @@ def test_press_left_stops_at_first_sample(
     assert ctrl._positions[0] == pytest.approx(ts_first)
 
 
+@pytest.mark.requirement("REQ-PLOT-090")
 def test_press_right_samples_n_steps(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -1096,6 +1177,7 @@ def test_press_right_samples_n_steps(
     assert ctrl._positions[0] == pytest.approx(0.03, abs=1e-9)
 
 
+@pytest.mark.requirement("REQ-PLOT-093")
 def test_press_right_no_effect_when_hidden(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -1113,6 +1195,7 @@ def test_press_right_no_effect_when_hidden(
     assert ctrl._positions[0] == pytest.approx(0.5)
 
 
+@pytest.mark.requirement("REQ-PLOT-093")
 def test_press_right_no_effect_when_no_active_cursor_in_two_mode(
     view: MagicMock, table: MagicMock
 ) -> None:
@@ -1133,6 +1216,7 @@ def test_press_right_no_effect_when_no_active_cursor_in_two_mode(
     assert ctrl._positions[0] == pytest.approx(0.5)
 
 
+@pytest.mark.requirement("REQ-PLOT-090")
 def test_press_right_time_mode(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
     ctrl = CursorController(
@@ -1149,6 +1233,7 @@ def test_press_right_time_mode(view: MagicMock, table: MagicMock) -> None:
     assert ctrl._positions[0] == pytest.approx(0.1)
 
 
+@pytest.mark.requirement("REQ-PLOT-090")
 def test_press_right_pixels_mode(view: MagicMock, table: MagicMock) -> None:
     active = _make_active()
     ctrl = CursorController(

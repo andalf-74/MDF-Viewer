@@ -19,23 +19,27 @@ def _meta(name: str = "rpm", gi: int = 0, ci: int = 1) -> SignalMetadata:
 # ---------------------------------------------------------------------------
 
 class TestSignalGroupPickerDialog:
+    @pytest.mark.requirement("REQ-FILE-031")
     def test_shows_all_candidates(self, qtbot: QtBot) -> None:
         candidates = [_meta(gi=0, ci=1), _meta(gi=1, ci=1)]
         dlg = SignalGroupPickerDialog("rpm", candidates)
         qtbot.addWidget(dlg)
         assert dlg._list.count() == 2
 
+    @pytest.mark.requirement("REQ-FILE-031")
     def test_first_candidate_is_preselected(self, qtbot: QtBot) -> None:
         candidates = [_meta(gi=0, ci=1), _meta(gi=2, ci=1)]
         dlg = SignalGroupPickerDialog("rpm", candidates)
         qtbot.addWidget(dlg)
         assert dlg._list.currentRow() == 0
 
+    @pytest.mark.requirement("REQ-FILE-031")
     def test_selected_returns_none_before_accept(self, qtbot: QtBot) -> None:
         dlg = SignalGroupPickerDialog("rpm", [_meta(gi=0)])
         qtbot.addWidget(dlg)
         assert dlg.selected() is None
 
+    @pytest.mark.requirement("REQ-FILE-031")
     def test_accept_returns_selected_metadata(self, qtbot: QtBot) -> None:
         m0 = _meta(gi=0, ci=1)
         m1 = _meta(gi=1, ci=2)
@@ -45,6 +49,7 @@ class TestSignalGroupPickerDialog:
         dlg._on_accept()
         assert dlg.selected() is m1
 
+    @pytest.mark.requirement("REQ-FILE-031")
     def test_list_items_mention_group_index(self, qtbot: QtBot) -> None:
         candidates = [_meta(gi=7, ci=1)]
         dlg = SignalGroupPickerDialog("rpm", candidates)
@@ -58,6 +63,7 @@ class TestSignalGroupPickerDialog:
 # ---------------------------------------------------------------------------
 
 class TestSignalsNotFoundDialog:
+    @pytest.mark.requirement("REQ-FILE-031")
     def test_shows_all_missing_names(self, qtbot: QtBot) -> None:
         names = ["signal_a", "signal_b", "signal_c"]
         dlg = SignalsNotFoundDialog(names)

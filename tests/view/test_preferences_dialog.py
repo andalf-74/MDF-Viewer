@@ -35,6 +35,7 @@ def dlg(qtbot: QtBot, settings: Settings) -> PreferencesDialog:
 # Swatches initialised from settings
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_swatches_show_default_colors(dlg: PreferencesDialog) -> None:
     assert dlg._swatch_c1.rgb() == DEFAULT_CURSOR_COLOR_C1
     assert dlg._swatch_c2.rgb() == DEFAULT_CURSOR_COLOR_C2
@@ -42,6 +43,7 @@ def test_swatches_show_default_colors(dlg: PreferencesDialog) -> None:
     assert dlg._swatch_cr.rgb() == DEFAULT_CURSOR_COLOR_CR
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_swatches_show_saved_colors(qtbot: QtBot, settings: Settings) -> None:
     settings.cursor_color_c1 = (1, 2, 3)
     settings.cursor_color_cr = (10, 11, 12)
@@ -55,6 +57,7 @@ def test_swatches_show_saved_colors(qtbot: QtBot, settings: Settings) -> None:
 # Reset to defaults
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_reset_restores_all_default_colors(dlg: PreferencesDialog) -> None:
     dlg._swatch_c1.set_color(QColor(1, 2, 3))
     dlg._swatch_c2.set_color(QColor(4, 5, 6))
@@ -73,6 +76,7 @@ def test_reset_restores_all_default_colors(dlg: PreferencesDialog) -> None:
 # _apply saves to settings
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_apply_saves_colors_to_settings(dlg: PreferencesDialog, settings: Settings) -> None:
     dlg._swatch_c1.set_color(QColor(10, 20, 30))
     dlg._swatch_c2.set_color(QColor(40, 50, 60))
@@ -91,6 +95,7 @@ def test_apply_saves_colors_to_settings(dlg: PreferencesDialog, settings: Settin
 # selected_line_boost spinbox
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-044")
 def test_line_boost_spinbox_initialised_from_settings(
     qtbot: QtBot, settings: Settings
 ) -> None:
@@ -100,10 +105,12 @@ def test_line_boost_spinbox_initialised_from_settings(
     assert dlg._line_boost.value() == 4
 
 
+@pytest.mark.requirement("REQ-PLOT-044")
 def test_line_boost_spinbox_default_is_1(dlg: PreferencesDialog) -> None:
     assert dlg._line_boost.value() == 1
 
 
+@pytest.mark.requirement("REQ-PLOT-044")
 def test_line_boost_apply_saves_to_settings(
     dlg: PreferencesDialog, settings: Settings
 ) -> None:
@@ -112,6 +119,7 @@ def test_line_boost_apply_saves_to_settings(
     assert settings.selected_line_boost == 3
 
 
+@pytest.mark.requirement("REQ-PLOT-044")
 def test_line_boost_apply_zero_allowed(
     dlg: PreferencesDialog, settings: Settings
 ) -> None:
@@ -129,6 +137,7 @@ def test_display_name_controls_present(dlg: PreferencesDialog) -> None:
     assert isinstance(dlg._display_name_controls, DisplayNameRuleControls)
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_display_name_controls_init_from_settings(
     qtbot: QtBot, settings: Settings
 ) -> None:
@@ -143,6 +152,7 @@ def test_display_name_controls_init_from_settings(
     assert c._segments.value() == 3
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_display_name_apply_saves_to_settings(
     dlg: PreferencesDialog, settings: Settings
 ) -> None:
@@ -171,10 +181,12 @@ def test_display_name_fallback_preview_when_none(qtbot: QtBot, settings: Setting
 # show_only_selected_y_axis checkbox
 
 
+@pytest.mark.requirement("REQ-PLOT-045")
 def test_show_only_selected_y_axis_default_unchecked(dlg: PreferencesDialog) -> None:
     assert dlg._show_only_selected_y_axis.isChecked() is False
 
 
+@pytest.mark.requirement("REQ-PLOT-045")
 def test_show_only_selected_y_axis_initialised_from_settings(
     qtbot: QtBot, settings: Settings
 ) -> None:
@@ -184,6 +196,7 @@ def test_show_only_selected_y_axis_initialised_from_settings(
     assert dlg._show_only_selected_y_axis.isChecked() is True
 
 
+@pytest.mark.requirement("REQ-PLOT-045")
 def test_show_only_selected_y_axis_apply_saves_to_settings(
     dlg: PreferencesDialog, settings: Settings
 ) -> None:
@@ -192,6 +205,7 @@ def test_show_only_selected_y_axis_apply_saves_to_settings(
     assert settings.show_only_selected_y_axis is True
 
 
+@pytest.mark.requirement("REQ-PLOT-045")
 def test_show_only_selected_y_axis_apply_false_saves_to_settings(
     dlg: PreferencesDialog, settings: Settings
 ) -> None:
@@ -205,12 +219,14 @@ def test_show_only_selected_y_axis_apply_false_saves_to_settings(
 # keep_signals_on_load radio buttons
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-030")
 def test_keep_signals_default_radio_is_always(dlg: PreferencesDialog) -> None:
     assert dlg._keep_always.isChecked() is True
     assert dlg._keep_ask.isChecked() is False
     assert dlg._keep_never.isChecked() is False
 
 
+@pytest.mark.requirement("REQ-FILE-030")
 def test_keep_signals_radio_reflects_ask_setting(
     qtbot: QtBot, settings: Settings
 ) -> None:
@@ -220,6 +236,7 @@ def test_keep_signals_radio_reflects_ask_setting(
     assert dlg._keep_ask.isChecked() is True
 
 
+@pytest.mark.requirement("REQ-FILE-030")
 def test_keep_signals_radio_reflects_never_setting(
     qtbot: QtBot, settings: Settings
 ) -> None:
@@ -229,18 +246,21 @@ def test_keep_signals_radio_reflects_never_setting(
     assert dlg._keep_never.isChecked() is True
 
 
+@pytest.mark.requirement("REQ-FILE-030")
 def test_keep_signals_apply_saves_ask(dlg: PreferencesDialog, settings: Settings) -> None:
     dlg._keep_ask.setChecked(True)
     dlg._apply()
     assert settings.keep_signals_on_load == "ask"
 
 
+@pytest.mark.requirement("REQ-FILE-030")
 def test_keep_signals_apply_saves_never(dlg: PreferencesDialog, settings: Settings) -> None:
     dlg._keep_never.setChecked(True)
     dlg._apply()
     assert settings.keep_signals_on_load == "never"
 
 
+@pytest.mark.requirement("REQ-FILE-030")
 def test_keep_signals_apply_saves_always(
     dlg: PreferencesDialog, settings: Settings
 ) -> None:

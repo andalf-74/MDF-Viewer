@@ -63,6 +63,7 @@ def test_stable_state_initially_none():
 # Gesture coalescing — stable_state design
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-061")
 def test_first_range_change_uses_stable_state_as_pre_gesture():
     """_pre_gesture_state must be the stable (pre-gesture) snapshot, not the
     already-mutated current state."""
@@ -76,6 +77,7 @@ def test_first_range_change_uses_stable_state_as_pre_gesture():
     assert ctrl._pre_gesture_state is pre
 
 
+@pytest.mark.requirement("REQ-PLOT-061")
 def test_subsequent_range_changes_do_not_overwrite_pre_gesture_state():
     pa = _make_plot_area()
     ctrl, _, timer = _make_ctrl(plot_area=pa)
@@ -89,6 +91,7 @@ def test_subsequent_range_changes_do_not_overwrite_pre_gesture_state():
     assert timer.start.call_count == 2
 
 
+@pytest.mark.requirement("REQ-PLOT-061")
 def test_gesture_end_pushes_stable_state_to_undo():
     pa = _make_plot_area(x=(5.0, 15.0))  # current (post-gesture) state
     ctrl, _, _ = _make_ctrl(plot_area=pa)
@@ -102,6 +105,7 @@ def test_gesture_end_pushes_stable_state_to_undo():
     assert ctrl._undo_stack[0] is pre
 
 
+@pytest.mark.requirement("REQ-PLOT-061")
 def test_gesture_end_refreshes_stable_state():
     pa = _make_plot_area(x=(5.0, 15.0))
     ctrl, _, _ = _make_ctrl(plot_area=pa)
@@ -114,6 +118,7 @@ def test_gesture_end_refreshes_stable_state():
     assert ctrl._stable_state.x_range == (5.0, 15.0)
 
 
+@pytest.mark.requirement("REQ-PLOT-063")
 def test_gesture_end_clears_redo_stack():
     ctrl, pa, _ = _make_ctrl()
     ctrl._stable_state = _state()
@@ -125,6 +130,7 @@ def test_gesture_end_clears_redo_stack():
     assert not ctrl.can_redo
 
 
+@pytest.mark.requirement("REQ-PLOT-061")
 def test_gesture_end_clears_pre_gesture_state():
     ctrl, _, _ = _make_ctrl()
     ctrl._stable_state = _state()
@@ -133,6 +139,7 @@ def test_gesture_end_clears_pre_gesture_state():
     assert ctrl._pre_gesture_state is None
 
 
+@pytest.mark.requirement("REQ-PLOT-061")
 def test_gesture_end_with_no_stable_state_skips_push():
     """If stable_state is still None (first gesture ever), nothing is pushed."""
     ctrl, pa, _ = _make_ctrl()
@@ -144,6 +151,7 @@ def test_gesture_end_with_no_stable_state_skips_push():
     assert not ctrl.can_undo
 
 
+@pytest.mark.requirement("REQ-PLOT-061")
 def test_in_gesture_flag_cleared_on_gesture_end():
     ctrl, _, _ = _make_ctrl()
     ctrl._stable_state = _state()
@@ -157,6 +165,7 @@ def test_in_gesture_flag_cleared_on_gesture_end():
 # Undo / redo
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-060")
 def test_undo_restores_previous_state():
     pa = _make_plot_area(x=(0.0, 10.0))
     sig = MagicMock()
@@ -171,6 +180,7 @@ def test_undo_restores_previous_state():
     assert not ctrl.can_undo
 
 
+@pytest.mark.requirement("REQ-PLOT-060")
 def test_undo_saves_current_state_to_redo():
     pa = _make_plot_area(x=(0.0, 10.0))
     ctrl, _, _ = _make_ctrl(plot_area=pa)
@@ -182,6 +192,7 @@ def test_undo_saves_current_state_to_redo():
     assert ctrl._redo_stack[0].x_range == (0.0, 10.0)
 
 
+@pytest.mark.requirement("REQ-PLOT-060")
 def test_undo_updates_stable_state():
     pa = _make_plot_area()
     ctrl, _, _ = _make_ctrl(plot_area=pa)
@@ -193,6 +204,7 @@ def test_undo_updates_stable_state():
     assert ctrl._stable_state is restored
 
 
+@pytest.mark.requirement("REQ-PLOT-064")
 def test_undo_when_empty_is_noop():
     pa = _make_plot_area()
     ctrl, _, _ = _make_ctrl(plot_area=pa)
@@ -200,6 +212,7 @@ def test_undo_when_empty_is_noop():
     pa.set_zoom_state.assert_not_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-060")
 def test_redo_restores_undone_state():
     pa = _make_plot_area(x=(0.0, 10.0))
     ctrl, _, _ = _make_ctrl(plot_area=pa)
@@ -211,6 +224,7 @@ def test_redo_restores_undone_state():
     pa.set_zoom_state.assert_called_once_with(redo_state, [])
 
 
+@pytest.mark.requirement("REQ-PLOT-060")
 def test_redo_saves_current_state_to_undo():
     pa = _make_plot_area(x=(0.0, 10.0))
     ctrl, _, _ = _make_ctrl(plot_area=pa)
@@ -222,6 +236,7 @@ def test_redo_saves_current_state_to_undo():
     assert ctrl._undo_stack[0].x_range == (0.0, 10.0)
 
 
+@pytest.mark.requirement("REQ-PLOT-060")
 def test_redo_updates_stable_state():
     pa = _make_plot_area()
     ctrl, _, _ = _make_ctrl(plot_area=pa)
@@ -233,6 +248,7 @@ def test_redo_updates_stable_state():
     assert ctrl._stable_state is redone
 
 
+@pytest.mark.requirement("REQ-PLOT-064")
 def test_redo_when_empty_is_noop():
     pa = _make_plot_area()
     ctrl, _, _ = _make_ctrl(plot_area=pa)
@@ -240,6 +256,7 @@ def test_redo_when_empty_is_noop():
     pa.set_zoom_state.assert_not_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-061")
 def test_undo_suppresses_range_changed():
     """set_zoom_state fires range_changed; undo must not treat that as a new gesture."""
     pa = _make_plot_area(x=(0.0, 10.0))
@@ -256,6 +273,7 @@ def test_undo_suppresses_range_changed():
     assert ctrl._pre_gesture_state is None
 
 
+@pytest.mark.requirement("REQ-PLOT-061")
 def test_redo_suppresses_range_changed():
     pa = _make_plot_area(x=(0.0, 10.0))
     ctrl, _, _ = _make_ctrl(plot_area=pa)
@@ -275,6 +293,7 @@ def test_redo_suppresses_range_changed():
 # Discrete action guard
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-060")
 def test_before_discrete_action_pushes_current_state_to_undo():
     pa = _make_plot_area(x=(0.0, 10.0))
     ctrl, _, timer = _make_ctrl(plot_area=pa)
@@ -288,6 +307,7 @@ def test_before_discrete_action_pushes_current_state_to_undo():
     timer.stop.assert_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-060")
 def test_before_discrete_action_suppresses_range_changed():
     pa = _make_plot_area()
     ctrl, _, _ = _make_ctrl(plot_area=pa)
@@ -299,6 +319,7 @@ def test_before_discrete_action_suppresses_range_changed():
     assert ctrl._pre_gesture_state is None
 
 
+@pytest.mark.requirement("REQ-PLOT-060")
 def test_after_discrete_action_restores_range_changed_and_updates_stable():
     pa = _make_plot_area(x=(5.0, 15.0))
     ctrl, _, _ = _make_ctrl(plot_area=pa)
@@ -317,6 +338,7 @@ def test_after_discrete_action_restores_range_changed_and_updates_stable():
 # Max history depth
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-062")
 def test_max_steps_1_keeps_only_last_entry():
     ctrl, _, _ = _make_ctrl(max_steps=1)
     ctrl._push_undo(_state((0.0, 5.0)))
@@ -326,6 +348,7 @@ def test_max_steps_1_keeps_only_last_entry():
     assert ctrl._undo_stack[0].x_range == (5.0, 10.0)
 
 
+@pytest.mark.requirement("REQ-PLOT-062")
 def test_max_steps_3_trims_oldest():
     ctrl, _, _ = _make_ctrl(max_steps=3)
     states = [_state((float(i), float(i + 1))) for i in range(5)]
@@ -340,6 +363,7 @@ def test_max_steps_3_trims_oldest():
 # clear
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-065")
 def test_clear_empties_both_stacks_and_resets_state():
     ctrl, _, timer = _make_ctrl()
     ctrl._undo_stack.append(_state((0.0, 1.0)))

@@ -33,6 +33,7 @@ def test_recent_files_initially_empty(settings: Settings) -> None:
 # add_recent
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-050")
 def test_add_recent_adds_to_front(settings: Settings, tmp_path: Path) -> None:
     a, b = tmp_path / "a.mf4", tmp_path / "b.mf4"
     a.touch()
@@ -42,6 +43,7 @@ def test_add_recent_adds_to_front(settings: Settings, tmp_path: Path) -> None:
     assert settings.recent_files()[0] == b.resolve()
 
 
+@pytest.mark.requirement("REQ-FILE-050")
 def test_add_recent_deduplicates(settings: Settings, tmp_path: Path) -> None:
     p = tmp_path / "file.mf4"
     p.touch()
@@ -50,6 +52,7 @@ def test_add_recent_deduplicates(settings: Settings, tmp_path: Path) -> None:
     assert len(settings.recent_files()) == 1
 
 
+@pytest.mark.requirement("REQ-FILE-050")
 def test_add_recent_moves_existing_entry_to_front(
     settings: Settings, tmp_path: Path
 ) -> None:
@@ -64,6 +67,7 @@ def test_add_recent_moves_existing_entry_to_front(
     assert len(files) == 2
 
 
+@pytest.mark.requirement("REQ-FILE-050")
 def test_add_recent_trims_to_max(settings: Settings, tmp_path: Path) -> None:
     for i in range(MAX_RECENT + 2):
         p = tmp_path / f"{i}.mf4"
@@ -72,6 +76,7 @@ def test_add_recent_trims_to_max(settings: Settings, tmp_path: Path) -> None:
     assert len(settings.recent_files()) == MAX_RECENT
 
 
+@pytest.mark.requirement("REQ-FILE-050")
 def test_add_recent_persists_across_instances(
     settings: Settings, tmp_path: Path
 ) -> None:
@@ -86,17 +91,20 @@ def test_add_recent_persists_across_instances(
 # Robustness: loading
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_load_handles_missing_file(tmp_path: Path) -> None:
     s = Settings(path=tmp_path / "nonexistent" / "settings.json")
     assert s.recent_files() == []
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_load_handles_invalid_json(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("not valid json", encoding="utf-8")
     assert Settings(path=path).recent_files() == []
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_load_handles_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
@@ -107,6 +115,7 @@ def test_load_handles_missing_key(tmp_path: Path) -> None:
 # get_and_prune
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-054")
 def test_get_and_prune_returns_only_existing(
     settings: Settings, tmp_path: Path
 ) -> None:
@@ -118,6 +127,7 @@ def test_get_and_prune_returns_only_existing(
     assert settings.get_and_prune() == [existing.resolve()]
 
 
+@pytest.mark.requirement("REQ-FILE-054")
 def test_get_and_prune_saves_pruned_list(settings: Settings, tmp_path: Path) -> None:
     existing = tmp_path / "exists.mf4"
     missing = tmp_path / "gone.mf4"
@@ -128,6 +138,7 @@ def test_get_and_prune_saves_pruned_list(settings: Settings, tmp_path: Path) -> 
     assert Settings(path=settings._path).recent_files() == [existing.resolve()]
 
 
+@pytest.mark.requirement("REQ-FILE-054")
 def test_get_and_prune_noop_when_all_exist(
     settings: Settings, tmp_path: Path
 ) -> None:
@@ -138,6 +149,7 @@ def test_get_and_prune_noop_when_all_exist(
     assert result == [p.resolve()]
 
 
+@pytest.mark.requirement("REQ-FILE-054")
 def test_get_and_prune_empty_list(settings: Settings) -> None:
     assert settings.get_and_prune() == []
 
@@ -146,21 +158,25 @@ def test_get_and_prune_empty_list(settings: Settings) -> None:
 # check_for_updates
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-NFR-030")
 def test_check_for_updates_default_true(settings: Settings) -> None:
     assert settings.check_for_updates is True
 
 
+@pytest.mark.requirement("REQ-NFR-030")
 def test_check_for_updates_can_be_disabled(settings: Settings) -> None:
     settings.check_for_updates = False
     assert settings.check_for_updates is False
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_check_for_updates_persists(settings: Settings) -> None:
     settings.check_for_updates = False
     reloaded = Settings(path=settings._path)
     assert reloaded.check_for_updates is False
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_check_for_updates_defaults_to_true_on_missing_key(tmp_path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
@@ -171,21 +187,25 @@ def test_check_for_updates_defaults_to_true_on_missing_key(tmp_path) -> None:
 # cursor_persistent
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-073")
 def test_cursor_persistent_default_true(settings: Settings) -> None:
     assert settings.cursor_persistent is True
 
 
+@pytest.mark.requirement("REQ-PLOT-073")
 def test_cursor_persistent_can_be_disabled(settings: Settings) -> None:
     settings.cursor_persistent = False
     assert settings.cursor_persistent is False
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_cursor_persistent_persists(settings: Settings) -> None:
     settings.cursor_persistent = False
     reloaded = Settings(path=settings._path)
     assert reloaded.cursor_persistent is False
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_cursor_persistent_defaults_to_true_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
@@ -196,21 +216,25 @@ def test_cursor_persistent_defaults_to_true_on_missing_key(tmp_path: Path) -> No
 # cursor_mode
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_cursor_mode_default_12(settings: Settings) -> None:
     assert settings.cursor_mode == "1/2"
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_cursor_mode_can_be_changed(settings: Settings) -> None:
     settings.cursor_mode = "L/R"
     assert settings.cursor_mode == "L/R"
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_cursor_mode_persists(settings: Settings) -> None:
     settings.cursor_mode = "L/R"
     reloaded = Settings(path=settings._path)
     assert reloaded.cursor_mode == "L/R"
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_cursor_mode_defaults_to_12_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
@@ -221,6 +245,7 @@ def test_cursor_mode_defaults_to_12_on_missing_key(tmp_path: Path) -> None:
 # cursor colors
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_cursor_colors_default(settings: Settings) -> None:
     assert settings.cursor_color_c1 == DEFAULT_CURSOR_COLOR_C1
     assert settings.cursor_color_c2 == DEFAULT_CURSOR_COLOR_C2
@@ -228,6 +253,7 @@ def test_cursor_colors_default(settings: Settings) -> None:
     assert settings.cursor_color_cr == DEFAULT_CURSOR_COLOR_CR
 
 
+@pytest.mark.requirement("REQ-PLOT-072")
 def test_cursor_colors_can_be_changed(settings: Settings) -> None:
     settings.cursor_color_c1 = (1, 2, 3)
     settings.cursor_color_c2 = (4, 5, 6)
@@ -239,6 +265,7 @@ def test_cursor_colors_can_be_changed(settings: Settings) -> None:
     assert settings.cursor_color_cr == (10, 11, 12)
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_cursor_colors_persist(settings: Settings) -> None:
     settings.cursor_color_c1 = (1, 2, 3)
     settings.cursor_color_cr = (10, 11, 12)
@@ -247,6 +274,7 @@ def test_cursor_colors_persist(settings: Settings) -> None:
     assert reloaded.cursor_color_cr == (10, 11, 12)
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_cursor_colors_default_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
@@ -255,6 +283,7 @@ def test_cursor_colors_default_on_missing_key(tmp_path: Path) -> None:
     assert s.cursor_color_cr == DEFAULT_CURSOR_COLOR_CR
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_cursor_colors_default_on_malformed_value(tmp_path: Path) -> None:
     import json
     path = tmp_path / "settings.json"
@@ -268,37 +297,44 @@ def test_cursor_colors_default_on_malformed_value(tmp_path: Path) -> None:
 # show_delta_time_in_plot / delta_time_color
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-101")
 def test_show_delta_time_default_true(settings: Settings) -> None:
     assert settings.show_delta_time_in_plot is True
 
 
+@pytest.mark.requirement("REQ-PLOT-101")
 def test_show_delta_time_can_be_disabled(settings: Settings) -> None:
     settings.show_delta_time_in_plot = False
     assert settings.show_delta_time_in_plot is False
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_show_delta_time_persists(settings: Settings) -> None:
     settings.show_delta_time_in_plot = False
     reloaded = Settings(path=settings._path)
     assert reloaded.show_delta_time_in_plot is False
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_show_delta_time_defaults_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
     assert Settings(path=path).show_delta_time_in_plot is True
 
 
+@pytest.mark.requirement("REQ-PLOT-101")
 def test_delta_time_color_default(settings: Settings) -> None:
     from mdf_viewer.settings import DEFAULT_DELTA_TIME_COLOR
     assert settings.delta_time_color == DEFAULT_DELTA_TIME_COLOR
 
 
+@pytest.mark.requirement("REQ-PLOT-101")
 def test_delta_time_color_can_be_changed(settings: Settings) -> None:
     settings.delta_time_color = (1, 2, 3)
     assert settings.delta_time_color == (1, 2, 3)
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_delta_time_color_persists(settings: Settings) -> None:
     settings.delta_time_color = (1, 2, 3)
     reloaded = Settings(path=settings._path)
@@ -309,31 +345,37 @@ def test_delta_time_color_persists(settings: Settings) -> None:
 # max_undo_steps
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-062")
 def test_max_undo_steps_default(settings: Settings) -> None:
     from mdf_viewer.settings import DEFAULT_MAX_UNDO_STEPS
     assert settings.max_undo_steps == DEFAULT_MAX_UNDO_STEPS
 
 
+@pytest.mark.requirement("REQ-PLOT-062")
 def test_max_undo_steps_default_is_1(settings: Settings) -> None:
     assert settings.max_undo_steps == 1
 
 
+@pytest.mark.requirement("REQ-PLOT-062")
 def test_max_undo_steps_can_be_changed(settings: Settings) -> None:
     settings.max_undo_steps = 10
     assert settings.max_undo_steps == 10
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_max_undo_steps_persists(settings: Settings) -> None:
     settings.max_undo_steps = 5
     reloaded = Settings(path=settings._path)
     assert reloaded.max_undo_steps == 5
 
 
+@pytest.mark.requirement("REQ-PLOT-062")
 def test_max_undo_steps_clamps_below_1(settings: Settings) -> None:
     settings.max_undo_steps = 0
     assert settings.max_undo_steps == 1
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_max_undo_steps_defaults_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
@@ -343,26 +385,31 @@ def test_max_undo_steps_defaults_on_missing_key(tmp_path: Path) -> None:
 # signal_z_order
 
 
+@pytest.mark.requirement("REQ-PLOT-042")
 def test_signal_z_order_default(settings: Settings) -> None:
     from mdf_viewer.settings import DEFAULT_SIGNAL_Z_ORDER
     assert settings.signal_z_order == DEFAULT_SIGNAL_Z_ORDER
 
 
+@pytest.mark.requirement("REQ-PLOT-042")
 def test_signal_z_order_default_is_top_first(settings: Settings) -> None:
     assert settings.signal_z_order == "top_first"
 
 
+@pytest.mark.requirement("REQ-PLOT-042")
 def test_signal_z_order_can_be_changed(settings: Settings) -> None:
     settings.signal_z_order = "bottom_first"
     assert settings.signal_z_order == "bottom_first"
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_signal_z_order_persists(settings: Settings) -> None:
     settings.signal_z_order = "bottom_first"
     reloaded = Settings(path=settings._path)
     assert reloaded.signal_z_order == "bottom_first"
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_signal_z_order_defaults_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
@@ -372,41 +419,49 @@ def test_signal_z_order_defaults_on_missing_key(tmp_path: Path) -> None:
 # selected_line_boost
 
 
+@pytest.mark.requirement("REQ-PLOT-044")
 def test_selected_line_boost_default(settings: Settings) -> None:
     from mdf_viewer.settings import DEFAULT_SELECTED_LINE_BOOST
     assert settings.selected_line_boost == DEFAULT_SELECTED_LINE_BOOST
 
 
+@pytest.mark.requirement("REQ-PLOT-044")
 def test_selected_line_boost_default_is_1(settings: Settings) -> None:
     assert settings.selected_line_boost == 1
 
 
+@pytest.mark.requirement("REQ-PLOT-044")
 def test_selected_line_boost_can_be_changed(settings: Settings) -> None:
     settings.selected_line_boost = 3
     assert settings.selected_line_boost == 3
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_selected_line_boost_persists(settings: Settings) -> None:
     settings.selected_line_boost = 3
     reloaded = Settings(path=settings._path)
     assert reloaded.selected_line_boost == 3
 
 
+@pytest.mark.requirement("REQ-PLOT-044")
 def test_selected_line_boost_zero_allowed(settings: Settings) -> None:
     settings.selected_line_boost = 0
     assert settings.selected_line_boost == 0
 
 
+@pytest.mark.requirement("REQ-PLOT-044")
 def test_selected_line_boost_clamps_above_5(settings: Settings) -> None:
     settings.selected_line_boost = 99
     assert settings.selected_line_boost == 5
 
 
+@pytest.mark.requirement("REQ-PLOT-044")
 def test_selected_line_boost_clamps_below_0(settings: Settings) -> None:
     settings.selected_line_boost = -1
     assert settings.selected_line_boost == 0
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_selected_line_boost_defaults_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
@@ -417,22 +472,27 @@ def test_selected_line_boost_defaults_on_missing_key(tmp_path: Path) -> None:
 # display name rule settings
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_display_name_rule_enabled_default_false(settings: Settings) -> None:
     assert settings.display_name_rule_enabled is False
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_display_name_separator_default(settings: Settings) -> None:
     assert settings.display_name_separator == "."
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_display_name_direction_default(settings: Settings) -> None:
     assert settings.display_name_direction == "right"
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_display_name_segments_default(settings: Settings) -> None:
     assert settings.display_name_segments == 1
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_display_name_rule_persists(settings: Settings) -> None:
     settings.display_name_rule_enabled = True
     settings.display_name_separator = "_"
@@ -445,6 +505,7 @@ def test_display_name_rule_persists(settings: Settings) -> None:
     assert reloaded.display_name_segments == 2
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_display_name_segments_clamps(settings: Settings) -> None:
     settings.display_name_segments = 0
     assert settings.display_name_segments == 1
@@ -452,6 +513,7 @@ def test_display_name_segments_clamps(settings: Settings) -> None:
     assert settings.display_name_segments == 10
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_display_name_defaults_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
@@ -466,12 +528,14 @@ def test_display_name_defaults_on_missing_key(tmp_path: Path) -> None:
 # apply_display_name_rule
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-161")
 def test_apply_rule_disabled_returns_full_name(settings: Settings) -> None:
     from mdf_viewer.settings import apply_display_name_rule
     settings.display_name_rule_enabled = False
     assert apply_display_name_rule("a.b.c", settings) == "a.b.c"
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_apply_rule_right_one_segment(settings: Settings) -> None:
     from mdf_viewer.settings import apply_display_name_rule
     settings.display_name_rule_enabled = True
@@ -481,6 +545,7 @@ def test_apply_rule_right_one_segment(settings: Settings) -> None:
     assert apply_display_name_rule("ZF_DTI._.AutoDiagPosition.PosADP", settings) == "PosADP"
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_apply_rule_right_two_segments(settings: Settings) -> None:
     from mdf_viewer.settings import apply_display_name_rule
     settings.display_name_rule_enabled = True
@@ -490,6 +555,7 @@ def test_apply_rule_right_two_segments(settings: Settings) -> None:
     assert apply_display_name_rule("ZF_DTI._.AutoDiagPosition.PosADP", settings) == "AutoDiagPosition.PosADP"
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_apply_rule_left_one_segment(settings: Settings) -> None:
     from mdf_viewer.settings import apply_display_name_rule
     settings.display_name_rule_enabled = True
@@ -499,6 +565,7 @@ def test_apply_rule_left_one_segment(settings: Settings) -> None:
     assert apply_display_name_rule("ZF_DTI._.AutoDiagPosition.PosADP", settings) == "ZF_DTI"
 
 
+@pytest.mark.requirement("REQ-PLOT-161")
 def test_apply_rule_separator_not_found_returns_full_name(settings: Settings) -> None:
     from mdf_viewer.settings import apply_display_name_rule
     settings.display_name_rule_enabled = True
@@ -506,6 +573,7 @@ def test_apply_rule_separator_not_found_returns_full_name(settings: Settings) ->
     assert apply_display_name_rule("no_slash_here", settings) == "no_slash_here"
 
 
+@pytest.mark.requirement("REQ-PLOT-161")
 def test_apply_rule_empty_separator_returns_full_name(settings: Settings) -> None:
     from mdf_viewer.settings import apply_display_name_rule
     settings.display_name_rule_enabled = True
@@ -513,6 +581,7 @@ def test_apply_rule_empty_separator_returns_full_name(settings: Settings) -> Non
     assert apply_display_name_rule("a.b.c", settings) == "a.b.c"
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_apply_rule_segments_exceeds_parts_returns_all(settings: Settings) -> None:
     from mdf_viewer.settings import apply_display_name_rule
     settings.display_name_rule_enabled = True
@@ -525,26 +594,31 @@ def test_apply_rule_segments_exceeds_parts_returns_all(settings: Settings) -> No
 # show_only_selected_y_axis
 
 
+@pytest.mark.requirement("REQ-PLOT-045")
 def test_show_only_selected_y_axis_default(settings: Settings) -> None:
     from mdf_viewer.settings import DEFAULT_SHOW_ONLY_SELECTED_Y_AXIS
     assert settings.show_only_selected_y_axis == DEFAULT_SHOW_ONLY_SELECTED_Y_AXIS
 
 
+@pytest.mark.requirement("REQ-PLOT-045")
 def test_show_only_selected_y_axis_default_is_false(settings: Settings) -> None:
     assert settings.show_only_selected_y_axis is False
 
 
+@pytest.mark.requirement("REQ-PLOT-045")
 def test_show_only_selected_y_axis_can_be_enabled(settings: Settings) -> None:
     settings.show_only_selected_y_axis = True
     assert settings.show_only_selected_y_axis is True
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_show_only_selected_y_axis_persists(settings: Settings) -> None:
     settings.show_only_selected_y_axis = True
     reloaded = Settings(path=settings._path)
     assert reloaded.show_only_selected_y_axis is True
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_show_only_selected_y_axis_defaults_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
@@ -555,31 +629,38 @@ def test_show_only_selected_y_axis_defaults_on_missing_key(tmp_path: Path) -> No
 # keep_signals_on_load
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-030")
 def test_keep_signals_on_load_default_is_always(settings: Settings) -> None:
     assert settings.keep_signals_on_load == "always"
 
 
+@pytest.mark.requirement("REQ-FILE-030")
 def test_keep_signals_on_load_can_be_set_to_ask(settings: Settings) -> None:
     settings.keep_signals_on_load = "ask"
     assert settings.keep_signals_on_load == "ask"
 
 
+@pytest.mark.requirement("REQ-FILE-030")
 def test_keep_signals_on_load_can_be_set_to_never(settings: Settings) -> None:
     settings.keep_signals_on_load = "never"
     assert settings.keep_signals_on_load == "never"
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_keep_signals_on_load_persists(settings: Settings) -> None:
     settings.keep_signals_on_load = "ask"
     reloaded = Settings(path=settings._path)
     assert reloaded.keep_signals_on_load == "ask"
 
 
+@pytest.mark.requirement("REQ-FILE-030")
+@pytest.mark.requirement("REQ-NFR-020")
 def test_keep_signals_on_load_invalid_value_falls_back_to_default(settings: Settings) -> None:
     settings.keep_signals_on_load = "bogus"
     assert settings.keep_signals_on_load == "always"
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_keep_signals_on_load_defaults_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
@@ -590,26 +671,32 @@ def test_keep_signals_on_load_defaults_on_missing_key(tmp_path: Path) -> None:
 # config_path_mode
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-063")
 def test_config_path_mode_default_is_absolute(settings: Settings) -> None:
     assert settings.config_path_mode == "absolute"
 
 
+@pytest.mark.requirement("REQ-FILE-063")
 def test_config_path_mode_can_be_set_to_relative(settings: Settings) -> None:
     settings.config_path_mode = "relative"
     assert settings.config_path_mode == "relative"
 
 
+@pytest.mark.requirement("REQ-FILE-063")
+@pytest.mark.requirement("REQ-NFR-020")
 def test_config_path_mode_invalid_falls_back_to_default(settings: Settings) -> None:
     settings.config_path_mode = "bogus"
     assert settings.config_path_mode == "absolute"
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_config_path_mode_persists(settings: Settings) -> None:
     settings.config_path_mode = "relative"
     reloaded = Settings(path=settings._path)
     assert reloaded.config_path_mode == "relative"
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_config_path_mode_defaults_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
@@ -620,21 +707,25 @@ def test_config_path_mode_defaults_on_missing_key(tmp_path: Path) -> None:
 # prompt_save_config_on_close
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-070")
 def test_prompt_save_config_on_close_default_true(settings: Settings) -> None:
     assert settings.prompt_save_config_on_close is True
 
 
+@pytest.mark.requirement("REQ-FILE-070")
 def test_prompt_save_config_on_close_can_be_disabled(settings: Settings) -> None:
     settings.prompt_save_config_on_close = False
     assert settings.prompt_save_config_on_close is False
 
 
+@pytest.mark.requirement("REQ-NFR-021")
 def test_prompt_save_config_on_close_persists(settings: Settings) -> None:
     settings.prompt_save_config_on_close = False
     reloaded = Settings(path=settings._path)
     assert reloaded.prompt_save_config_on_close is False
 
 
+@pytest.mark.requirement("REQ-NFR-020")
 def test_prompt_save_config_on_close_defaults_on_missing_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")

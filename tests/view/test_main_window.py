@@ -91,6 +91,7 @@ def test_file_menu_exists(window: MainWindow) -> None:
     assert any("File" in t for t in titles)
 
 
+@pytest.mark.requirement("REQ-FILE-011")
 def test_file_menu_has_load_action(window: MainWindow) -> None:
     file_menu = window.menuBar().actions()[0].menu()
     texts = [a.text() for a in file_menu.actions()]
@@ -185,6 +186,7 @@ def test_icon_suffix_light_or_unknown_scheme_uses_light_icons(
 # Controller wiring
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-BROWSER-031")
 def test_add_signal_connects_after_set_controller(
     wired: MainWindow, mock_controller: MagicMock, qtbot: QtBot
 ) -> None:
@@ -199,6 +201,7 @@ def test_add_signal_not_called_before_set_controller(
     window.signal_browser.add_signals_requested.emit([(0, 1)])
 
 
+@pytest.mark.requirement("REQ-FILE-011")
 def test_load_file_calls_controller(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
@@ -210,6 +213,7 @@ def test_load_file_calls_controller(
     mock_controller.load_file.assert_called_once_with("/fake/file.mf4")
 
 
+@pytest.mark.requirement("REQ-FILE-011")
 def test_load_file_cancelled_does_not_call_controller(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
@@ -221,6 +225,7 @@ def test_load_file_cancelled_does_not_call_controller(
     mock_controller.load_file.assert_not_called()
 
 
+@pytest.mark.requirement("REQ-FILE-041")
 def test_load_error_shows_message_box(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
@@ -235,6 +240,7 @@ def test_load_error_shows_message_box(
     assert "corrupted file" in mock_crit.call_args[0][2]
 
 
+@pytest.mark.requirement("REQ-BROWSER-041")
 def test_add_signal_error_shows_message_box(
     wired: MainWindow, mock_controller: MagicMock, qtbot: QtBot
 ) -> None:
@@ -254,6 +260,7 @@ def test_recent_files_not_shown_without_provider(window: MainWindow) -> None:
     assert window._recent_actions == []
 
 
+@pytest.mark.requirement("REQ-FILE-052")
 def test_recent_files_shown_when_provider_set(
     window: MainWindow, tmp_path, qtbot: QtBot
 ) -> None:
@@ -265,6 +272,7 @@ def test_recent_files_shown_when_provider_set(
     assert window._recent_actions[0].text() == "test.mf4"
 
 
+@pytest.mark.requirement("REQ-FILE-052")
 def test_recent_files_empty_provider_shows_no_actions(
     window: MainWindow, qtbot: QtBot
 ) -> None:
@@ -274,6 +282,7 @@ def test_recent_files_empty_provider_shows_no_actions(
     assert window._recent_sep is None
 
 
+@pytest.mark.requirement("REQ-FILE-054")
 def test_recent_files_rebuilt_on_each_show(
     window: MainWindow, tmp_path, qtbot: QtBot
 ) -> None:
@@ -287,6 +296,7 @@ def test_recent_files_rebuilt_on_each_show(
     assert len(window._recent_actions) == 1  # not doubled
 
 
+@pytest.mark.requirement("REQ-FILE-052")
 def test_open_recent_calls_controller(
     wired: MainWindow, mock_controller: MagicMock, tmp_path, qtbot: QtBot
 ) -> None:
@@ -298,6 +308,7 @@ def test_open_recent_calls_controller(
     mock_controller.load_file.assert_called_once_with(p)
 
 
+@pytest.mark.requirement("REQ-FILE-041")
 def test_open_recent_error_shows_message_box(
     wired: MainWindow, mock_controller: MagicMock, tmp_path, qtbot: QtBot
 ) -> None:
@@ -328,6 +339,7 @@ def test_show_status_displays_message(window: MainWindow) -> None:
 # _on_add_signals — multi-add and skip notification
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-BROWSER-031")
 def test_on_add_signals_calls_add_signal_for_each(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
@@ -338,6 +350,7 @@ def test_on_add_signals_calls_add_signal_for_each(
     mock_controller.add_signal.assert_any_call(1, 2)
 
 
+@pytest.mark.requirement("REQ-BROWSER-040")
 def test_on_add_signals_shows_status_when_skipped(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
@@ -347,6 +360,7 @@ def test_on_add_signals_shows_status_when_skipped(
     assert "2 signals already active" in msg
 
 
+@pytest.mark.requirement("REQ-BROWSER-040")
 def test_on_add_signals_skipped_singular(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
@@ -356,6 +370,7 @@ def test_on_add_signals_skipped_singular(
     assert "1 signal already active" in msg
 
 
+@pytest.mark.requirement("REQ-BROWSER-040")
 def test_on_add_signals_no_status_when_none_skipped(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
@@ -368,6 +383,7 @@ def test_on_add_signals_no_status_when_none_skipped(
 # _on_file_dropped
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-011")
 def test_file_dropped_loads_when_no_file_loaded(
     wired: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
@@ -377,6 +393,7 @@ def test_file_dropped_loads_when_no_file_loaded(
     mock_controller.load_file.assert_called_once_with(path)
 
 
+@pytest.mark.requirement("REQ-FILE-020")
 def test_file_dropped_asks_confirmation_when_file_loaded(
     wired: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
@@ -390,6 +407,7 @@ def test_file_dropped_asks_confirmation_when_file_loaded(
     mock_controller.load_file.assert_not_called()
 
 
+@pytest.mark.requirement("REQ-FILE-020")
 def test_file_dropped_loads_when_confirmed(
     wired: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
@@ -403,6 +421,7 @@ def test_file_dropped_loads_when_confirmed(
     mock_controller.load_file.assert_called_once_with(path)
 
 
+@pytest.mark.requirement("REQ-FILE-041")
 def test_file_dropped_error_shows_message_box(
     wired: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
@@ -450,6 +469,7 @@ def test_zoom_cursors_delegates_to_controller(
     mock_controller.zoom_to_cursors.assert_called_once()
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_color_change_calls_recolor_signals(
     wired: MainWindow, mock_controller: MagicMock, qtbot: QtBot
 ) -> None:
@@ -472,6 +492,7 @@ def test_color_change_calls_recolor_signals(
     mock_controller.recolor_signals.assert_called_once_with([active], new_color)
 
 
+@pytest.mark.requirement("REQ-PLOT-040")
 def test_plot_signal_clicked_selects_table_row(
     wired: MainWindow, qtbot: QtBot
 ) -> None:
@@ -542,6 +563,7 @@ def test_save_config_action_shortcut_is_ctrl_s(window: MainWindow) -> None:
 # closeEvent — prompt logic
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-070")
 def test_should_not_prompt_when_no_active_signals(
     window: MainWindow, mock_controller: MagicMock
 ) -> None:
@@ -554,6 +576,7 @@ def test_should_not_prompt_when_no_active_signals(
     assert not window._should_prompt_save_on_close()
 
 
+@pytest.mark.requirement("REQ-FILE-070")
 def test_should_not_prompt_when_setting_is_off(
     window: MainWindow, mock_controller: MagicMock
 ) -> None:
@@ -566,6 +589,7 @@ def test_should_not_prompt_when_setting_is_off(
     assert not window._should_prompt_save_on_close()
 
 
+@pytest.mark.requirement("REQ-FILE-070")
 def test_should_prompt_when_active_signals_and_setting_on(
     window: MainWindow, mock_controller: MagicMock
 ) -> None:
@@ -579,6 +603,7 @@ def test_should_prompt_when_active_signals_and_setting_on(
     mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
 
 
+@pytest.mark.requirement("REQ-FILE-070")
 def test_close_event_accept_when_not_prompted(
     window: MainWindow, mock_controller: MagicMock
 ) -> None:
@@ -590,6 +615,7 @@ def test_close_event_accept_when_not_prompted(
     assert event.isAccepted()
 
 
+@pytest.mark.requirement("REQ-FILE-071")
 def test_close_event_cancel_ignores_event(
     window: MainWindow, mock_controller: MagicMock, qtbot: QtBot
 ) -> None:
@@ -617,6 +643,7 @@ def test_close_event_cancel_ignores_event(
 # Open dialog routing
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-013")
 def test_on_load_file_routes_mvc_to_load_config(
     window: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
@@ -632,6 +659,7 @@ def test_on_load_file_routes_mvc_to_load_config(
             mock_load_config.assert_called_once_with(mvc)
 
 
+@pytest.mark.requirement("REQ-FILE-013")
 def test_on_load_file_routes_mdf_to_load_file(
     window: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
@@ -645,6 +673,7 @@ def test_on_load_file_routes_mdf_to_load_file(
             mock_load_file.assert_called_once_with(str(mdf))
 
 
+@pytest.mark.requirement("REQ-FILE-013")
 def test_on_open_recent_routes_mvc(
     window: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
@@ -659,6 +688,7 @@ def test_on_open_recent_routes_mvc(
         mock_lc.assert_called_once_with(mvc)
 
 
+@pytest.mark.requirement("REQ-FILE-013")
 def test_on_open_recent_routes_mdf(
     window: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
@@ -675,6 +705,8 @@ def test_on_open_recent_routes_mdf(
 # open_config — public entry point used by app.py for CLI / file association
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-FILE-011")
+@pytest.mark.requirement("REQ-FILE-013")
 def test_open_config_delegates_to_load_config(
     window: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
@@ -689,6 +721,7 @@ def test_open_config_delegates_to_load_config(
         mock_lc.assert_called_once_with(mvc)
 
 
+@pytest.mark.requirement("REQ-FILE-013")
 def test_open_config_mvc_not_routed_to_load_file(
     window: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
@@ -721,18 +754,21 @@ def _minimal_config(**overrides):
     return ViewerConfig(**fields)
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_capture_window_geometry_reflects_current_size(window: MainWindow) -> None:
     window.resize(999, 555)
     geo = window._capture_window_geometry()
     assert geo == {"x": geo["x"], "y": geo["y"], "width": 999, "height": 555, "maximized": False}
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_apply_window_geometry_resizes_and_moves(window: MainWindow) -> None:
     window._apply_window_geometry({"x": 10, "y": 20, "width": 900, "height": 600, "maximized": False})
     assert window.width() == 900
     assert window.height() == 600
 
 
+@pytest.mark.requirement("REQ-FILE-067")
 def test_apply_window_geometry_none_is_noop(window: MainWindow) -> None:
     window.resize(1280, 800)
     window._apply_window_geometry(None)
@@ -740,12 +776,14 @@ def test_apply_window_geometry_none_is_noop(window: MainWindow) -> None:
     assert window.height() == 800
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_capture_splitter_sizes_includes_all_splitters_and_left_panel(window: MainWindow) -> None:
     sizes = window._capture_splitter_sizes()
     assert set(sizes) == {"left", "right", "content", "outer", "left_panel"}
     assert sizes["left_panel"] == {"pinned": True, "width": window._panel_w}
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_apply_splitter_sizes_sets_each_splitter(window: MainWindow) -> None:
     with patch.object(window._content_splitter, "setSizes") as mock_content, \
          patch.object(window._outer_splitter, "setSizes") as mock_outer:
@@ -754,18 +792,21 @@ def test_apply_splitter_sizes_sets_each_splitter(window: MainWindow) -> None:
     mock_outer.assert_called_once_with([300, 600])
 
 
+@pytest.mark.requirement("REQ-FILE-067")
 def test_apply_splitter_sizes_ignores_malformed_values(window: MainWindow) -> None:
     with patch.object(window._content_splitter, "setSizes") as mock_content:
         window._apply_splitter_sizes({"content": "not-a-list"})
     mock_content.assert_not_called()
 
 
+@pytest.mark.requirement("REQ-FILE-067")
 def test_apply_splitter_sizes_none_is_noop(window: MainWindow) -> None:
     with patch.object(window._content_splitter, "setSizes") as mock_content:
         window._apply_splitter_sizes(None)
     mock_content.assert_not_called()
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_save_config_to_attaches_window_and_splitter_state(
     window: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
@@ -785,6 +826,7 @@ def test_save_config_to_attaches_window_and_splitter_state(
     assert "left" in saved_config.splitter_sizes
 
 
+@pytest.mark.requirement("REQ-FILE-061")
 def test_load_config_applies_saved_window_geometry(
     window: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:

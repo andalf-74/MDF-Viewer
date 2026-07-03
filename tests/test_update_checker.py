@@ -63,6 +63,7 @@ def _mock_response(tag: str, html_url: str) -> MagicMock:
 
 
 class TestFetchLatestRelease:
+    @pytest.mark.requirement("REQ-NFR-030")
     def test_returns_release_info(self):
         mock_resp = _mock_response("v2.0", "https://github.com/example/releases/tag/v2.0")
         with patch("urllib.request.urlopen", return_value=mock_resp):
@@ -71,12 +72,14 @@ class TestFetchLatestRelease:
         assert info.tag == "v2.0"
         assert "v2.0" in info.url
 
+    @pytest.mark.requirement("REQ-NFR-033")
     def test_raises_on_network_error(self):
         import urllib.error
         with patch("urllib.request.urlopen", side_effect=urllib.error.URLError("timeout")):
             with pytest.raises(UpdateCheckError, match="Could not check"):
                 fetch_latest_release()
 
+    @pytest.mark.requirement("REQ-NFR-033")
     def test_raises_on_invalid_json(self):
         mock = MagicMock()
         mock.__enter__ = lambda s: s
@@ -86,6 +89,7 @@ class TestFetchLatestRelease:
             with pytest.raises(UpdateCheckError):
                 fetch_latest_release()
 
+    @pytest.mark.requirement("REQ-NFR-033")
     def test_raises_on_missing_key(self):
         mock = MagicMock()
         mock.__enter__ = lambda s: s

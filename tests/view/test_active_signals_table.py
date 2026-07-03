@@ -58,10 +58,12 @@ def test_initially_empty(table: ActiveSignalsTable) -> None:
     assert table._table.rowCount() == 0
 
 
+@pytest.mark.requirement("REQ-PLOT-141")
 def test_remove_button_disabled_initially(table: ActiveSignalsTable) -> None:
     assert not table._remove_btn.isEnabled()
 
 
+@pytest.mark.requirement("REQ-PLOT-070")
 def test_cursor_columns_hidden_initially(table: ActiveSignalsTable) -> None:
     assert table._table.isColumnHidden(2)
     assert table._table.isColumnHidden(3)
@@ -88,12 +90,14 @@ def test_add_row_shows_signal_name(table: ActiveSignalsTable) -> None:
     assert table._table.item(0, 1).text() == "engine_speed"
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_add_row_places_color_swatch(table: ActiveSignalsTable) -> None:
     table.add_row(_make_active("x", QColor(100, 200, 50)))
     swatch = table._table.cellWidget(0, 0)
     assert isinstance(swatch, _ColorSwatch)
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_add_row_swatch_has_correct_color(table: ActiveSignalsTable) -> None:
     color = QColor(123, 45, 67)
     table.add_row(_make_active("x", color))
@@ -118,6 +122,7 @@ def test_remove_row_removes_correct_signal(populated: tuple) -> None:
     assert t._table.item(1, 1).text() == "gamma"
 
 
+@pytest.mark.requirement("REQ-PLOT-023")
 def test_remove_row_noop_for_unknown(table: ActiveSignalsTable) -> None:
     stranger = _make_active("x")
     table.remove_row(stranger)  # must not raise
@@ -168,6 +173,7 @@ def test_clear_with_selection_does_not_raise(populated: tuple) -> None:
 # show_cursor_columns
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-080")
 def test_show_cursor_columns_makes_them_visible(table: ActiveSignalsTable) -> None:
     table.show_cursor_columns(True)
     assert not table._table.isColumnHidden(2)
@@ -175,6 +181,7 @@ def test_show_cursor_columns_makes_them_visible(table: ActiveSignalsTable) -> No
     assert not table._table.isColumnHidden(4)
 
 
+@pytest.mark.requirement("REQ-PLOT-080")
 def test_hide_cursor_columns(table: ActiveSignalsTable) -> None:
     table.show_cursor_columns(True)
     table.show_cursor_columns(False)
@@ -185,6 +192,7 @@ def test_hide_cursor_columns(table: ActiveSignalsTable) -> None:
 # update_cursor_values
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-080")
 def test_update_cursor_values_sets_text(populated: tuple) -> None:
     t, sigs = populated
     t.update_cursor_values(sigs[0], "1.23", "4.56", "3.33")
@@ -193,6 +201,7 @@ def test_update_cursor_values_sets_text(populated: tuple) -> None:
     assert t._table.item(0, 4).text() == "3.33"
 
 
+@pytest.mark.requirement("REQ-PLOT-023")
 def test_update_cursor_values_noop_for_unknown(table: ActiveSignalsTable) -> None:
     stranger = _make_active("x")
     table.update_cursor_values(stranger, "1", "2", "3")  # must not raise
@@ -202,6 +211,7 @@ def test_update_cursor_values_noop_for_unknown(table: ActiveSignalsTable) -> Non
 # Remove button state
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-141")
 def test_remove_button_enabled_after_selection(populated: tuple) -> None:
     t, sigs = populated
     idx = t._table.model().index(0, 1)
@@ -209,6 +219,7 @@ def test_remove_button_enabled_after_selection(populated: tuple) -> None:
     assert t._remove_btn.isEnabled()
 
 
+@pytest.mark.requirement("REQ-PLOT-141")
 def test_remove_button_disabled_after_clear(populated: tuple) -> None:
     t, sigs = populated
     t._table.setCurrentIndex(t._table.model().index(0, 1))
@@ -220,6 +231,7 @@ def test_remove_button_disabled_after_clear(populated: tuple) -> None:
 # Signals
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-141")
 def test_remove_button_emits_remove_requested(
     populated: tuple, qtbot: QtBot
 ) -> None:
@@ -255,6 +267,7 @@ def test_clearing_selection_emits_none(populated: tuple, qtbot: QtBot) -> None:
     assert blocker.args[0] is None
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_color_change_emits_signal(populated: tuple, qtbot: QtBot) -> None:
     t, sigs = populated
     new_color = QColor(10, 20, 30)
@@ -268,6 +281,7 @@ def test_color_change_emits_signal(populated: tuple, qtbot: QtBot) -> None:
     assert blocker.args[1] == new_color
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_color_change_updates_swatch(populated: tuple, qtbot: QtBot) -> None:
     t, sigs = populated
     new_color = QColor(10, 20, 30)
@@ -280,6 +294,7 @@ def test_color_change_updates_swatch(populated: tuple, qtbot: QtBot) -> None:
     assert swatch.color == new_color
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_color_change_cancelled_does_not_emit(
     populated: tuple, qtbot: QtBot
 ) -> None:
@@ -297,6 +312,7 @@ def test_color_change_cancelled_does_not_emit(
 # Issue #8 — Delete key removes selected signal
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-141")
 def test_delete_key_emits_remove_requested(populated: tuple, qtbot: QtBot) -> None:
     from PyQt6.QtCore import Qt
     t, sigs = populated
@@ -306,6 +322,7 @@ def test_delete_key_emits_remove_requested(populated: tuple, qtbot: QtBot) -> No
     assert blocker.args[0] == [sigs[0]]
 
 
+@pytest.mark.requirement("REQ-PLOT-141")
 def test_delete_key_no_selection_does_not_emit(table: ActiveSignalsTable, qtbot: QtBot) -> None:
     from PyQt6.QtCore import Qt
     with qtbot.assertNotEmitted(table.remove_requested):
@@ -316,6 +333,7 @@ def test_delete_key_no_selection_does_not_emit(table: ActiveSignalsTable, qtbot:
 # Multi-select
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_multi_select_selection_changed_emits_none(
     populated: tuple, qtbot: QtBot
 ) -> None:
@@ -330,6 +348,7 @@ def test_multi_select_selection_changed_emits_none(
     assert blocker.args[0] is None
 
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_multi_select_emits_multi_selection_active_true(
     populated: tuple, qtbot: QtBot
 ) -> None:
@@ -344,6 +363,7 @@ def test_multi_select_emits_multi_selection_active_true(
     assert blocker.args[0] is True
 
 
+@pytest.mark.requirement("REQ-PLOT-152")
 def test_single_select_emits_multi_selection_active_false(
     populated: tuple, qtbot: QtBot
 ) -> None:
@@ -353,6 +373,7 @@ def test_single_select_emits_multi_selection_active_false(
     assert blocker.args[0] is False
 
 
+@pytest.mark.requirement("REQ-PLOT-141")
 def test_remove_button_multi_select_emits_all(
     populated: tuple, qtbot: QtBot
 ) -> None:
@@ -367,6 +388,7 @@ def test_remove_button_multi_select_emits_all(
     assert blocker.args[0] == [sigs[0], sigs[2]]
 
 
+@pytest.mark.requirement("REQ-PLOT-141")
 def test_delete_key_multi_select_emits_all(
     populated: tuple, qtbot: QtBot
 ) -> None:
@@ -382,6 +404,7 @@ def test_delete_key_multi_select_emits_all(
     assert blocker.args[0] == [sigs[0], sigs[1]]
 
 
+@pytest.mark.requirement("REQ-PLOT-122")
 def test_color_swatch_multi_select_emits_all_selected(
     populated: tuple, qtbot: QtBot
 ) -> None:
@@ -402,6 +425,7 @@ def test_color_swatch_multi_select_emits_all_selected(
     assert blocker.args[1] == new_color
 
 
+@pytest.mark.requirement("REQ-PLOT-122")
 def test_color_swatch_unselected_signal_ignores_selection(
     populated: tuple, qtbot: QtBot
 ) -> None:
@@ -456,6 +480,7 @@ def _drag_enter_event(mime_data):
     return event
 
 
+@pytest.mark.requirement("REQ-PLOT-143")
 def test_signals_dropped_emitted_on_valid_mime(
     table: ActiveSignalsTable, qtbot: QtBot
 ) -> None:
@@ -467,6 +492,7 @@ def test_signals_dropped_emitted_on_valid_mime(
     assert blocker.args[0] == [(0, 1), (1, 2)]
 
 
+@pytest.mark.requirement("REQ-PLOT-143")
 def test_signals_dropped_not_emitted_for_wrong_mime(
     table: ActiveSignalsTable, qtbot: QtBot
 ) -> None:
@@ -476,6 +502,7 @@ def test_signals_dropped_not_emitted_for_wrong_mime(
         table.eventFilter(table._table.viewport(), _drop_event(mime))
 
 
+@pytest.mark.requirement("REQ-PLOT-143")
 def test_drag_enter_accepted_for_signal_mime(table: ActiveSignalsTable) -> None:
     mime = QMimeData()
     mime.setData(SIGNAL_MIME_TYPE, QByteArray(b"[]"))
@@ -484,6 +511,7 @@ def test_drag_enter_accepted_for_signal_mime(table: ActiveSignalsTable) -> None:
     event.acceptProposedAction.assert_called_once()
 
 
+@pytest.mark.requirement("REQ-PLOT-143")
 def test_drag_enter_ignored_for_unknown_mime(table: ActiveSignalsTable) -> None:
     mime = QMimeData()
     mime.setText("irrelevant")
@@ -496,6 +524,7 @@ def test_drag_enter_ignored_for_unknown_mime(table: ActiveSignalsTable) -> None:
 # Row reorder / _rebuild_rows
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-142")
 def test_rebuild_rows_preserves_signal_count(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]]
 ) -> None:
@@ -523,6 +552,7 @@ def test_rebuild_rows_selects_given_row(
     assert rows[0].row() == 1
 
 
+@pytest.mark.requirement("REQ-PLOT-142")
 def test_order_changed_emitted_on_row_reorder(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
     qtbot,
@@ -535,6 +565,7 @@ def test_order_changed_emitted_on_row_reorder(
     assert blocker.args[0] == [sigs[1], sigs[0], sigs[2]]
 
 
+@pytest.mark.requirement("REQ-PLOT-120")
 def test_rebuild_rows_restores_color_swatches(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]]
 ) -> None:
@@ -545,6 +576,7 @@ def test_rebuild_rows_restores_color_swatches(
         assert isinstance(widget, _ColorSwatch)
 
 
+@pytest.mark.requirement("REQ-PLOT-101")
 def test_set_delta_column_header(table: ActiveSignalsTable) -> None:
     table.set_delta_column_header("Δt = 1.234 s")
     item = table._table.horizontalHeaderItem(4)
@@ -552,6 +584,7 @@ def test_set_delta_column_header(table: ActiveSignalsTable) -> None:
     assert item.text() == "Δt = 1.234 s"
 
 
+@pytest.mark.requirement("REQ-PLOT-101")
 def test_set_delta_column_header_resets_to_default(table: ActiveSignalsTable) -> None:
     table.set_delta_column_header("Δt = 1.234 s")
     table.set_delta_column_header("Δ")
@@ -564,6 +597,7 @@ def test_set_delta_column_header_resets_to_default(table: ActiveSignalsTable) ->
 # multi_selection_changed
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-140")
 def test_multi_selection_changed_emitted_on_multi_select(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot
 ) -> None:
@@ -579,6 +613,7 @@ def test_multi_selection_changed_emitted_on_multi_select(
     assert set(blocker.args[0]) == {sigs[0], sigs[1]}
 
 
+@pytest.mark.requirement("REQ-PLOT-140")
 def test_multi_selection_changed_not_emitted_on_single_select(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot
 ) -> None:
@@ -637,6 +672,7 @@ def test_select_signal_none_emits_selection_changed_none(
     assert received == [None]
 
 
+@pytest.mark.requirement("REQ-PLOT-023")
 def test_select_signal_noop_for_unknown(table: ActiveSignalsTable, qtbot: QtBot) -> None:
     stranger = _make_active("stranger")
     table.select_signal(stranger)  # must not raise
@@ -646,6 +682,7 @@ def test_select_signal_noop_for_unknown(table: ActiveSignalsTable, qtbot: QtBot)
 # set_name_formatter
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_set_name_formatter_updates_existing_rows(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot
 ) -> None:
@@ -655,6 +692,7 @@ def test_set_name_formatter_updates_existing_rows(
         assert table._table.item(row, 1).text() == sig.metadata.name.upper()
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_set_name_formatter_applied_to_new_rows(
     table: ActiveSignalsTable, qtbot: QtBot
 ) -> None:
@@ -664,6 +702,7 @@ def test_set_name_formatter_applied_to_new_rows(
     assert table._table.item(0, 1).text() == "[mysig]"
 
 
+@pytest.mark.requirement("REQ-PLOT-161")
 def test_default_formatter_shows_full_name(
     table: ActiveSignalsTable, qtbot: QtBot
 ) -> None:
@@ -672,6 +711,7 @@ def test_default_formatter_shows_full_name(
     assert table._table.item(0, 1).text() == "full.name.here"
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_configure_display_names_signal_carries_name(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot
 ) -> None:
@@ -682,6 +722,7 @@ def test_configure_display_names_signal_carries_name(
     assert received == [sigs[0].metadata.name]
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_shorten_names_toggled_signal_exists(table: ActiveSignalsTable) -> None:
     received: list = []
     table.shorten_names_toggled.connect(received.append)
@@ -689,6 +730,7 @@ def test_shorten_names_toggled_signal_exists(table: ActiveSignalsTable) -> None:
     assert received == [True]
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
 def test_set_shorten_names_enabled_updates_field(table: ActiveSignalsTable) -> None:
     assert table._shorten_names_enabled is False
     table.set_shorten_names_enabled(True)
@@ -721,6 +763,8 @@ def _open_context_menu(t: ActiveSignalsTable) -> QMenu:
     return captured["menu"]
 
 
+@pytest.mark.requirement("REQ-PLOT-037")
+@pytest.mark.requirement("REQ-PLOT-033")
 def test_both_group_actions_shown_when_selection_ungrouped(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
 ) -> None:
@@ -731,6 +775,7 @@ def test_both_group_actions_shown_when_selection_ungrouped(
     assert "Sync Y-Axis" in titles
 
 
+@pytest.mark.requirement("REQ-PLOT-033")
 def test_merge_action_hidden_when_selection_includes_synced_signal(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
 ) -> None:
@@ -742,6 +787,7 @@ def test_merge_action_hidden_when_selection_includes_synced_signal(
     assert "Sync Y-Axis" in titles
 
 
+@pytest.mark.requirement("REQ-PLOT-033")
 def test_sync_action_hidden_when_selection_includes_merged_signal(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
 ) -> None:
@@ -753,6 +799,7 @@ def test_sync_action_hidden_when_selection_includes_merged_signal(
     assert "Merge Y-Axis" in titles
 
 
+@pytest.mark.requirement("REQ-PLOT-035")
 def test_ungroup_action_covers_both_merged_and_synced_selection(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
 ) -> None:

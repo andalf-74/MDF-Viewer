@@ -112,6 +112,7 @@ def loader_mdf3(mdf3_path: Path) -> MdfLoader:
 # open / close / is_open
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-MDF-010")
 def test_open_valid_file(mdf4_path: Path) -> None:
     ldr = MdfLoader()
     ldr.open(mdf4_path)
@@ -126,12 +127,14 @@ def test_close_sets_not_open(mdf4_path: Path) -> None:
     assert not ldr.is_open
 
 
+@pytest.mark.requirement("REQ-MDF-070")
 def test_open_nonexistent_raises(tmp_path: Path) -> None:
     ldr = MdfLoader()
     with pytest.raises(MdfLoadError):
         ldr.open(tmp_path / "no_such_file.mf4")
 
 
+@pytest.mark.requirement("REQ-MDF-070")
 def test_open_invalid_file_raises(tmp_path: Path) -> None:
     bad = tmp_path / "bad.mf4"
     bad.write_bytes(b"this is not an MDF file at all")
@@ -140,6 +143,7 @@ def test_open_invalid_file_raises(tmp_path: Path) -> None:
         ldr.open(bad)
 
 
+@pytest.mark.requirement("REQ-FILE-012")
 def test_open_replaces_previous_file(mdf4_path: Path, tmp_path: Path) -> None:
     second = tmp_path / "second.mf4"
     _make_mdf4(second)
@@ -183,20 +187,24 @@ def test_measurement_info_returns_measurement_info(loader: MdfLoader) -> None:
     assert isinstance(info, MeasurementInfo)
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_measurement_info_file_name(loader: MdfLoader, mdf4_path: Path) -> None:
     assert loader.measurement_info().file_name == mdf4_path.name
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_measurement_info_version(loader: MdfLoader) -> None:
     assert "4" in loader.measurement_info().mdf_version
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_measurement_info_duration(loader: MdfLoader) -> None:
     info = loader.measurement_info()
     assert info.duration_s is not None
     assert abs(info.duration_s - 1.0) < 0.05
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_measurement_info_recorded_at_nonempty(loader: MdfLoader) -> None:
     info = loader.measurement_info()
     assert info.recorded_at != ""
@@ -206,6 +214,7 @@ def test_measurement_info_recorded_at_nonempty(loader: MdfLoader) -> None:
 # channel_tree
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-MDF-020")
 def test_channel_tree_returns_list(loader: MdfLoader) -> None:
     tree = loader.channel_tree()
     assert isinstance(tree, list)
@@ -217,6 +226,7 @@ def test_channel_tree_group_type(loader: MdfLoader) -> None:
         assert isinstance(group, ChannelGroupInfo)
 
 
+@pytest.mark.requirement("REQ-MDF-020")
 def test_channel_tree_has_sin_and_cos(loader: MdfLoader) -> None:
     all_names = {
         ch.name
@@ -227,6 +237,7 @@ def test_channel_tree_has_sin_and_cos(loader: MdfLoader) -> None:
     assert "cos" in all_names
 
 
+@pytest.mark.requirement("REQ-MDF-022")
 def test_channel_tree_metadata_populated(loader: MdfLoader) -> None:
     sin_meta = next(
         ch
@@ -240,6 +251,7 @@ def test_channel_tree_metadata_populated(loader: MdfLoader) -> None:
     assert sin_meta.channel_index is not None
 
 
+@pytest.mark.requirement("REQ-MDF-022")
 def test_channel_tree_indices_are_consistent(loader: MdfLoader) -> None:
     for group in loader.channel_tree():
         assert group.index >= 0
@@ -260,6 +272,7 @@ def _find_channel_location(loader: MdfLoader, name: str) -> tuple[int, int]:
     raise KeyError(name)
 
 
+@pytest.mark.requirement("REQ-MDF-030")
 def test_load_signal_returns_tuple(loader: MdfLoader) -> None:
     gi, ci = _find_channel_location(loader, "sin")
     result = loader.load_signal(gi, ci)
@@ -269,6 +282,7 @@ def test_load_signal_returns_tuple(loader: MdfLoader) -> None:
     assert isinstance(meta, SignalMetadata)
 
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_load_signal_correct_sample_count(loader: MdfLoader) -> None:
     gi, ci = _find_channel_location(loader, "sin")
     data, meta = loader.load_signal(gi, ci)
@@ -282,6 +296,7 @@ def test_load_signal_timestamps_monotonic(loader: MdfLoader) -> None:
     assert np.all(np.diff(data.timestamps) > 0)
 
 
+@pytest.mark.requirement("REQ-MDF-031")
 def test_load_signal_samples_match_sin(loader: MdfLoader) -> None:
     gi, ci = _find_channel_location(loader, "sin")
     data, _ = loader.load_signal(gi, ci)
@@ -289,6 +304,7 @@ def test_load_signal_samples_match_sin(loader: MdfLoader) -> None:
     np.testing.assert_allclose(data.samples, expected, atol=1e-6)
 
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_load_signal_metadata_name_and_unit(loader: MdfLoader) -> None:
     gi, ci = _find_channel_location(loader, "cos")
     _, meta = loader.load_signal(gi, ci)
@@ -296,12 +312,14 @@ def test_load_signal_metadata_name_and_unit(loader: MdfLoader) -> None:
     assert meta.unit == "A"
 
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_load_signal_data_type_populated(loader: MdfLoader) -> None:
     gi, ci = _find_channel_location(loader, "sin")
     _, meta = loader.load_signal(gi, ci)
     assert meta.data_type != ""
 
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_load_signal_float_is_not_integer(loader: MdfLoader) -> None:
     gi, ci = _find_channel_location(loader, "sin")
     _, meta = loader.load_signal(gi, ci)
@@ -309,6 +327,7 @@ def test_load_signal_float_is_not_integer(loader: MdfLoader) -> None:
     assert not meta.is_integer
 
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_load_signal_min_max(loader: MdfLoader) -> None:
     gi, ci = _find_channel_location(loader, "sin")
     _, meta = loader.load_signal(gi, ci)
@@ -320,6 +339,7 @@ def test_load_signal_min_max(loader: MdfLoader) -> None:
     assert meta.min_value >= -1.0 - 1e-9
 
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_load_signal_integer_dtype_sets_is_integer(loader: MdfLoader) -> None:
     gi, ci = _find_channel_location(loader, "gear")
     _, meta = loader.load_signal(gi, ci)
@@ -327,6 +347,7 @@ def test_load_signal_integer_dtype_sets_is_integer(loader: MdfLoader) -> None:
     assert meta.data_type == "uint8"
 
 
+@pytest.mark.requirement("REQ-MDF-070")
 def test_load_signal_invalid_index_raises(loader: MdfLoader) -> None:
     with pytest.raises(MdfLoadError):
         loader.load_signal(999, 0)
@@ -359,6 +380,7 @@ def _loader_with_mock_mdf(string_sig, raw_sig=None):
     return ldr
 
 
+@pytest.mark.requirement("REQ-MDF-032")
 def test_load_signal_string_samples_falls_back_to_raw() -> None:
     t = np.array([0.0, 0.5, 1.0])
     raw_samples = np.array([0, 1, 0], dtype=np.uint8)
@@ -372,6 +394,7 @@ def test_load_signal_string_samples_falls_back_to_raw() -> None:
     assert meta.is_integer is True
 
 
+@pytest.mark.requirement("REQ-MDF-032")
 def test_load_signal_raw_fallback_calls_get_with_raw_true() -> None:
     t = np.array([0.0, 0.5])
     raw_sig = _mock_signal(np.array([0, 1], dtype=np.uint8), t)
@@ -388,6 +411,7 @@ def test_load_signal_raw_fallback_calls_get_with_raw_true() -> None:
 # _compute_raster
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_compute_raster_fixed_returns_interval() -> None:
     t = np.linspace(0.0, 1.0, 101)  # exactly 0.01 s spacing
     result = _compute_raster(t)
@@ -395,19 +419,23 @@ def test_compute_raster_fixed_returns_interval() -> None:
     assert abs(result - 0.01) < 1e-9
 
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_compute_raster_variable_returns_none() -> None:
     t = np.array([0.0, 0.01, 0.1, 0.11, 1.0])  # irregular
     assert _compute_raster(t) is None
 
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_compute_raster_single_sample_returns_none() -> None:
     assert _compute_raster(np.array([0.0])) is None
 
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_compute_raster_empty_returns_none() -> None:
     assert _compute_raster(np.array([])) is None
 
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_compute_raster_within_tolerance_is_fixed() -> None:
     # intervals within 5% of mean (p99) should be fixed
     t = np.array([0.0, 0.01, 0.0201, 0.0301])
@@ -415,6 +443,7 @@ def test_compute_raster_within_tolerance_is_fixed() -> None:
     assert result is not None
 
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_compute_raster_single_outlier_still_fixed() -> None:
     # one rogue interval in 1001 (0.1% of data) should not flip a fixed-rate signal
     t = np.linspace(0.0, 10.0, 1001)  # 1000 intervals at exactly 0.01 s
@@ -424,6 +453,7 @@ def test_compute_raster_single_outlier_still_fixed() -> None:
     assert result is not None
 
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_compute_raster_truly_variable_returns_none() -> None:
     # more than 1% of intervals far off → variable (every 5th is 30% off)
     t = np.linspace(0.0, 10.0, 1001)
@@ -434,6 +464,7 @@ def test_compute_raster_truly_variable_returns_none() -> None:
     assert result is None
 
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_compute_raster_two_samples() -> None:
     t = np.array([0.0, 0.5])
     result = _compute_raster(t)
@@ -445,6 +476,7 @@ def test_compute_raster_two_samples() -> None:
 # load_signal – raster
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-MDF-040")
 def test_load_signal_raster_populated(loader: MdfLoader) -> None:
     gi, ci = _find_channel_location(loader, "sin")
     _, meta = loader.load_signal(gi, ci)
@@ -453,6 +485,7 @@ def test_load_signal_raster_populated(loader: MdfLoader) -> None:
     assert abs(meta.raster_s - 0.01) < 1e-9
 
 
+@pytest.mark.requirement("REQ-MDF-033")
 def test_load_signal_non_numeric_even_with_raw_raises() -> None:
     t = np.array([0.0, 0.5])
     string_sig = _mock_signal(np.array([b"Off", b"On"]), t)
@@ -473,6 +506,7 @@ class _FakeConversion:
     # val_N attributes set per-instance in tests
 
 
+@pytest.mark.requirement("REQ-MDF-041")
 def test_extract_enum_map_type7_returns_mapping() -> None:
     conv = _FakeConversion()
     conv.referenced_blocks = {"text_0": b"OFF", "text_1": b"ON"}
@@ -481,6 +515,7 @@ def test_extract_enum_map_type7_returns_mapping() -> None:
     assert _extract_enum_map(conv) == {0: "OFF", 1: "ON"}
 
 
+@pytest.mark.requirement("REQ-MDF-041")
 def test_extract_enum_map_non_contiguous_values() -> None:
     conv = _FakeConversion()
     conv.referenced_blocks = {"text_0": b"Initialization", "text_1": b"RUN", "text_2": b"SNA"}
@@ -491,22 +526,26 @@ def test_extract_enum_map_non_contiguous_values() -> None:
     assert result == {0: "Initialization", 4: "RUN", 7: "SNA"}
 
 
+@pytest.mark.requirement("REQ-MDF-041")
 def test_extract_enum_map_none_returns_empty() -> None:
     assert _extract_enum_map(None) == {}
 
 
+@pytest.mark.requirement("REQ-MDF-041")
 def test_extract_enum_map_wrong_type_returns_empty() -> None:
     conv = _FakeConversion()
     conv.conversion_type = 1  # linear, not value-to-text
     assert _extract_enum_map(conv) == {}
 
 
+@pytest.mark.requirement("REQ-MDF-041")
 def test_extract_enum_map_no_conversion_type_returns_empty() -> None:
     class _NoType:
         referenced_blocks = {}
     assert _extract_enum_map(_NoType()) == {}
 
 
+@pytest.mark.requirement("REQ-MDF-041")
 def test_extract_enum_map_decodes_bytes() -> None:
     conv = _FakeConversion()
     conv.referenced_blocks = {"text_0": b"KEY_IN_IGN"}
@@ -536,6 +575,7 @@ def _fake_conv(val_text_pairs: list[tuple[float, bytes]]) -> _FakeConversion:
     return conv
 
 
+@pytest.mark.requirement("REQ-MDF-041")
 def test_load_signal_enum_map_populated_from_raw_conversion() -> None:
     t = np.array([0.0, 0.5, 1.0])
     conv = _fake_conv([(0.0, b"OFF"), (1.0, b"ON")])
@@ -548,6 +588,7 @@ def test_load_signal_enum_map_populated_from_raw_conversion() -> None:
     assert meta.enum_map == {0: "OFF", 1: "ON"}
 
 
+@pytest.mark.requirement("REQ-MDF-041")
 def test_load_signal_enum_map_empty_for_numeric_signal(loader: MdfLoader) -> None:
     gi, ci = _find_channel_location(loader, "sin")
     _, meta = loader.load_signal(gi, ci)
@@ -558,22 +599,26 @@ def test_load_signal_enum_map_empty_for_numeric_signal(loader: MdfLoader) -> Non
 # find_signal_by_name
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-MDF-060")
 def test_find_signal_by_name_returns_empty_when_not_open() -> None:
     loader = MdfLoader()
     result = loader.find_signal_by_name("sin")
     assert result == []
 
 
+@pytest.mark.requirement("REQ-MDF-060")
 def test_find_signal_by_name_finds_existing_channel(loader: MdfLoader) -> None:
     result = loader.find_signal_by_name("sin")
     assert len(result) >= 1
     assert all(m.name == "sin" for m in result)
 
 
+@pytest.mark.requirement("REQ-MDF-060")
 def test_find_signal_by_name_returns_empty_for_unknown(loader: MdfLoader) -> None:
     assert loader.find_signal_by_name("no_such_channel_xyz") == []
 
 
+@pytest.mark.requirement("REQ-MDF-060")
 def test_find_signal_by_name_result_has_group_and_channel_index(loader: MdfLoader) -> None:
     result = loader.find_signal_by_name("sin")
     assert result
@@ -582,6 +627,7 @@ def test_find_signal_by_name_result_has_group_and_channel_index(loader: MdfLoade
         assert meta.channel_index is not None
 
 
+@pytest.mark.requirement("REQ-MDF-060")
 def test_find_signal_by_name_exact_match_only(loader: MdfLoader) -> None:
     # "si" is a prefix of "sin" but should not be returned
     result = loader.find_signal_by_name("si")
@@ -592,6 +638,7 @@ def test_find_signal_by_name_exact_match_only(loader: MdfLoader) -> None:
 # group_name
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-MDF-021")
 def test_channel_tree_group_name_is_non_empty(loader: MdfLoader) -> None:
     groups = loader.channel_tree()
     for group in groups:
@@ -600,6 +647,7 @@ def test_channel_tree_group_name_is_non_empty(loader: MdfLoader) -> None:
             assert ch.group_name != ""
 
 
+@pytest.mark.requirement("REQ-MDF-021")
 def test_load_signal_group_name_matches_channel_tree(loader: MdfLoader) -> None:
     groups = loader.channel_tree()
     first_group = groups[0]
@@ -613,6 +661,7 @@ def test_load_signal_group_name_matches_channel_tree(loader: MdfLoader) -> None:
             continue
 
 
+@pytest.mark.requirement("REQ-MDF-060")
 def test_find_signal_by_name_result_has_group_name(loader: MdfLoader) -> None:
     results = loader.find_signal_by_name("sin")
     assert len(results) >= 1
@@ -626,6 +675,7 @@ def test_find_signal_by_name_result_has_group_name(loader: MdfLoader) -> None:
 # Mirrors the MDF4 open/channel_tree/load_signal coverage above using an MDF3
 # fixture, so both formats accepted by asammdf.MDF() are actually exercised.
 
+@pytest.mark.requirement("REQ-MDF-010")
 def test_open_mdf3_file(mdf3_path: Path) -> None:
     ldr = MdfLoader()
     ldr.open(mdf3_path)
@@ -633,10 +683,12 @@ def test_open_mdf3_file(mdf3_path: Path) -> None:
     ldr.close()
 
 
+@pytest.mark.requirement("REQ-MDF-010")
 def test_measurement_info_mdf3_version(loader_mdf3: MdfLoader) -> None:
     assert "3" in loader_mdf3.measurement_info().mdf_version
 
 
+@pytest.mark.requirement("REQ-MDF-010")
 def test_channel_tree_mdf3_has_sin_and_cos(loader_mdf3: MdfLoader) -> None:
     all_names = {
         ch.name
@@ -647,6 +699,8 @@ def test_channel_tree_mdf3_has_sin_and_cos(loader_mdf3: MdfLoader) -> None:
     assert "cos" in all_names
 
 
+@pytest.mark.requirement("REQ-MDF-010")
+@pytest.mark.requirement("REQ-MDF-022")
 def test_channel_tree_mdf3_metadata_populated(loader_mdf3: MdfLoader) -> None:
     sin_meta = next(
         ch
@@ -658,6 +712,8 @@ def test_channel_tree_mdf3_metadata_populated(loader_mdf3: MdfLoader) -> None:
     assert sin_meta.comment == "sine wave"
 
 
+@pytest.mark.requirement("REQ-MDF-010")
+@pytest.mark.requirement("REQ-MDF-031")
 def test_load_signal_mdf3_samples_match_sin(loader_mdf3: MdfLoader) -> None:
     gi, ci = _find_channel_location(loader_mdf3, "sin")
     data, meta = loader_mdf3.load_signal(gi, ci)
@@ -667,6 +723,8 @@ def test_load_signal_mdf3_samples_match_sin(loader_mdf3: MdfLoader) -> None:
     assert meta.unit == "V"
 
 
+@pytest.mark.requirement("REQ-MDF-010")
+@pytest.mark.requirement("REQ-MDF-040")
 def test_load_signal_mdf3_integer_dtype_sets_is_integer(loader_mdf3: MdfLoader) -> None:
     gi, ci = _find_channel_location(loader_mdf3, "gear")
     _, meta = loader_mdf3.load_signal(gi, ci)
@@ -682,33 +740,39 @@ class _FakeConversionWithUnit:
         self.unit = unit
 
 
+@pytest.mark.requirement("REQ-MDF-022")
 def test_channel_unit_prefers_direct_attribute() -> None:
     channel = _FakeChannel("ch", unit="V")
     assert _channel_unit(channel) == "V"
 
 
+@pytest.mark.requirement("REQ-MDF-022")
 def test_channel_unit_falls_back_to_conversion_block() -> None:
     channel = _FakeChannel("ch", unit="")
     channel.conversion = _FakeConversionWithUnit("A")
     assert _channel_unit(channel) == "A"
 
 
+@pytest.mark.requirement("REQ-MDF-022")
 def test_channel_unit_no_conversion_returns_empty() -> None:
     channel = _FakeChannel("ch", unit="")
     assert _channel_unit(channel) == ""
 
 
+@pytest.mark.requirement("REQ-MDF-022")
 def test_channel_comment_plain_attribute_only() -> None:
     channel = _FakeChannel("ch", comment="hello")
     assert _channel_comment(channel) == "hello"
 
 
+@pytest.mark.requirement("REQ-MDF-022")
 def test_channel_comment_appends_mdf3_description() -> None:
     channel = _FakeChannel("ch", comment="hello")
     channel.description = b"world\x00\x00"
     assert _channel_comment(channel) == "hello\nworld"
 
 
+@pytest.mark.requirement("REQ-MDF-022")
 def test_channel_comment_description_only_when_no_comment() -> None:
     channel = _FakeChannel("ch", comment="")
     channel.description = b"padded\x00\x00"
@@ -719,10 +783,12 @@ def test_channel_comment_description_only_when_no_comment() -> None:
 # measurement_info — author/comment and resilience (REQ-MDF-050/051)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_measurement_info_author(loader: MdfLoader) -> None:
     assert loader.measurement_info().author == "Jane Doe"
 
 
+@pytest.mark.requirement("REQ-MDF-050")
 def test_measurement_info_comment(loader: MdfLoader) -> None:
     assert "recorded during bench test" in loader.measurement_info().comment
 
@@ -745,6 +811,7 @@ class _FailingMdf:
         raise RuntimeError("groups read failed")
 
 
+@pytest.mark.requirement("REQ-MDF-051")
 def test_measurement_info_survives_metadata_read_failures() -> None:
     ldr = MdfLoader()
     ldr._mdf = _FailingMdf()
@@ -789,6 +856,7 @@ class _FakeGroup:
         self.channel_group = _FakeChannelGroupBlock(acq_name)
 
 
+@pytest.mark.requirement("REQ-MDF-071")
 def test_channel_tree_skips_channel_that_raises_during_description() -> None:
     from unittest.mock import MagicMock
 
@@ -804,6 +872,7 @@ def test_channel_tree_skips_channel_that_raises_during_description() -> None:
     assert names == {"good_channel"}
 
 
+@pytest.mark.requirement("REQ-MDF-072")
 def test_channel_tree_raises_when_groups_enumeration_fails() -> None:
     class _FailingGroupsMdf:
         @property
@@ -821,6 +890,7 @@ def test_channel_tree_raises_when_groups_enumeration_fails() -> None:
 # Known-corrupt fixture (REQ-MDF-070)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-MDF-070")
 def test_open_known_corrupt_faultfile_raises_cleanly() -> None:
     """data/faultfile.mf4 is a known-corrupt MDF4 documented in CLAUDE.md.
 
