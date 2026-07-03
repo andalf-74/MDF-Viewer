@@ -214,9 +214,9 @@ Each active signal has independently configurable: color; display mode
 (line only, line with markers, or markers only); marker shape (from a
 fixed set of shapes); line width (within a fixed numeric range); line
 style (from a fixed set of styles); and step-mode on/off [REQ-PLOT-120].
-Marker shape and line style controls are not applicable (and disabled)
-when display mode is "line only"; line width and line style are not
-applicable when display mode is "markers only" [REQ-PLOT-121]. Setting a
+The marker shape control is not applicable (and disabled) when display
+mode is "line only"; line width and line style are not applicable when
+display mode is "markers only" [REQ-PLOT-121]. Setting a
 property while multiple signals are selected applies it to every selected
 signal at once [REQ-PLOT-122].
 
