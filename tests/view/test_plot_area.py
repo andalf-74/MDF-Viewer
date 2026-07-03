@@ -218,6 +218,30 @@ def test_add_signal_curves_are_distinct(plot: PlotArea) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Rendering performance on large recordings (REQ-NFR-050/051)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-NFR-050")
+def test_add_signal_enables_curve_downsampling(plot: PlotArea) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    assert active.curve.opts["autoDownsample"] is True
+    assert active.curve.opts["downsampleMethod"] == "peak"
+
+
+@pytest.mark.requirement("REQ-NFR-051")
+def test_curve_data_is_full_resolution_despite_downsampling(plot: PlotArea) -> None:
+    """Downsampling (above) is a pyqtgraph rendering optimization only — the
+    curve still receives every sample, and cursor/interpolation code reads
+    from active.data directly, never from a simplified rendering."""
+    active = _make_active(n=5000)
+    plot.add_signal(active)
+    x_data, y_data = active.curve.getData()
+    assert len(x_data) == len(active.data.timestamps) == 5000
+    assert np.array_equal(y_data, active.data.samples)
+
+
+# ---------------------------------------------------------------------------
 # remove_signal
 # ---------------------------------------------------------------------------
 
@@ -384,6 +408,80 @@ def test_integer_tick_values_no_duplicates(plot: PlotArea) -> None:
     ticks = axis.tickValues(-1.0, 8.0, 300)
     all_values = [v for _, vals in ticks for v in vals]
     assert len(all_values) == len(set(all_values))
+
+
+# ---------------------------------------------------------------------------
+# _SignalAxisItem / set_enum_display_yaxis — enum Y-axis labels (REQ-PLOT-014)
+# ---------------------------------------------------------------------------
+
+def _make_active_enum(name: str = "ign") -> ActiveSignal:
+    t = np.linspace(0.0, 1.0, 10)
+    data = SignalData(timestamps=t, samples=np.round(np.linspace(0.0, 1.0, 10)))
+    meta = SignalMetadata(
+        name=name, unit="", group_index=0, channel_index=0,
+        enum_map={0: "OFF", 1: "ON"},
+    )
+    return ActiveSignal(data=data, metadata=meta, color=QColor(100, 100, 200))
+
+
+@pytest.mark.requirement("REQ-PLOT-014")
+def test_axis_enum_display_off_shows_raw_integers() -> None:
+    axis = _SignalAxisItem("left", integer_ticks=True, enum_map={0: "OFF", 1: "ON"})
+    assert axis.tickStrings([0.0, 1.0], 1.0, 1.0) == ["0", "1"]
+
+
+@pytest.mark.requirement("REQ-PLOT-014")
+def test_axis_enum_display_on_shows_labels() -> None:
+    axis = _SignalAxisItem("left", integer_ticks=True, enum_map={0: "OFF", 1: "ON"})
+    axis.set_enum_display(True)
+    assert axis.tickStrings([0.0, 1.0], 1.0, 1.0) == ["OFF", "ON"]
+
+
+@pytest.mark.requirement("REQ-PLOT-014")
+def test_axis_enum_display_falls_back_for_unmapped_value() -> None:
+    axis = _SignalAxisItem("left", integer_ticks=True, enum_map={0: "OFF"})
+    axis.set_enum_display(True)
+    assert axis.tickStrings([0.0, 5.0], 1.0, 1.0) == ["OFF", "5"]
+
+
+@pytest.mark.requirement("REQ-PLOT-014")
+def test_set_enum_display_yaxis_enables_axis(plot: PlotArea) -> None:
+    active = _make_active_enum()
+    plot.add_signal(active)
+    plot.set_enum_display_yaxis(active, True)
+    assert plot._data[active].axis._enum_display is True
+
+
+@pytest.mark.requirement("REQ-PLOT-014")
+def test_set_enum_display_yaxis_disables_axis(plot: PlotArea) -> None:
+    active = _make_active_enum()
+    plot.add_signal(active)
+    plot.set_enum_display_yaxis(active, True)
+    plot.set_enum_display_yaxis(active, False)
+    assert plot._data[active].axis._enum_display is False
+
+
+@pytest.mark.requirement("REQ-PLOT-023")
+def test_set_enum_display_yaxis_noop_for_unknown(plot: PlotArea) -> None:
+    stranger = _make_active_enum("x")
+    plot.set_enum_display_yaxis(stranger, True)  # must not raise
+
+
+@pytest.mark.requirement("REQ-PLOT-014")
+def test_set_enum_display_yaxis_merged_any_on_rule(plot: PlotArea) -> None:
+    a = _make_active_enum("a")
+    b = _make_active_enum("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.merge_signals([a, b])
+    a.enum_display_yaxis = False
+    b.enum_display_yaxis = True
+
+    plot.set_enum_display_yaxis(a, False)
+
+    # Shared axis: any member enabled -> labels shown, even though a's own
+    # request was False.
+    assert plot._data[a].axis._enum_display is True
 
 
 # ---------------------------------------------------------------------------

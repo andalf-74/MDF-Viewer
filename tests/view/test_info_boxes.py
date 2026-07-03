@@ -593,3 +593,71 @@ def test_sbox_no_line_style_signal_when_setting_programmatically(
     sbox.line_style_requested.connect(emitted.append)
     sbox.set_properties("line", "circle", 1, "dashes")
     assert emitted == []
+
+
+# ---------------------------------------------------------------------------
+# SignalInfoBox – enum label toggles (REQ-PLOT-130/131)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-131")
+def test_sbox_enum_options_hidden_initially(sbox: SignalInfoBox) -> None:
+    assert sbox._props_widget._enum_container.isHidden()
+    assert sbox._props_widget._enum_label.isHidden()
+
+
+@pytest.mark.requirement("REQ-PLOT-130")
+def test_sbox_set_enum_options_shows_and_checks_boxes(sbox: SignalInfoBox) -> None:
+    sbox.set_enum_options(True, False, True)
+    assert not sbox._props_widget._enum_container.isHidden()
+    assert sbox._props_widget._enum_table_check.isChecked() is True
+    assert sbox._props_widget._enum_cursor_check.isChecked() is False
+    assert sbox._props_widget._enum_yaxis_check.isChecked() is True
+
+
+@pytest.mark.requirement("REQ-PLOT-131")
+def test_sbox_set_enum_options_none_hides_section(sbox: SignalInfoBox) -> None:
+    sbox.set_enum_options(True, True, True)
+    sbox.set_enum_options(None, None, None)
+    assert sbox._props_widget._enum_container.isHidden()
+
+
+@pytest.mark.requirement("REQ-PLOT-131")
+def test_sbox_clear_hides_enum_section(sbox: SignalInfoBox) -> None:
+    sbox.set_enum_options(True, True, True)
+    sbox.clear()
+    assert sbox._props_widget._enum_container.isHidden()
+
+
+@pytest.mark.requirement("REQ-PLOT-130")
+def test_sbox_enum_table_requested_emitted(sbox: SignalInfoBox, qtbot: QtBot) -> None:
+    sbox.set_enum_options(False, False, False)
+    with qtbot.waitSignal(sbox.enum_table_requested, timeout=1000) as blocker:
+        sbox._props_widget._enum_table_check.setChecked(True)
+    assert blocker.args == [True]
+
+
+@pytest.mark.requirement("REQ-PLOT-130")
+def test_sbox_enum_cursor_requested_emitted(sbox: SignalInfoBox, qtbot: QtBot) -> None:
+    sbox.set_enum_options(False, False, False)
+    with qtbot.waitSignal(sbox.enum_cursor_requested, timeout=1000) as blocker:
+        sbox._props_widget._enum_cursor_check.setChecked(True)
+    assert blocker.args == [True]
+
+
+@pytest.mark.requirement("REQ-PLOT-130")
+def test_sbox_enum_yaxis_requested_emitted(sbox: SignalInfoBox, qtbot: QtBot) -> None:
+    sbox.set_enum_options(False, False, False)
+    with qtbot.waitSignal(sbox.enum_yaxis_requested, timeout=1000) as blocker:
+        sbox._props_widget._enum_yaxis_check.setChecked(True)
+    assert blocker.args == [True]
+
+
+def test_sbox_no_enum_signal_emitted_when_setting_programmatically(
+    sbox: SignalInfoBox, qtbot: QtBot
+) -> None:
+    emitted: list = []
+    sbox.enum_table_requested.connect(emitted.append)
+    sbox.enum_cursor_requested.connect(emitted.append)
+    sbox.enum_yaxis_requested.connect(emitted.append)
+    sbox.set_enum_options(True, False, True)
+    assert emitted == []

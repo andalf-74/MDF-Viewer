@@ -76,6 +76,19 @@ def test_add_recent_trims_to_max(settings: Settings, tmp_path: Path) -> None:
     assert len(settings.recent_files()) == MAX_RECENT
 
 
+@pytest.mark.requirement("REQ-FILE-051")
+def test_add_recent_mixes_mvc_and_measurement_files(
+    settings: Settings, tmp_path: Path
+) -> None:
+    mvc = tmp_path / "session.mvc"
+    mdf = tmp_path / "data.mf4"
+    mvc.touch()
+    mdf.touch()
+    settings.add_recent(mdf)
+    settings.add_recent(mvc)
+    assert settings.recent_files() == [mvc.resolve(), mdf.resolve()]
+
+
 @pytest.mark.requirement("REQ-FILE-050")
 def test_add_recent_persists_across_instances(
     settings: Settings, tmp_path: Path
@@ -730,3 +743,35 @@ def test_prompt_save_config_on_close_defaults_on_missing_key(tmp_path: Path) -> 
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
     assert Settings(path=path).prompt_save_config_on_close is True
+
+
+# ---------------------------------------------------------------------------
+# _default_config_path — per-user app-data convention (REQ-NFR-041)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-NFR-041")
+def test_default_config_path_windows_uses_appdata(monkeypatch) -> None:
+    from mdf_viewer.settings import _default_config_path
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.setenv("APPDATA", r"C:\Users\test\AppData\Roaming")
+    path = _default_config_path()
+    assert path == Path(r"C:\Users\test\AppData\Roaming") / "mdf-viewer" / "settings.json"
+
+
+@pytest.mark.requirement("REQ-NFR-041")
+def test_default_config_path_windows_falls_back_to_home_without_appdata(monkeypatch) -> None:
+    from mdf_viewer.settings import _default_config_path
+    monkeypatch.setattr("sys.platform", "win32")
+    monkeypatch.delenv("APPDATA", raising=False)
+    monkeypatch.setattr(Path, "home", lambda: Path("/home/fallback"))
+    path = _default_config_path()
+    assert path == Path("/home/fallback") / "mdf-viewer" / "settings.json"
+
+
+@pytest.mark.requirement("REQ-NFR-041")
+def test_default_config_path_linux_uses_xdg_style_dir(monkeypatch) -> None:
+    from mdf_viewer.settings import _default_config_path
+    monkeypatch.setattr("sys.platform", "linux")
+    monkeypatch.setattr(Path, "home", lambda: Path("/home/test"))
+    path = _default_config_path()
+    assert path == Path("/home/test") / ".config" / "mdf-viewer" / "settings.json"

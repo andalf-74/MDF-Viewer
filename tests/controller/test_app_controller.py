@@ -958,6 +958,74 @@ def test_set_selected_signal_none_clears_selected_signals_list(ctrl: AppControll
 
 
 # ---------------------------------------------------------------------------
+# set_selected_signal — enum options (REQ-PLOT-130/131)
+# ---------------------------------------------------------------------------
+
+def _make_enum_metadata(name: str = "ign", gi: int = 0, ci: int = 1) -> SignalMetadata:
+    return SignalMetadata(
+        name=name, unit="", group_index=gi, channel_index=ci,
+        enum_map={0: "OFF", 1: "ON"},
+    )
+
+
+@pytest.mark.requirement("REQ-PLOT-130")
+def test_set_selected_signal_enum_signal_shows_enum_options(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.return_value = (_make_signal_data(), _make_enum_metadata())
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    deps["signal_info"].set_enum_options.assert_called_once_with(
+        sig.enum_display_table, sig.enum_display_cursor, sig.enum_display_yaxis
+    )
+
+
+@pytest.mark.requirement("REQ-PLOT-131")
+def test_set_selected_signal_non_enum_signal_hides_enum_options(ctrl: AppController, deps: dict) -> None:
+    # _make_metadata() has no enum_map
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    deps["signal_info"].set_enum_options.assert_called_once_with(None, None, None)
+
+
+@pytest.mark.requirement("REQ-PLOT-131")
+def test_set_selected_signal_none_hides_enum_options(ctrl: AppController, deps: dict) -> None:
+    ctrl.set_selected_signal(None)
+    deps["signal_info"].set_enum_options.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-PLOT-130")
+def test_on_enum_table_requested_sets_field(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.return_value = (_make_signal_data(), _make_enum_metadata())
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    ctrl.on_enum_table_requested(False)
+    assert sig.enum_display_table is False
+
+
+@pytest.mark.requirement("REQ-PLOT-130")
+def test_on_enum_cursor_requested_sets_field(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.return_value = (_make_signal_data(), _make_enum_metadata())
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    ctrl.on_enum_cursor_requested(True)
+    assert sig.enum_display_cursor is True
+
+
+@pytest.mark.requirement("REQ-PLOT-130")
+def test_on_enum_yaxis_requested_sets_field_and_calls_plot(ctrl: AppController, deps: dict) -> None:
+    deps["loader"].load_signal.return_value = (_make_signal_data(), _make_enum_metadata())
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig)
+    ctrl.on_enum_yaxis_requested(True)
+    assert sig.enum_display_yaxis is True
+    deps["plot"].set_enum_display_yaxis.assert_called_once_with(sig, True)
+
+
+# ---------------------------------------------------------------------------
 # set_multi_selected
 # ---------------------------------------------------------------------------
 
@@ -1309,6 +1377,37 @@ def test_find_signal_by_name_delegates_to_loader(ctrl: AppController, deps: dict
 def test_find_signal_by_name_returns_empty_when_not_found(ctrl: AppController, deps: dict) -> None:
     deps["loader"].find_signal_by_name.return_value = []
     assert ctrl.find_signal_by_name("no_such") == []
+
+
+@pytest.mark.requirement("REQ-PLOT-162")
+def test_find_signal_by_name_ignores_display_shortening(tmp_path, deps: dict) -> None:
+    """Display-name shortening only affects the table's shown text
+    (set_name_formatter) — lookup must still use the caller's exact,
+    unshortened name string."""
+    from mdf_viewer.settings import Settings
+    s = Settings(path=tmp_path / "s.json")
+    s.display_name_rule_enabled = True
+    s.display_name_separator = "."
+    s.display_name_direction = "right"
+    s.display_name_segments = 1
+    ctrl_with_settings = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+        settings=s,
+    )
+    ctrl_with_settings.refresh_display_names()
+    full_name = "ZF_DTI._.AutoDiagPosition.PosADP"
+    meta = _make_metadata(full_name, gi=0, ci=1)
+    deps["loader"].find_signal_by_name.return_value = [meta]
+
+    result = ctrl_with_settings.find_signal_by_name(full_name)
+
+    deps["loader"].find_signal_by_name.assert_called_once_with(full_name)
+    assert result == [meta]
 
 
 # ---------------------------------------------------------------------------

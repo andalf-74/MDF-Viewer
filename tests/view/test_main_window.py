@@ -152,6 +152,62 @@ def test_about_action_shows_message_box(window: MainWindow) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Update checking (REQ-NFR-031/032)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-NFR-031")
+def test_trigger_startup_update_check_starts_background_thread(window: MainWindow) -> None:
+    from mdf_viewer.view.main_window import _UpdateCheckThread
+    with patch.object(_UpdateCheckThread, "start") as mock_start:
+        window.trigger_startup_update_check()
+    # Runs via QThread.start() (a real background thread) rather than a
+    # direct, blocking call to run() on the GUI thread.
+    mock_start.assert_called_once()
+    assert isinstance(window._update_thread, _UpdateCheckThread)
+
+
+@pytest.mark.requirement("REQ-NFR-032")
+def test_update_check_thread_silent_on_network_failure(qtbot: QtBot) -> None:
+    from mdf_viewer.view.main_window import _UpdateCheckThread
+    from mdf_viewer.update_checker import UpdateCheckError
+    thread = _UpdateCheckThread("1.0")
+    emitted: list = []
+    thread.update_available.connect(emitted.append)
+    with patch(
+        "mdf_viewer.update_checker.fetch_latest_release",
+        side_effect=UpdateCheckError("network down"),
+    ):
+        thread.run()  # called synchronously here — must not raise or emit
+    assert emitted == []
+
+
+@pytest.mark.requirement("REQ-NFR-031")
+def test_update_check_thread_emits_when_newer_available(qtbot: QtBot) -> None:
+    from mdf_viewer.view.main_window import _UpdateCheckThread
+    from mdf_viewer.update_checker import ReleaseInfo
+    thread = _UpdateCheckThread("1.0")
+    with qtbot.waitSignal(thread.update_available, timeout=500) as blocker:
+        with patch(
+            "mdf_viewer.update_checker.fetch_latest_release",
+            return_value=ReleaseInfo(tag="v2.0", url="https://example.com/v2.0"),
+        ):
+            thread.run()
+    assert blocker.args == ["v2.0", "https://example.com/v2.0"]
+
+
+@pytest.mark.requirement("REQ-NFR-032")
+def test_manual_check_for_update_reports_failure(window: MainWindow) -> None:
+    from mdf_viewer.update_checker import UpdateCheckError
+    with patch(
+        "mdf_viewer.update_checker.fetch_latest_release",
+        side_effect=UpdateCheckError("network down"),
+    ):
+        with patch("mdf_viewer.view.main_window.QMessageBox.warning") as mock_warn:
+            window._on_check_for_update()
+    mock_warn.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # Theme-aware icon selection
 # ---------------------------------------------------------------------------
 

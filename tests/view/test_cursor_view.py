@@ -185,6 +185,53 @@ def test_one_mode_label_always_visible(
     assert lbl.isVisible()
 
 
+# ---------------------------------------------------------------------------
+# Nearest-cursor label visibility in TWO mode (REQ-PLOT-081)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-081")
+def test_nearest_cursor_defaults_to_0(cv: CursorView) -> None:
+    assert cv._nearest_cursor == 0
+
+
+@pytest.mark.requirement("REQ-PLOT-081")
+def test_mouse_move_nearer_to_cursor_1_updates_nearest(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.TWO, [2.0, 8.0])
+    scene_pos = cv._pi.vb.mapViewToScene(pg.Point(9.0, 0.0))  # closer to cursor 1 (8.0)
+    cv._on_mouse_moved((scene_pos,))
+    assert cv._nearest_cursor == 1
+
+
+@pytest.mark.requirement("REQ-PLOT-081")
+def test_only_nearest_cursor_label_visible_in_two_mode(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    _set_view_range(pw, (0.0, 1.0), (-1.0, 1.0))
+    active = _make_active_with_vb(pw)  # data spans [0, 1]
+    cv.apply_mode(CursorMode.TWO, [0.2, 0.8])
+    cv.update_labels([active], [0.2, 0.8], CursorMode.TWO)
+    scene_pos = cv._pi.vb.mapViewToScene(pg.Point(0.9, 0.0))  # near cursor 1 (0.8)
+    cv._on_mouse_moved((scene_pos,))
+    lbl0, _ = cv._labels[(0, active)]
+    lbl1, _ = cv._labels[(1, active)]
+    assert not lbl0.isVisible()
+    assert lbl1.isVisible()
+
+
+@pytest.mark.requirement("REQ-PLOT-081")
+def test_mouse_move_ignored_outside_two_mode(
+    cv: CursorView, pw: pg.PlotWidget
+) -> None:
+    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.ONE, [2.0, 8.0])
+    scene_pos = cv._pi.vb.mapViewToScene(pg.Point(9.0, 0.0))
+    cv._on_mouse_moved((scene_pos,))
+    assert cv._nearest_cursor == 0  # unchanged — mouse tracking only applies in TWO mode
+
+
 @pytest.mark.requirement("REQ-PLOT-070")
 def test_hidden_mode_labels_not_visible(
     cv: CursorView, pw: pg.PlotWidget
@@ -384,6 +431,31 @@ def test_delta_fetch_signal_emitted(cv: CursorView, qtbot: QtBot) -> None:
     from PyQt6.QtCore import QPointF
     with qtbot.waitSignal(cv.delta_fetch_requested, timeout=500):
         cv._dt_chevron._clicked_cb(QPointF(0.0, 0.0))
+
+
+# ---------------------------------------------------------------------------
+# update_delta_time — label tracks the midpoint (REQ-PLOT-103)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-103")
+def test_update_delta_time_positions_label_at_midpoint(cv: CursorView) -> None:
+    cv.update_delta_time(2.0, 8.0, "6.0 s", y_pos=0.5, show=True, color=(200, 200, 200))
+    assert cv._delta_label.pos().x() == pytest.approx(5.0)
+
+
+@pytest.mark.requirement("REQ-PLOT-103")
+def test_update_delta_time_label_tracks_midpoint_as_cursors_move(cv: CursorView) -> None:
+    cv.update_delta_time(2.0, 8.0, "6.0 s", y_pos=0.5, show=True, color=(200, 200, 200))
+    cv.update_delta_time(0.0, 4.0, "4.0 s", y_pos=0.5, show=True, color=(200, 200, 200))
+    assert cv._delta_label.pos().x() == pytest.approx(2.0)
+
+
+@pytest.mark.requirement("REQ-PLOT-103")
+def test_update_delta_time_label_text_updates_live(cv: CursorView) -> None:
+    cv.update_delta_time(2.0, 8.0, "6.0 s", y_pos=0.5, show=True, color=(200, 200, 200))
+    assert cv._delta_label.toPlainText() == "6.0 s"
+    cv.update_delta_time(0.0, 4.0, "4.0 s", y_pos=0.5, show=True, color=(200, 200, 200))
+    assert cv._delta_label.toPlainText() == "4.0 s"
 
 
 # ---------------------------------------------------------------------------

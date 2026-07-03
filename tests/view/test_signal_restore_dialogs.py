@@ -73,11 +73,11 @@ class TestSignalsNotFoundDialog:
         assert texts == names
 
     def test_single_item_label(self, qtbot: QtBot) -> None:
+        from PyQt6.QtWidgets import QLabel
         dlg = SignalsNotFoundDialog(["only_one"])
         qtbot.addWidget(dlg)
-        # Label should use singular "signal"
-        labels = [c.text() for c in dlg.findChildren(dlg.__class__.__mro__[1])
-                  if hasattr(c, 'text')]
+        labels = [c.text() for c in dlg.findChildren(QLabel)]
+        assert any("1 signal " in text for text in labels)
 
     def test_copy_to_clipboard(self, qtbot: QtBot, qapp) -> None:
         from PyQt6.QtGui import QGuiApplication

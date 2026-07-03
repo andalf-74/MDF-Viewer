@@ -43,6 +43,20 @@ All notable changes to MDF-Viewer are documented in this file.
   resilience test (#92), tests for `channel_tree()`'s per-channel-skip and
   whole-hierarchy-failure paths (#93), and a test wiring the known-corrupt
   `data/faultfile.mf4` fixture into the automated suite (#94).
+- Tagged all existing tests with `@pytest.mark.requirement(REQ-ID)` per
+  CLAUDE.md's Requirements Workflow traceability convention, then closed
+  the 9 real gaps the resulting coverage audit surfaced (#96): recent
+  files list mixing `.mvc`/measurement paths (REQ-FILE-051), display-name
+  shortening not affecting lookup (REQ-PLOT-162), the Active Signals
+  Table's per-signal enum-display toggles (REQ-PLOT-130/131), Y-axis enum
+  labels (REQ-PLOT-014), nearest-to-mouse cursor label visibility
+  (REQ-PLOT-081), arrow-key stepping's reference-signal selection
+  (REQ-PLOT-091), the delta-time line's midpoint tracking (REQ-PLOT-103),
+  the startup update-check's background/silent-vs-reported behavior
+  (REQ-NFR-031/032), the per-user settings path convention
+  (REQ-NFR-041), and curve downsampling on large recordings
+  (REQ-NFR-050/051). Also fixed a dead test
+  (`test_single_item_label`) with no assertion, found in passing.
 
 ## [2.1.1] - 2026-07-02
 

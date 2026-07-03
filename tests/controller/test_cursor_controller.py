@@ -1249,3 +1249,78 @@ def test_press_right_pixels_mode(view: MagicMock, table: MagicMock) -> None:
     ctrl._positions[0] = 0.0
     ctrl.press_right()
     assert ctrl._positions[0] == pytest.approx(0.1)
+
+
+# ---------------------------------------------------------------------------
+# Stepping's reference-signal selection (REQ-PLOT-091)
+# ---------------------------------------------------------------------------
+
+def _make_active_spaced(name: str, n: int) -> ActiveSignal:
+    """A signal spanning [0, 1] with a fixed raster of 1/(n-1) — used to tell
+    which signal a stepping test actually used as its reference, by its
+    distinct sample spacing."""
+    t = np.linspace(0.0, 1.0, n)
+    data = SignalData(timestamps=t, samples=np.zeros(n))
+    meta = SignalMetadata(name=name, unit="", group_index=0, channel_index=0)
+    return ActiveSignal(data=data, metadata=meta, color=QColor(255, 0, 0))
+
+
+@pytest.mark.requirement("REQ-PLOT-091")
+def test_press_right_samples_uses_selected_signal_over_first_active(
+    view: MagicMock, table: MagicMock
+) -> None:
+    coarse = _make_active_spaced("coarse", 11)  # spacing 0.1
+    fine = _make_active_spaced("fine", 101)      # spacing 0.01
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [coarse, fine],
+        get_selected_signal=lambda: fine,
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 1,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.0
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(0.01)  # fine's spacing, not coarse's
+
+
+@pytest.mark.requirement("REQ-PLOT-091")
+def test_press_right_samples_falls_back_to_first_active_when_none_selected(
+    view: MagicMock, table: MagicMock
+) -> None:
+    coarse = _make_active_spaced("coarse", 11)
+    fine = _make_active_spaced("fine", 101)
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [coarse, fine],
+        get_selected_signal=lambda: None,
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 1,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.0
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(0.1)  # coarse (first active)'s spacing
+
+
+@pytest.mark.requirement("REQ-PLOT-091")
+def test_press_right_samples_noop_when_no_signal_at_all(
+    view: MagicMock, table: MagicMock
+) -> None:
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [],
+        get_selected_signal=lambda: None,
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 1,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.5
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(0.5)
