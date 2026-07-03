@@ -54,7 +54,7 @@ never crashes or otherwise disrupts the application [REQ-NFR-033].
 
 ## Platform Support
 
-The application runs on Windows and Linux [REQ-NFR-040]. Where the
+The application runs on Windows [REQ-NFR-040]. Where the
 operating system defines a convention for per-user application data
 (e.g. `%APPDATA%` on Windows, the XDG-style config directory on Linux),
 the application follows it for storing its local settings rather than
