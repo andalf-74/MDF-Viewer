@@ -78,9 +78,7 @@ and style, display mode, marker shape, step mode, enum display toggles);
 the zoom state (X range and per-axis Y ranges); axis grouping (shared and
 linked axis groups); cursor mode and positions; the selected signal; the
 display-name-shortening rule; and the window and splitter layout
-[REQ-FILE-061]. Session persistence is manual only — saving and loading
-happen solely through explicit user action (File ▸ Save Config / Save
-Config As / Open), never automatically [REQ-FILE-062].
+[REQ-FILE-061].
 
 The measurement path inside a `.mvc` file is stored either as an absolute
 path or relative to the `.mvc` file's own directory, per user preference

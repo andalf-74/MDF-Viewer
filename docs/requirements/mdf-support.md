@@ -69,7 +69,7 @@ exact given name, returning an empty result rather than an error when the
 file has no such channel or no file is open [REQ-MDF-060]. This is the
 mechanism other features use to re-locate a previously known signal by
 name — e.g. carrying active signals over to a newly loaded file, or
-resolving signals when restoring a saved session [REQ-MDF-061].
+resolving signals when restoring a saved session.
 
 ## Malformed / Partial Content Resilience
 

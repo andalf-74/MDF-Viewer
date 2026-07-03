@@ -29,7 +29,7 @@ a crash [REQ-NFR-011]. Domain-specific instances of this contract:
 malformed MDF content (`mdf-support.md` REQ-MDF-070 through 072), a bad
 `.mvc` session file (`file-handling.md` REQ-FILE-068), and a load failure
 for an individual channel (`mdf-support.md` REQ-MDF-033,
-`signal-browser.md` REQ-BROWSER-041) [REQ-NFR-012].
+`signal-browser.md` REQ-BROWSER-041).
 
 ## Settings Persistence Resilience
 

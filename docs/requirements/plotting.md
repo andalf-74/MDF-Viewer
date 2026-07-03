@@ -274,5 +274,4 @@ session's display-name-shortening parameters (separator, direction,
 segment count) also becomes the new global default for that preference
 going forward — but whether the shortening rule is enabled at all remains
 governed solely by the global preference, not saved per session
-[REQ-PLOT-170]. A signal's current Y-axis grid on/off state is not part
-of a saved session [REQ-PLOT-171].
+[REQ-PLOT-170].
