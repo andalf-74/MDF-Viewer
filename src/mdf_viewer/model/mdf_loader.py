@@ -142,11 +142,11 @@ class MdfLoader:
                         unit = ""
                         comment = ""
                         try:
-                            unit = str(channel.unit or "")
+                            unit = _channel_unit(channel)
                         except Exception:
                             pass
                         try:
-                            comment = str(channel.comment or "")
+                            comment = _channel_comment(channel)
                         except Exception:
                             pass
                         channels.append(
@@ -291,6 +291,39 @@ def _compute_raster(timestamps: np.ndarray) -> float | None:
     if float(np.percentile(np.abs(intervals - mean) / mean, 99)) <= 0.05:
         return mean
     return None
+
+
+def _channel_unit(channel) -> str:
+    """Return the channel's unit.
+
+    MDF4 channel blocks carry the unit directly. MDF3 channel blocks leave it
+    empty and store it on the conversion block instead.
+    """
+    unit = str(getattr(channel, "unit", "") or "")
+    if unit:
+        return unit
+    conversion = getattr(channel, "conversion", None)
+    if conversion is not None:
+        unit = str(getattr(conversion, "unit", "") or "")
+    return unit
+
+
+def _channel_comment(channel) -> str:
+    """Return the channel's comment.
+
+    MDF3 channel blocks additionally carry a fixed-size ``description`` field
+    that asammdf appends to the free-text comment when reading a signal via
+    ``mdf.get()``; replicate that here so channel_tree() output matches.
+    """
+    comment = str(getattr(channel, "comment", "") or "")
+    description = getattr(channel, "description", None)
+    if isinstance(description, bytes):
+        description = description.decode("latin-1").strip(" \t\n\0")
+    else:
+        description = str(description) if description else ""
+    if description:
+        comment = f"{comment}\n{description}" if comment else description
+    return comment
 
 
 def _channel_group_name(group, gi: int) -> str:

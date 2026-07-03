@@ -9,7 +9,14 @@ import numpy as np
 import pytest
 
 from mdf_viewer.errors import MdfLoadError
-from mdf_viewer.model.mdf_loader import ChannelGroupInfo, MdfLoader, _compute_raster, _extract_enum_map
+from mdf_viewer.model.mdf_loader import (
+    ChannelGroupInfo,
+    MdfLoader,
+    _channel_comment,
+    _channel_unit,
+    _compute_raster,
+    _extract_enum_map,
+)
 from mdf_viewer.model.measurement import MeasurementInfo
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
@@ -19,34 +26,54 @@ from mdf_viewer.model.signal_metadata import SignalMetadata
 # Fixtures
 # ---------------------------------------------------------------------------
 
-def _make_mdf4(path: Path) -> None:
-    """Create a minimal MDF4 file with two numeric signals in one group."""
+_HEADER_COMMENT_XML = """<HDcomment>
+<TX>recorded during bench test</TX>
+<common_properties>
+<e name="author">Jane Doe</e>
+</common_properties>
+</HDcomment>"""
+
+
+def _build_signals() -> list[asammdf.Signal]:
+    """Two numeric signals plus one integer signal, shared by the MDF3/MDF4 fixtures."""
     t = np.linspace(0.0, 1.0, 101)
+    return [
+        asammdf.Signal(
+            samples=np.sin(2 * np.pi * t),
+            timestamps=t,
+            name="sin",
+            unit="V",
+            comment="sine wave",
+        ),
+        asammdf.Signal(
+            samples=np.cos(2 * np.pi * t),
+            timestamps=t,
+            name="cos",
+            unit="A",
+            comment="cosine wave",
+        ),
+        asammdf.Signal(
+            samples=np.arange(101, dtype=np.uint8) % 9,
+            timestamps=t,
+            name="gear",
+            unit="",
+        ),
+    ]
+
+
+def _make_mdf4(path: Path) -> None:
+    """Create a minimal MDF4 file with the shared signal layout and header metadata."""
     mdf = asammdf.MDF(version="4.10")
-    mdf.append(
-        [
-            asammdf.Signal(
-                samples=np.sin(2 * np.pi * t),
-                timestamps=t,
-                name="sin",
-                unit="V",
-                comment="sine wave",
-            ),
-            asammdf.Signal(
-                samples=np.cos(2 * np.pi * t),
-                timestamps=t,
-                name="cos",
-                unit="A",
-                comment="cosine wave",
-            ),
-            asammdf.Signal(
-                samples=np.arange(101, dtype=np.uint8) % 9,
-                timestamps=t,
-                name="gear",
-                unit="",
-            ),
-        ]
-    )
+    mdf.append(_build_signals())
+    mdf.header.comment = _HEADER_COMMENT_XML
+    mdf.save(str(path), overwrite=True)
+    mdf.close()
+
+
+def _make_mdf3(path: Path) -> None:
+    """Create a minimal MDF3 file with the same signal layout as _make_mdf4."""
+    mdf = asammdf.MDF(version="3.30")
+    mdf.append(_build_signals())
     mdf.save(str(path), overwrite=True)
     mdf.close()
 
@@ -59,9 +86,24 @@ def mdf4_path(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
+def mdf3_path(tmp_path: Path) -> Path:
+    p = tmp_path / "test.mdf"
+    _make_mdf3(p)
+    return p
+
+
+@pytest.fixture()
 def loader(mdf4_path: Path) -> MdfLoader:
     ldr = MdfLoader()
     ldr.open(mdf4_path)
+    yield ldr
+    ldr.close()
+
+
+@pytest.fixture()
+def loader_mdf3(mdf3_path: Path) -> MdfLoader:
+    ldr = MdfLoader()
+    ldr.open(mdf3_path)
     yield ldr
     ldr.close()
 
@@ -576,3 +618,219 @@ def test_find_signal_by_name_result_has_group_name(loader: MdfLoader) -> None:
     assert len(results) >= 1
     for meta in results:
         assert meta.group_name != ""
+
+
+# ---------------------------------------------------------------------------
+# MDF3 regression (REQ-MDF-010)
+# ---------------------------------------------------------------------------
+# Mirrors the MDF4 open/channel_tree/load_signal coverage above using an MDF3
+# fixture, so both formats accepted by asammdf.MDF() are actually exercised.
+
+def test_open_mdf3_file(mdf3_path: Path) -> None:
+    ldr = MdfLoader()
+    ldr.open(mdf3_path)
+    assert ldr.is_open
+    ldr.close()
+
+
+def test_measurement_info_mdf3_version(loader_mdf3: MdfLoader) -> None:
+    assert "3" in loader_mdf3.measurement_info().mdf_version
+
+
+def test_channel_tree_mdf3_has_sin_and_cos(loader_mdf3: MdfLoader) -> None:
+    all_names = {
+        ch.name
+        for group in loader_mdf3.channel_tree()
+        for ch in group.channels
+    }
+    assert "sin" in all_names
+    assert "cos" in all_names
+
+
+def test_channel_tree_mdf3_metadata_populated(loader_mdf3: MdfLoader) -> None:
+    sin_meta = next(
+        ch
+        for group in loader_mdf3.channel_tree()
+        for ch in group.channels
+        if ch.name == "sin"
+    )
+    assert sin_meta.unit == "V"
+    assert sin_meta.comment == "sine wave"
+
+
+def test_load_signal_mdf3_samples_match_sin(loader_mdf3: MdfLoader) -> None:
+    gi, ci = _find_channel_location(loader_mdf3, "sin")
+    data, meta = loader_mdf3.load_signal(gi, ci)
+    assert data.sample_count == 101
+    expected = np.sin(2 * np.pi * data.timestamps)
+    np.testing.assert_allclose(data.samples, expected, atol=1e-6)
+    assert meta.unit == "V"
+
+
+def test_load_signal_mdf3_integer_dtype_sets_is_integer(loader_mdf3: MdfLoader) -> None:
+    gi, ci = _find_channel_location(loader_mdf3, "gear")
+    _, meta = loader_mdf3.load_signal(gi, ci)
+    assert meta.is_integer
+
+
+# ---------------------------------------------------------------------------
+# _channel_unit / _channel_comment (MDF3 fallback paths)
+# ---------------------------------------------------------------------------
+
+class _FakeConversionWithUnit:
+    def __init__(self, unit: str) -> None:
+        self.unit = unit
+
+
+def test_channel_unit_prefers_direct_attribute() -> None:
+    channel = _FakeChannel("ch", unit="V")
+    assert _channel_unit(channel) == "V"
+
+
+def test_channel_unit_falls_back_to_conversion_block() -> None:
+    channel = _FakeChannel("ch", unit="")
+    channel.conversion = _FakeConversionWithUnit("A")
+    assert _channel_unit(channel) == "A"
+
+
+def test_channel_unit_no_conversion_returns_empty() -> None:
+    channel = _FakeChannel("ch", unit="")
+    assert _channel_unit(channel) == ""
+
+
+def test_channel_comment_plain_attribute_only() -> None:
+    channel = _FakeChannel("ch", comment="hello")
+    assert _channel_comment(channel) == "hello"
+
+
+def test_channel_comment_appends_mdf3_description() -> None:
+    channel = _FakeChannel("ch", comment="hello")
+    channel.description = b"world\x00\x00"
+    assert _channel_comment(channel) == "hello\nworld"
+
+
+def test_channel_comment_description_only_when_no_comment() -> None:
+    channel = _FakeChannel("ch", comment="")
+    channel.description = b"padded\x00\x00"
+    assert _channel_comment(channel) == "padded"
+
+
+# ---------------------------------------------------------------------------
+# measurement_info — author/comment and resilience (REQ-MDF-050/051)
+# ---------------------------------------------------------------------------
+
+def test_measurement_info_author(loader: MdfLoader) -> None:
+    assert loader.measurement_info().author == "Jane Doe"
+
+
+def test_measurement_info_comment(loader: MdfLoader) -> None:
+    assert "recorded during bench test" in loader.measurement_info().comment
+
+
+class _FailingMdf:
+    """Stand-in for asammdf.MDF whose header/start_time/groups reads all raise."""
+
+    version = "4.10"
+
+    @property
+    def header(self):
+        raise RuntimeError("header read failed")
+
+    @property
+    def start_time(self):
+        raise RuntimeError("start_time read failed")
+
+    @property
+    def groups(self):
+        raise RuntimeError("groups read failed")
+
+
+def test_measurement_info_survives_metadata_read_failures() -> None:
+    ldr = MdfLoader()
+    ldr._mdf = _FailingMdf()
+    ldr._path = Path("broken.mf4")
+
+    info = ldr.measurement_info()
+
+    assert info.file_name == "broken.mf4"
+    assert info.author == ""
+    assert info.comment == ""
+    assert info.recorded_at == ""
+    assert info.duration_s is None
+
+
+# ---------------------------------------------------------------------------
+# channel_tree — failure paths (REQ-MDF-071/072)
+# ---------------------------------------------------------------------------
+
+class _RaisingChannel:
+    """A channel whose .name access always raises, simulating a corrupt channel block."""
+
+    @property
+    def name(self):
+        raise RuntimeError("corrupt channel block")
+
+
+class _FakeChannel:
+    def __init__(self, name: str, unit: str = "", comment: str = "") -> None:
+        self.name = name
+        self.unit = unit
+        self.comment = comment
+
+
+class _FakeChannelGroupBlock:
+    def __init__(self, acq_name: str = "") -> None:
+        self.acq_name = acq_name
+
+
+class _FakeGroup:
+    def __init__(self, channels, acq_name: str = "Group 0") -> None:
+        self.channels = channels
+        self.channel_group = _FakeChannelGroupBlock(acq_name)
+
+
+def test_channel_tree_skips_channel_that_raises_during_description() -> None:
+    from unittest.mock import MagicMock
+
+    good = _FakeChannel("good_channel", unit="V")
+    group = _FakeGroup([_RaisingChannel(), good])
+    ldr = MdfLoader()
+    ldr._mdf = MagicMock()
+    ldr._mdf.groups = [group]
+
+    tree = ldr.channel_tree()
+
+    names = {ch.name for g in tree for ch in g.channels}
+    assert names == {"good_channel"}
+
+
+def test_channel_tree_raises_when_groups_enumeration_fails() -> None:
+    class _FailingGroupsMdf:
+        @property
+        def groups(self):
+            raise RuntimeError("cannot enumerate groups")
+
+    ldr = MdfLoader()
+    ldr._mdf = _FailingGroupsMdf()
+
+    with pytest.raises(MdfLoadError, match="Failed to enumerate channels"):
+        ldr.channel_tree()
+
+
+# ---------------------------------------------------------------------------
+# Known-corrupt fixture (REQ-MDF-070)
+# ---------------------------------------------------------------------------
+
+def test_open_known_corrupt_faultfile_raises_cleanly() -> None:
+    """data/faultfile.mf4 is a known-corrupt MDF4 documented in CLAUDE.md.
+
+    Opening it triggers a harmless GC-time AttributeError from asammdf's
+    MDF4.__del__ (printed to stderr) - that is expected and not asserted on.
+    """
+    faultfile = Path(__file__).resolve().parents[2] / "data" / "faultfile.mf4"
+    ldr = MdfLoader()
+
+    with pytest.raises(MdfLoadError):
+        ldr.open(faultfile)
+
+    assert not ldr.is_open

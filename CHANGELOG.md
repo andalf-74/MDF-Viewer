@@ -28,6 +28,21 @@ All notable changes to MDF-Viewer are documented in this file.
   only the marker shape control is disabled in that mode, which is what
   the code (`signal_info_box.py`) already did. Wording corrected to match
   the implementation; no code change.
+- `MdfLoader.channel_tree()` always showed a blank unit and comment for
+  channels in MDF3 files, since it read those fields directly off the
+  raw channel block (correct for MDF4) instead of falling back to the
+  conversion block's unit and the channel's separate description field
+  the way MDF3 stores them — violating REQ-MDF-022. Found while adding the
+  MDF3 test fixture from #91; `load_signal()` was unaffected since it
+  reads through `mdf.get()`, which already handles this correctly.
+
+### Test Coverage
+- Added an MDF3 fixture and regression tests exercising open/channel-tree/
+  load-signal for both MDF versions (#91), assertions for
+  `measurement_info()`'s `author`/`comment` fields plus a metadata-read-failure
+  resilience test (#92), tests for `channel_tree()`'s per-channel-skip and
+  whole-hierarchy-failure paths (#93), and a test wiring the known-corrupt
+  `data/faultfile.mf4` fixture into the automated suite (#94).
 
 ## [2.1.1] - 2026-07-02
 
