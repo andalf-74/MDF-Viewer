@@ -102,6 +102,20 @@ When asked to look at / check / review the GitHub issues, always fetch and displ
 ### Grill-Me Skill
 When the user says **"grill me"** about a feature or topic, Claude should enter interview mode: ask focused, one-at-a-time questions to surface requirements, edge cases, and design decisions before writing any code. Summarize findings before proceeding.
 
+### Requirements Workflow
+
+`docs/requirements/` is the single source of truth for **what the app does** — distinct from GitHub issues (a bug/idea reservoir where anything gets jotted down) and from `docs/architecture.md` / `docs/ui.md` (the **how**, i.e. MVC/View implementation detail).
+
+- **Structure** – one file per capability/domain (e.g. `file-handling.md`, `mdf-support.md`), not one monolithic file, and not split by UI-vs-non-UI — that split is an architecture-stage decision, not a requirements-stage one.
+- **Style** – prose per section; each individually-testable sentence is tagged inline with a stable ID, `REQ-<DOMAIN>-NNN` (e.g. `REQ-FILE-010`), numbered in steps of 10 per sub-topic so new requirements can be inserted later without renumbering.
+- **Traceability** – tests cite the requirement they verify via `@pytest.mark.requirement("REQ-FILE-010")`.
+
+Workflow when picking up a GitHub issue:
+- **Feature issue** → write or update the relevant `docs/requirements/*.md` file(s) *before* implementation starts.
+- **Bug issue** → check whether the fix implies a requirements doc needs updating too — either the requirement was silent on this case, or the code deviated from a requirement that was correct.
+
+First file drafted: `docs/requirements/file-handling.md`.
+
 ### Plugin vs. Built-in Decision Rule
 Before implementing any new feature, ask: **does this belong in the base app, or should it be a plugin?**
 

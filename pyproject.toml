@@ -38,6 +38,9 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "requirement(id): links a test to a docs/requirements/ REQ-ID",
+]
 
 [tool.ruff]
 line-length = 100
