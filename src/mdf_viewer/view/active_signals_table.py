@@ -82,11 +82,11 @@ class ActiveSignalsTable(QWidget):
     configure_display_names_requested = pyqtSignal(str)
     # bool — emitted when the "Shorten Signal Names" toggle is clicked in the context menu
     shorten_names_toggled = pyqtSignal(bool)
-    # list[ActiveSignal] — emitted when "Share Y-axis" is chosen from the context menu
+    # list[ActiveSignal] — emitted when "Merge Y-Axis" is chosen from the context menu
     share_y_axis_requested = pyqtSignal(list)
-    # list[ActiveSignal] — emitted when "Link Y-axes" is chosen from the context menu
+    # list[ActiveSignal] — emitted when "Sync Y-Axis" is chosen from the context menu
     link_y_axes_requested = pyqtSignal(list)
-    # list[ActiveSignal] — emitted when "Remove from shared/linked axis" is chosen
+    # list[ActiveSignal] — emitted when "Remove from merged/synced axis" is chosen
     ungroup_y_axis_requested = pyqtSignal(list)
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -363,7 +363,7 @@ class ActiveSignalsTable(QWidget):
         any_shared = any(s in self._shared_signals for s in selected)
 
         if n >= 2 and not any_linked:
-            share_action = QAction("Share Y-axis", self)
+            share_action = QAction("Merge Y-Axis", self)
             share_action.setToolTip(
                 "All selected signals share one ViewBox and one Y-axis — same Y scale, zoomed together."
             )
@@ -371,7 +371,7 @@ class ActiveSignalsTable(QWidget):
             menu.addAction(share_action)
 
         if n >= 2 and not any_shared:
-            link_action = QAction("Link Y-axes", self)
+            link_action = QAction("Sync Y-Axis", self)
             link_action.setToolTip(
                 "Selected signals keep separate Y-axes but pan/zoom together to the same absolute Y range."
             )
@@ -380,7 +380,7 @@ class ActiveSignalsTable(QWidget):
 
         grouped_selected = [s for s in selected if s in self._shared_signals or s in self._linked_signals]
         if grouped_selected:
-            ungroup_action = QAction("Remove from shared/linked axis", self)
+            ungroup_action = QAction("Remove from merged/synced axis", self)
             ungroup_action.triggered.connect(
                 lambda: self.ungroup_y_axis_requested.emit(grouped_selected)
             )

@@ -4,6 +4,16 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the
+  Active Signals Table to "Merge Y-Axis" / "Sync Y-Axis" for clearer,
+  more predictive naming (#90). "Merge" implies becoming one axis;
+  "Sync" implies staying separate but moving together. Internal Python
+  identifiers, the `.mvc` session file's `shared`/`linked` JSON keys, and
+  `docs/api.md` are unchanged — only the user-facing labels and
+  `docs/requirements/plotting.md` (REQ-PLOT-030 through REQ-PLOT-037)
+  were updated.
+
 ### Fixed
 - `docs/requirements/plotting.md`'s REQ-PLOT-121 incorrectly stated that
   "line only" display mode disables the line style control. It doesn't —

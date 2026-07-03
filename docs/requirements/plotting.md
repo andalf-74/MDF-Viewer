@@ -39,33 +39,35 @@ before colors repeat [REQ-PLOT-021]. A newly added signal defaults to
 step-mode rendering if its underlying data type is an integer type, and
 to linear interpolation otherwise (see REQ-PLOT-120 for the meaning of
 step mode) [REQ-PLOT-022]. Removing a signal that is not currently active
-is a no-op [REQ-PLOT-023]. Removing the last remaining member of a Shared
-or Linked axis group dissolves that group and gives the removed signal's
+is a no-op [REQ-PLOT-023]. Removing the last remaining member of a Merged
+or Synced axis group dissolves that group and gives the removed signal's
 former group-mates back independent axes; a group that shrinks to exactly
 one remaining member is dissolved the same way [REQ-PLOT-024]. Removing
 the signal that is the current single selection clears the selection
 [REQ-PLOT-025].
 
-## Y-Axis Grouping: Independent, Shared, and Linked
+## Y-Axis Grouping: Independent, Merged, and Synced
 
 By default every active signal has its own independent Y-axis
-[REQ-PLOT-030]. **Sharing** two or more signals' Y-axes merges them onto
-one common axis with one common scale — they are drawn against the exact
-same numeric range because there is only one axis; the shared axis is
-shown in a neutral color rather than any one member's signal color
-[REQ-PLOT-031]. **Linking** two or more signals' Y-axes keeps each
+[REQ-PLOT-030]. **Merging** two or more signals' Y-axes combines them
+onto one common axis with one common scale — they are drawn against the
+exact same numeric range because there is only one axis; the merged axis
+is shown in a neutral color rather than any one member's signal color
+[REQ-PLOT-031]. **Syncing** two or more signals' Y-axes keeps each
 signal's own independent axis (own scale, own color, own units) but
-forces every linked signal's Y range to match whenever any one of them is
+forces every synced signal's Y range to match whenever any one of them is
 panned or zoomed [REQ-PLOT-032]. A signal can be in at most one of
-Sharing or Linking at a time — requesting the other relationship for a
-signal that's already in one is rejected [REQ-PLOT-033]. Sharing or
-linking requires at least two target signals [REQ-PLOT-034]. A signal can
-be removed from its Shared or Linked group without affecting the other
+Merging or Syncing at a time — requesting the other relationship for a
+signal that's already in one is rejected [REQ-PLOT-033]. Merging or
+syncing requires at least two target signals [REQ-PLOT-034]. A signal can
+be removed from its Merged or Synced group without affecting the other
 members (beyond the single-member auto-dissolve in REQ-PLOT-024)
-[REQ-PLOT-035]. Shared and Linked group membership is part of a saved
+[REQ-PLOT-035]. Merged and Synced group membership is part of a saved
 session, keyed by signal name; a session member that no longer resolves
 by name on restore is dropped from the group rather than failing the
-whole restore [REQ-PLOT-036].
+whole restore [REQ-PLOT-036]. The context-menu actions that request these
+relationships are labeled "Merge Y-Axis" and "Sync Y-Axis"
+[REQ-PLOT-037].
 
 ## Signal Selection and Z-Order
 
@@ -85,7 +87,7 @@ style [REQ-PLOT-044]. Enabling "show only selected Y-axis" hides every
 Y-axis except those belonging to a currently selected signal (the curves
 themselves stay visible; only their axis columns are hidden) — with
 nothing selected, or the option disabled, every axis is shown
-[REQ-PLOT-045]. For a Shared axis, it stays visible under this option if
+[REQ-PLOT-045]. For a Merged axis, it stays visible under this option if
 any member of that group is selected, not only the exact one that was
 clicked [REQ-PLOT-046].
 
@@ -106,7 +108,7 @@ full data range; it is a no-op with no active signals [REQ-PLOT-053].
 currently visible within the current X range, rather than the signal's
 full data range; a signal with no data points inside the current X range
 is left unchanged [REQ-PLOT-054]. "Swimlanes" arranges every signal (a
-Shared group counting as one) into an equal-height horizontal band
+Merged group counting as one) into an equal-height horizontal band
 spanning the plot's full Y extent, sized to that signal's visible data
 range [REQ-PLOT-055]. A signal whose visible Y data has no range (a flat
 line) is given a small fixed span rather than a degenerate zero-height

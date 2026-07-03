@@ -727,8 +727,8 @@ def test_both_group_actions_shown_when_selection_ungrouped(
     t, sigs = populated
     _select_rows(t, 0, 1)
     titles = [a.text() for a in _open_context_menu(t).actions()]
-    assert "Share Y-axis" in titles
-    assert "Link Y-axes" in titles
+    assert "Merge Y-Axis" in titles
+    assert "Sync Y-Axis" in titles
 
 
 def test_share_action_hidden_when_selection_includes_linked_signal(
@@ -738,8 +738,8 @@ def test_share_action_hidden_when_selection_includes_linked_signal(
     t.set_group_membership(shared=set(), linked={sigs[1]})
     _select_rows(t, 0, 1)
     titles = [a.text() for a in _open_context_menu(t).actions()]
-    assert "Share Y-axis" not in titles
-    assert "Link Y-axes" in titles
+    assert "Merge Y-Axis" not in titles
+    assert "Sync Y-Axis" in titles
 
 
 def test_link_action_hidden_when_selection_includes_shared_signal(
@@ -749,8 +749,8 @@ def test_link_action_hidden_when_selection_includes_shared_signal(
     t.set_group_membership(shared={sigs[1]}, linked=set())
     _select_rows(t, 0, 1)
     titles = [a.text() for a in _open_context_menu(t).actions()]
-    assert "Link Y-axes" not in titles
-    assert "Share Y-axis" in titles
+    assert "Sync Y-Axis" not in titles
+    assert "Merge Y-Axis" in titles
 
 
 def test_ungroup_action_covers_both_shared_and_linked_selection(
@@ -760,4 +760,4 @@ def test_ungroup_action_covers_both_shared_and_linked_selection(
     t.set_group_membership(shared={sigs[0]}, linked={sigs[1]})
     _select_rows(t, 0, 1)
     titles = [a.text() for a in _open_context_menu(t).actions()]
-    assert "Remove from shared/linked axis" in titles
+    assert "Remove from merged/synced axis" in titles
