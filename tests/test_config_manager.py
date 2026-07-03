@@ -37,8 +37,8 @@ def _make_config(measurement_path: str = "/data/test.mf4") -> ViewerConfig:
         signals=(sig,),
         x_range=(0.0, 10.0),
         y_ranges={"Speed": (0.0, 200.0)},
-        shared_groups=(("Speed", "Torque"),),
-        linked_groups=(),
+        merged_groups=(("Speed", "Torque"),),
+        synced_groups=(),
         cursor_mode="ONE",
         cursor_positions=(3.5, 0.0),
         selected_signal="Speed",
@@ -96,8 +96,8 @@ def test_round_trip_axes(tmp_path: Path) -> None:
     ConfigManager.save(config, path)
     loaded = ConfigManager.load(path)
 
-    assert loaded.shared_groups == (("Speed", "Torque"),)
-    assert loaded.linked_groups == ()
+    assert loaded.merged_groups == (("Speed", "Torque"),)
+    assert loaded.synced_groups == ()
 
 
 def test_round_trip_cursors(tmp_path: Path) -> None:
@@ -126,8 +126,8 @@ def test_round_trip_display_name_rule_custom_values(tmp_path: Path) -> None:
         signals=(sig,),
         x_range=(0.0, 10.0),
         y_ranges={},
-        shared_groups=(),
-        linked_groups=(),
+        merged_groups=(),
+        synced_groups=(),
         cursor_mode="HIDDEN",
         cursor_positions=(0.0, 0.0),
         selected_signal=None,
@@ -162,6 +162,28 @@ def test_load_missing_display_name_rule_uses_defaults(tmp_path: Path) -> None:
     assert loaded.display_name_separator == "."
     assert loaded.display_name_direction == "right"
     assert loaded.display_name_segments == 1
+
+
+def test_load_pre_rename_axes_keys_drops_grouping_silently(tmp_path: Path) -> None:
+    """A .mvc saved before #95 renamed the 'shared'/'linked' axes keys to
+    'merged'/'synced' must still load cleanly — axis grouping is silently
+    lost (not restored) rather than raising, since no migration was added
+    (negligible real-world .mvc usage at rename time)."""
+    path = tmp_path / "pre_rename.mvc"
+    path.write_text(json.dumps({
+        "format_version": "1.0",
+        "measurement_path": "/data/test.mf4",
+        "signals": [],
+        "zoom": {"x_range": [0.0, 1.0], "y_ranges": {}},
+        "axes": {"shared": [["Speed", "Torque"]], "linked": [["RPM", "Load"]]},
+        "cursors": {"mode": "HIDDEN", "positions": [0.0, 0.0]},
+        "selection": None,
+    }), encoding="utf-8")
+
+    loaded = ConfigManager.load(path)
+
+    assert loaded.merged_groups == ()
+    assert loaded.synced_groups == ()
 
 
 def test_round_trip_layout(tmp_path: Path) -> None:
@@ -221,8 +243,8 @@ def test_round_trip_no_selection(tmp_path: Path) -> None:
         signals=(),
         x_range=(0.0, 1.0),
         y_ranges={},
-        shared_groups=(),
-        linked_groups=(),
+        merged_groups=(),
+        synced_groups=(),
         cursor_mode="HIDDEN",
         cursor_positions=(0.0, 0.0),
         selected_signal=None,

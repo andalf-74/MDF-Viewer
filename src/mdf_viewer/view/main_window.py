@@ -184,11 +184,11 @@ class MainWindow(QMainWindow):
         self.active_signals_table.shorten_names_toggled.connect(
             self._on_shorten_names_toggled
         )
-        self.active_signals_table.share_y_axis_requested.connect(
-            self._on_share_y_axis_requested
+        self.active_signals_table.merge_y_axis_requested.connect(
+            self._on_merge_y_axis_requested
         )
-        self.active_signals_table.link_y_axes_requested.connect(
-            self._on_link_y_axes_requested
+        self.active_signals_table.sync_y_axis_requested.connect(
+            self._on_sync_y_axis_requested
         )
         self.active_signals_table.ungroup_y_axis_requested.connect(
             controller.on_ungroup_y_axis_requested
@@ -800,23 +800,23 @@ class MainWindow(QMainWindow):
         self._controller.refresh_display_names()
         self.active_signals_table.set_shorten_names_enabled(enabled)
 
-    def _on_share_y_axis_requested(self, signals: list) -> None:
+    def _on_merge_y_axis_requested(self, signals: list) -> None:
         if self._controller is None:
             return
         units = {s.metadata.unit for s in signals}
         if len(units) > 1:
-            self.show_status("Cannot share axis: selected signals have different units.")
+            self.show_status("Cannot merge axis: selected signals have different units.")
             return
-        self._controller.on_share_y_axis_requested(signals)
+        self._controller.on_merge_y_axis_requested(signals)
 
-    def _on_link_y_axes_requested(self, signals: list) -> None:
+    def _on_sync_y_axis_requested(self, signals: list) -> None:
         if self._controller is None:
             return
         units = {s.metadata.unit for s in signals}
         if len(units) > 1:
-            self.show_status("Cannot link axes: selected signals have different units.")
+            self.show_status("Cannot sync axes: selected signals have different units.")
             return
-        self._controller.on_link_y_axes_requested(signals)
+        self._controller.on_sync_y_axis_requested(signals)
 
     def _on_check_for_update(self) -> None:
         from mdf_viewer.update_checker import UpdateCheckError, fetch_latest_release, is_newer

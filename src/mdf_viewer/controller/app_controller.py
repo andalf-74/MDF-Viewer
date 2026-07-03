@@ -256,40 +256,40 @@ class AppController:
         for active in actives:
             self.recolor_signal(active, color)
 
-    def on_share_y_axis_requested(self, signals: list) -> None:
-        """Share a single Y-axis (ViewBox) across all given signals.
+    def on_merge_y_axis_requested(self, signals: list) -> None:
+        """Merge all given signals onto a single Y-axis (ViewBox).
 
-        No-op if any signal is already in a Linked group — a signal can't be
-        both shared and linked at once (#84).
+        No-op if any signal is already in a Synced group — a signal can't be
+        both merged and synced at once (#84).
         """
         actives = [s for s in signals if s in self._active]
         if len(actives) < 2:
             return
-        if any(self._plot.get_group_type(a) == "linked" for a in actives):
+        if any(self._plot.get_group_type(a) == "synced" for a in actives):
             return
-        self._plot.share_signals(actives)
+        self._plot.merge_signals(actives)
         self._refresh_table_group_state()
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.refresh()
 
-    def on_link_y_axes_requested(self, signals: list) -> None:
-        """Link the Y-axes of all given signals so they pan/zoom together.
+    def on_sync_y_axis_requested(self, signals: list) -> None:
+        """Sync the Y-axes of all given signals so they pan/zoom together.
 
-        No-op if any signal is already in a Shared group — a signal can't be
-        both shared and linked at once (#84).
+        No-op if any signal is already in a Merged group — a signal can't be
+        both merged and synced at once (#84).
         """
         actives = [s for s in signals if s in self._active]
         if len(actives) < 2:
             return
-        if any(self._plot.get_group_type(a) == "shared" for a in actives):
+        if any(self._plot.get_group_type(a) == "merged" for a in actives):
             return
-        self._plot.link_signals(actives)
+        self._plot.sync_signals(actives)
         self._refresh_table_group_state()
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.refresh()
 
     def on_ungroup_y_axis_requested(self, signals: list) -> None:
-        """Remove each given signal from its shared or linked group."""
+        """Remove each given signal from its merged or synced group."""
         for active in signals:
             if active in self._active:
                 self._plot.ungroup_signal(active)
@@ -298,9 +298,9 @@ class AppController:
             self._cursor_ctrl.refresh()
 
     def _refresh_table_group_state(self) -> None:
-        """Push current Shared/Linked group membership to the Active Signals Table."""
+        """Push current Merged/Synced group membership to the Active Signals Table."""
         self._table.set_group_membership(
-            self._plot.get_shared_signals(), self._plot.get_linked_signals(),
+            self._plot.get_merged_signals(), self._plot.get_synced_signals(),
         )
 
     def remove_signals(self, actives: list) -> None:
@@ -624,9 +624,9 @@ class AppController:
         for active, yr in zoom.y_ranges.items():
             y_ranges[active.metadata.name] = tuple(yr)  # type: ignore[assignment]
 
-        shared_raw, linked_raw = self._plot.get_axis_grouping()
-        shared_groups = tuple(tuple(g) for g in shared_raw)
-        linked_groups = tuple(tuple(g) for g in linked_raw)
+        merged_raw, synced_raw = self._plot.get_axis_grouping()
+        merged_groups = tuple(tuple(g) for g in merged_raw)
+        synced_groups = tuple(tuple(g) for g in synced_raw)
 
         cursor_snap: dict = {}
         if self._cursor_ctrl is not None:
@@ -660,8 +660,8 @@ class AppController:
             signals=signal_configs,
             x_range=x_range,  # type: ignore[arg-type]
             y_ranges=y_ranges,
-            shared_groups=shared_groups,
-            linked_groups=linked_groups,
+            merged_groups=merged_groups,
+            synced_groups=synced_groups,
             cursor_mode=cursor_mode,
             cursor_positions=cursor_positions,
             selected_signal=selected_name,
@@ -686,9 +686,9 @@ class AppController:
         self.restore_signals(resolved_signals)
 
         # Restore axis grouping — must happen after signals are added
-        shared = [list(g) for g in config.shared_groups]
-        linked = [list(g) for g in config.linked_groups]
-        self._plot.restore_axis_grouping(shared, linked, self._active)
+        merged = [list(g) for g in config.merged_groups]
+        synced = [list(g) for g in config.synced_groups]
+        self._plot.restore_axis_grouping(merged, synced, self._active)
         self._refresh_table_group_state()
 
         # Restore zoom — must happen after grouping (ViewBoxes may have changed)

@@ -64,8 +64,8 @@ class ConfigManager:
                 "y_ranges": {k: list(v) for k, v in config.y_ranges.items()},
             },
             "axes": {
-                "shared": [list(g) for g in config.shared_groups],
-                "linked": [list(g) for g in config.linked_groups],
+                "merged": [list(g) for g in config.merged_groups],
+                "synced": [list(g) for g in config.synced_groups],
             },
             "cursors": {
                 "mode": config.cursor_mode,
@@ -127,11 +127,11 @@ class ConfigManager:
             }
 
             axes = data.get("axes", {})
-            shared_groups = tuple(
-                tuple(str(n) for n in g) for g in axes.get("shared", [])
+            merged_groups = tuple(
+                tuple(str(n) for n in g) for g in axes.get("merged", [])
             )
-            linked_groups = tuple(
-                tuple(str(n) for n in g) for g in axes.get("linked", [])
+            synced_groups = tuple(
+                tuple(str(n) for n in g) for g in axes.get("synced", [])
             )
 
             cursors = data.get("cursors", {})
@@ -173,8 +173,8 @@ class ConfigManager:
             signals=signals,
             x_range=x_range,
             y_ranges=y_ranges,
-            shared_groups=shared_groups,
-            linked_groups=linked_groups,
+            merged_groups=merged_groups,
+            synced_groups=synced_groups,
             cursor_mode=cursor_mode,
             cursor_positions=cursor_positions,
             selected_signal=selected_signal,

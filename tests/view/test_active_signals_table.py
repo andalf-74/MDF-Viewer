@@ -731,33 +731,33 @@ def test_both_group_actions_shown_when_selection_ungrouped(
     assert "Sync Y-Axis" in titles
 
 
-def test_share_action_hidden_when_selection_includes_linked_signal(
+def test_merge_action_hidden_when_selection_includes_synced_signal(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
 ) -> None:
     t, sigs = populated
-    t.set_group_membership(shared=set(), linked={sigs[1]})
+    t.set_group_membership(merged=set(), synced={sigs[1]})
     _select_rows(t, 0, 1)
     titles = [a.text() for a in _open_context_menu(t).actions()]
     assert "Merge Y-Axis" not in titles
     assert "Sync Y-Axis" in titles
 
 
-def test_link_action_hidden_when_selection_includes_shared_signal(
+def test_sync_action_hidden_when_selection_includes_merged_signal(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
 ) -> None:
     t, sigs = populated
-    t.set_group_membership(shared={sigs[1]}, linked=set())
+    t.set_group_membership(merged={sigs[1]}, synced=set())
     _select_rows(t, 0, 1)
     titles = [a.text() for a in _open_context_menu(t).actions()]
     assert "Sync Y-Axis" not in titles
     assert "Merge Y-Axis" in titles
 
 
-def test_ungroup_action_covers_both_shared_and_linked_selection(
+def test_ungroup_action_covers_both_merged_and_synced_selection(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
 ) -> None:
     t, sigs = populated
-    t.set_group_membership(shared={sigs[0]}, linked={sigs[1]})
+    t.set_group_membership(merged={sigs[0]}, synced={sigs[1]})
     _select_rows(t, 0, 1)
     titles = [a.text() for a in _open_context_menu(t).actions()]
     assert "Remove from merged/synced axis" in titles

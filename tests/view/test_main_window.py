@@ -713,7 +713,7 @@ def _minimal_config(**overrides):
     from mdf_viewer.model.viewer_config import ViewerConfig
     fields = dict(
         format_version=CONFIG_FORMAT_VERSION, measurement_path="", signals=(),
-        x_range=(0.0, 1.0), y_ranges={}, shared_groups=(), linked_groups=(),
+        x_range=(0.0, 1.0), y_ranges={}, merged_groups=(), synced_groups=(),
         cursor_mode="HIDDEN", cursor_positions=(0.0, 0.0), selected_signal=None,
         display_name_separator=".", display_name_direction="right", display_name_segments=1,
     )

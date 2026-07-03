@@ -34,8 +34,8 @@ class ViewerConfig:
     signals: tuple[SignalConfig, ...]
     x_range: tuple[float, float]
     y_ranges: dict[str, tuple[float, float]]          # signal name → (y_min, y_max)
-    shared_groups: tuple[tuple[str, ...], ...]        # each inner tuple = one shared group
-    linked_groups: tuple[tuple[str, ...], ...]        # each inner tuple = one linked group
+    merged_groups: tuple[tuple[str, ...], ...]        # each inner tuple = one merged group
+    synced_groups: tuple[tuple[str, ...], ...]        # each inner tuple = one synced group
     cursor_mode: str                                  # "HIDDEN" | "ONE" | "TWO"
     cursor_positions: tuple[float, float]
     selected_signal: str | None

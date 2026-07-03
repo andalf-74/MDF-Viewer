@@ -1007,21 +1007,21 @@ def test_hit_test_returns_none_with_no_signals(plot: PlotArea) -> None:
     assert plot._hit_test(QPointF(0, 0)) is None
 
 
-def test_hit_test_shared_axis_prefers_selected_signal(plot: PlotArea) -> None:
+def test_hit_test_merged_axis_prefers_selected_signal(plot: PlotArea) -> None:
     """Two signals sharing a Y-axis must still hit-test in per-signal Z order (#80).
 
     Before the fix, _hit_test sorted by view_box.zValue(), which is identical
-    for every member of a shared group since they use the same ViewBox object
+    for every member of a merged group since they use the same ViewBox object
     — so an overlapping click could resolve to the wrong signal regardless of
     selection. It must now use the per-signal Z tracked independently of the
-    (possibly shared) ViewBox.
+    (possibly merged) ViewBox.
     """
     from PyQt6.QtCore import QPointF
 
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     plot.set_selected_signals([b], all_signals=[a, b])
 
     # Simulate both curves' shapes covering the same screen point (overlap).
@@ -1260,7 +1260,7 @@ def test_new_signal_added_with_toggle_on_respects_visibility(plot: PlotArea) -> 
 
 
 # ---------------------------------------------------------------------------
-# Axis grouping — share_signals
+# Axis grouping — merge_signals
 # ---------------------------------------------------------------------------
 
 def _make_active_unit(name: str, unit: str = "V", n: int = 50) -> ActiveSignal:
@@ -1270,175 +1270,175 @@ def _make_active_unit(name: str, unit: str = "V", n: int = 50) -> ActiveSignal:
     return ActiveSignal(data=data, metadata=meta, color=QColor(100, 100, 200))
 
 
-def test_share_signals_noop_when_less_than_two(plot: PlotArea) -> None:
+def test_merge_signals_noop_when_less_than_two(plot: PlotArea) -> None:
     a = _make_active("a")
     plot.add_signal(a)
-    plot.share_signals([a])
-    assert plot._find_shared_group(a) is None
+    plot.merge_signals([a])
+    assert plot._find_merged_group(a) is None
 
 
-def test_share_signals_creates_shared_group(plot: PlotArea) -> None:
+def test_merge_signals_creates_merged_group(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.share_signals([a, b])
-    grp = plot._find_shared_group(a)
+    plot.merge_signals([a, b])
+    grp = plot._find_merged_group(a)
     assert grp is not None
     assert b in grp
 
 
-def test_share_signals_both_use_same_viewbox(plot: PlotArea) -> None:
+def test_merge_signals_both_use_same_viewbox(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     assert plot._data[a].view_box is plot._data[b].view_box
 
 
-def test_share_signals_both_use_same_axis(plot: PlotArea) -> None:
+def test_merge_signals_both_use_same_axis(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     assert plot._data[a].axis is plot._data[b].axis
 
 
-def test_share_signals_one_signal_owns_axis(plot: PlotArea) -> None:
+def test_merge_signals_one_signal_owns_axis(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     owners = [s for s in (a, b) if plot._data[s].owns_axis]
     non_owners = [s for s in (a, b) if not plot._data[s].owns_axis]
     assert len(owners) == 1
     assert len(non_owners) == 1
 
 
-def test_share_signals_axis_uses_neutral_color(plot: PlotArea) -> None:
+def test_merge_signals_axis_uses_neutral_color(plot: PlotArea) -> None:
     from mdf_viewer.view.plot_area import _NEUTRAL_AXIS_COLOR
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     axis = plot._data[a].axis
     pen = axis.pen()
     expected_rgb = (pen.color().red(), pen.color().green(), pen.color().blue())
     assert expected_rgb == _NEUTRAL_AXIS_COLOR
 
 
-def test_share_signals_is_in_group(plot: PlotArea) -> None:
+def test_merge_signals_is_in_group(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     assert plot.is_in_group(a)
     assert plot.is_in_group(b)
 
 
-def test_share_signals_group_type_shared(plot: PlotArea) -> None:
+def test_merge_signals_group_type_merged(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.share_signals([a, b])
-    assert plot.get_group_type(a) == "shared"
+    plot.merge_signals([a, b])
+    assert plot.get_group_type(a) == "merged"
 
 
-def test_get_grouped_signals_includes_shared(plot: PlotArea) -> None:
+def test_get_grouped_signals_includes_merged(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     grouped = plot.get_grouped_signals()
     assert a in grouped
     assert b in grouped
 
 
-def test_unshared_signal_not_in_get_grouped(plot: PlotArea) -> None:
+def test_unmerged_signal_not_in_get_grouped(plot: PlotArea) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
     plot.add_signal(c)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     grouped = plot.get_grouped_signals()
     assert c not in grouped
 
 
-def test_get_shared_signals_includes_only_shared(plot: PlotArea) -> None:
+def test_get_merged_signals_includes_only_merged(plot: PlotArea) -> None:
     a, b, c, d = (_make_active(n) for n in "abcd")
     plot.add_signal(a)
     plot.add_signal(b)
     plot.add_signal(c)
     plot.add_signal(d)
-    plot.share_signals([a, b])
-    plot.link_signals([c, d])
-    shared = plot.get_shared_signals()
-    assert shared == {a, b}
+    plot.merge_signals([a, b])
+    plot.sync_signals([c, d])
+    merged = plot.get_merged_signals()
+    assert merged == {a, b}
 
 
-def test_get_linked_signals_includes_only_linked(plot: PlotArea) -> None:
+def test_get_synced_signals_includes_only_synced(plot: PlotArea) -> None:
     a, b, c, d = (_make_active(n) for n in "abcd")
     plot.add_signal(a)
     plot.add_signal(b)
     plot.add_signal(c)
     plot.add_signal(d)
-    plot.share_signals([a, b])
-    plot.link_signals([c, d])
-    linked = plot.get_linked_signals()
-    assert linked == {c, d}
+    plot.merge_signals([a, b])
+    plot.sync_signals([c, d])
+    synced = plot.get_synced_signals()
+    assert synced == {c, d}
 
 
-def test_share_signals_three_signals(plot: PlotArea) -> None:
+def test_merge_signals_three_signals(plot: PlotArea) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
     plot.add_signal(c)
-    plot.share_signals([a, b, c])
+    plot.merge_signals([a, b, c])
     vbs = {id(plot._data[s].view_box) for s in (a, b, c)}
     assert len(vbs) == 1
 
 
-def test_share_signals_merges_two_existing_groups(plot: PlotArea) -> None:
+def test_merge_signals_merges_two_existing_groups(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     c, d = _make_active("c"), _make_active("d")
     plot.add_signal(a)
     plot.add_signal(b)
     plot.add_signal(c)
     plot.add_signal(d)
-    plot.share_signals([a, b])
-    plot.share_signals([c, d])
+    plot.merge_signals([a, b])
+    plot.merge_signals([c, d])
     # Now merge the two groups together
-    plot.share_signals([a, c])
+    plot.merge_signals([a, c])
     vbs = {id(plot._data[s].view_box) for s in (a, b, c, d)}
     assert len(vbs) == 1
-    assert len(plot._shared_groups) == 1
-    assert set(plot._shared_groups[0]) == {a, b, c, d}
+    assert len(plot._merged_groups) == 1
+    assert set(plot._merged_groups[0]) == {a, b, c, d}
 
 
 # ---------------------------------------------------------------------------
-# Axis grouping — ungroup_signal (shared)
+# Axis grouping — ungroup_signal (merged)
 # ---------------------------------------------------------------------------
 
 def test_ungroup_signal_two_members_dissolves_group(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     plot.ungroup_signal(a)
     assert not plot.is_in_group(a)
     assert not plot.is_in_group(b)
-    assert plot._shared_groups == []
+    assert plot._merged_groups == []
 
 
 def test_ungroup_signal_restores_own_viewbox(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.share_signals([a, b])
-    shared_vb = plot._data[a].view_box
+    plot.merge_signals([a, b])
+    merged_vb = plot._data[a].view_box
     plot.ungroup_signal(a)
     # Both a and b must now have their own (different) ViewBoxes.
-    assert plot._data[a].view_box is not shared_vb
-    assert plot._data[b].view_box is not shared_vb
+    assert plot._data[a].view_box is not merged_vb
+    assert plot._data[b].view_box is not merged_vb
     assert plot._data[a].view_box is not plot._data[b].view_box
 
 
@@ -1447,13 +1447,13 @@ def test_ungroup_signal_three_to_two_keeps_group(plot: PlotArea) -> None:
     plot.add_signal(a)
     plot.add_signal(b)
     plot.add_signal(c)
-    plot.share_signals([a, b, c])
+    plot.merge_signals([a, b, c])
     plot.ungroup_signal(c)
     assert not plot.is_in_group(c)
     assert plot.is_in_group(a)
     assert plot.is_in_group(b)
-    assert len(plot._shared_groups) == 1
-    grp = plot._shared_groups[0]
+    assert len(plot._merged_groups) == 1
+    grp = plot._merged_groups[0]
     assert c not in grp
     # a and b still share one ViewBox
     assert plot._data[a].view_box is plot._data[b].view_box
@@ -1467,30 +1467,30 @@ def test_ungroup_signal_noop_when_not_in_group(plot: PlotArea) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Axis grouping — remove_signal cleans up shared groups
+# Axis grouping — remove_signal cleans up merged groups
 # ---------------------------------------------------------------------------
 
-def test_remove_signal_from_shared_group_two_members_dissolves(plot: PlotArea) -> None:
+def test_remove_signal_from_merged_group_two_members_dissolves(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     plot.remove_signal(a)
     assert not plot.is_in_group(b)
-    assert plot._shared_groups == []
+    assert plot._merged_groups == []
 
 
-def test_remove_signal_from_shared_group_three_members_shrinks(plot: PlotArea) -> None:
+def test_remove_signal_from_merged_group_three_members_shrinks(plot: PlotArea) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
     plot.add_signal(c)
-    plot.share_signals([a, b, c])
+    plot.merge_signals([a, b, c])
     plot.remove_signal(a)
     assert plot.is_in_group(b)
     assert plot.is_in_group(c)
-    assert len(plot._shared_groups) == 1
-    assert a not in plot._shared_groups[0]
+    assert len(plot._merged_groups) == 1
+    assert a not in plot._merged_groups[0]
 
 
 def test_remove_owner_transfers_ownership(plot: PlotArea) -> None:
@@ -1498,7 +1498,7 @@ def test_remove_owner_transfers_ownership(plot: PlotArea) -> None:
     plot.add_signal(a)
     plot.add_signal(b)
     plot.add_signal(c)
-    plot.share_signals([a, b, c])
+    plot.merge_signals([a, b, c])
     # Find owner and remove it
     owner = next(s for s in (a, b, c) if plot._data[s].owns_axis)
     others = [s for s in (a, b, c) if s is not owner]
@@ -1509,60 +1509,60 @@ def test_remove_owner_transfers_ownership(plot: PlotArea) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Axis grouping — link_signals
+# Axis grouping — sync_signals
 # ---------------------------------------------------------------------------
 
-def test_link_signals_creates_linked_group(plot: PlotArea) -> None:
+def test_sync_signals_creates_synced_group(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.link_signals([a, b])
-    grp = plot._find_linked_group(a)
+    plot.sync_signals([a, b])
+    grp = plot._find_synced_group(a)
     assert grp is not None
     assert b in grp
 
 
-def test_link_signals_keeps_separate_viewboxes(plot: PlotArea) -> None:
+def test_sync_signals_keeps_separate_viewboxes(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.link_signals([a, b])
+    plot.sync_signals([a, b])
     assert plot._data[a].view_box is not plot._data[b].view_box
 
 
-def test_link_signals_group_type_linked(plot: PlotArea) -> None:
+def test_sync_signals_group_type_synced(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.link_signals([a, b])
-    assert plot.get_group_type(a) == "linked"
-    assert plot.get_group_type(b) == "linked"
+    plot.sync_signals([a, b])
+    assert plot.get_group_type(a) == "synced"
+    assert plot.get_group_type(b) == "synced"
 
 
-def test_link_signals_is_in_group(plot: PlotArea) -> None:
+def test_sync_signals_is_in_group(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.link_signals([a, b])
+    plot.sync_signals([a, b])
     assert plot.is_in_group(a)
     assert plot.is_in_group(b)
 
 
-def test_get_grouped_signals_includes_linked(plot: PlotArea) -> None:
+def test_get_grouped_signals_includes_synced(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.link_signals([a, b])
+    plot.sync_signals([a, b])
     grouped = plot.get_grouped_signals()
     assert a in grouped
     assert b in grouped
 
 
-def test_link_signals_syncs_y_range_when_vb_changes(plot: PlotArea) -> None:
+def test_sync_signals_syncs_y_range_when_vb_changes(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.link_signals([a, b])
+    plot.sync_signals([a, b])
     # Simulate a Y range change on a's ViewBox via sigRangeChanged.
     vb_a = plot._data[a].view_box
     vb_b = plot._data[b].view_box
@@ -1573,12 +1573,12 @@ def test_link_signals_syncs_y_range_when_vb_changes(plot: PlotArea) -> None:
     assert abs(y_range_b[1] - 5.0) < 0.1
 
 
-def test_link_signals_noop_feedback_loop(plot: PlotArea) -> None:
+def test_sync_signals_noop_feedback_loop(plot: PlotArea) -> None:
     """Changing b's Y range (triggered by a's change) must not re-trigger a handler."""
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.link_signals([a, b])
+    plot.sync_signals([a, b])
     call_count = [0]
     original = plot._data[a].view_box.setYRange
 
@@ -1593,59 +1593,59 @@ def test_link_signals_noop_feedback_loop(plot: PlotArea) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Axis grouping — ungroup_signal (linked)
+# Axis grouping — ungroup_signal (synced)
 # ---------------------------------------------------------------------------
 
-def test_ungroup_linked_signal_removes_from_group(plot: PlotArea) -> None:
+def test_ungroup_synced_signal_removes_from_group(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.link_signals([a, b])
+    plot.sync_signals([a, b])
     plot.ungroup_signal(a)
     assert not plot.is_in_group(a)
     assert not plot.is_in_group(b)
 
 
-def test_ungroup_linked_three_to_two_keeps_group(plot: PlotArea) -> None:
+def test_ungroup_synced_three_to_two_keeps_group(plot: PlotArea) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
     plot.add_signal(c)
-    plot.link_signals([a, b, c])
+    plot.sync_signals([a, b, c])
     plot.ungroup_signal(c)
     assert not plot.is_in_group(c)
     assert plot.is_in_group(a)
     assert plot.is_in_group(b)
 
 
-def test_remove_signal_from_linked_group_dissolves_when_one_left(plot: PlotArea) -> None:
+def test_remove_signal_from_synced_group_dissolves_when_one_left(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.link_signals([a, b])
+    plot.sync_signals([a, b])
     plot.remove_signal(a)
     assert not plot.is_in_group(b)
-    assert plot._linked_groups == []
+    assert plot._synced_groups == []
 
 
 # ---------------------------------------------------------------------------
-# Axis visibility with shared groups
+# Axis visibility with merged groups
 # ---------------------------------------------------------------------------
 
-def test_show_only_selected_shared_axis_shown_when_any_member_selected(
+def test_show_only_selected_merged_axis_shown_when_any_member_selected(
     plot: PlotArea,
 ) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     plot.set_show_only_selected_y_axis(True)
     # Select only b — since a and b share the same axis, it must be visible.
     plot.set_selected_signals([b], all_signals=[a, b])
     assert plot._data[a].axis.isVisible()
 
 
-def test_show_only_selected_shared_axis_hidden_when_no_member_selected(
+def test_show_only_selected_merged_axis_hidden_when_no_member_selected(
     plot: PlotArea,
 ) -> None:
     a, b = _make_active("a"), _make_active("b")
@@ -1653,33 +1653,33 @@ def test_show_only_selected_shared_axis_hidden_when_no_member_selected(
     plot.add_signal(a)
     plot.add_signal(b)
     plot.add_signal(c)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     plot.set_show_only_selected_y_axis(True)
-    # Select only c — a+b's shared axis must be hidden.
+    # Select only c — a+b's merged axis must be hidden.
     plot.set_selected_signals([c], all_signals=[a, b, c])
     assert not plot._data[a].axis.isVisible()
 
 
 # ---------------------------------------------------------------------------
-# Swimlanes with shared groups
+# Swimlanes with merged groups
 # ---------------------------------------------------------------------------
 
-def test_swimlanes_counts_shared_group_as_one_lane(plot: PlotArea) -> None:
+def test_swimlanes_counts_merged_group_as_one_lane(plot: PlotArea) -> None:
     a, b = _make_active("a"), _make_active("b")
     c = _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
     plot.add_signal(c)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     result = plot.swimlanes([a, b, c])
     assert result is True
-    # a+b share one VB → 2 unique lanes total (1 shared + 1 for c)
+    # a+b share one VB → 2 unique lanes total (1 merged + 1 for c)
     unique_vbs = {id(plot._data[s].view_box) for s in (a, b, c)}
     assert len(unique_vbs) == 2
 
 
 # ---------------------------------------------------------------------------
-# _display_units / swimlanes / zoom with linked groups (#84)
+# _display_units / swimlanes / zoom with synced groups (#84)
 # ---------------------------------------------------------------------------
 
 def _make_active_range(name: str, y_min: float, y_max: float, n: int = 50) -> ActiveSignal:
@@ -1691,27 +1691,27 @@ def _make_active_range(name: str, y_min: float, y_max: float, n: int = 50) -> Ac
     return ActiveSignal(data=data, metadata=meta, color=QColor(100, 100, 200))
 
 
-def test_display_units_treats_linked_group_as_one_unit(plot: PlotArea) -> None:
+def test_display_units_treats_synced_group_as_one_unit(plot: PlotArea) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
     plot.add_signal(c)
-    plot.link_signals([a, b])
+    plot.sync_signals([a, b])
     units = plot._display_units([a, b, c])
     assert len(units) == 2
-    linked_unit = next(u for u in units if u[2])
-    assert set(linked_unit[1]) == {a, b}
+    synced_unit = next(u for u in units if u[2])
+    assert set(synced_unit[1]) == {a, b}
 
 
-def test_display_units_shared_group_still_one_unit(plot: PlotArea) -> None:
+def test_display_units_merged_group_still_one_unit(plot: PlotArea) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
     plot.add_signal(c)
-    plot.share_signals([a, b])
+    plot.merge_signals([a, b])
     units = plot._display_units([a, b, c])
     assert len(units) == 2
-    assert all(not is_linked for _, _, is_linked in units)
+    assert all(not is_synced for _, _, is_synced in units)
 
 
 def test_display_units_ungrouped_signals_each_own_unit(plot: PlotArea) -> None:
@@ -1722,11 +1722,11 @@ def test_display_units_ungrouped_signals_each_own_unit(plot: PlotArea) -> None:
     assert len(units) == 2
 
 
-def test_swimlanes_linked_group_uses_combined_data_extent(plot: PlotArea) -> None:
-    """A linked group's lane must fit the union of all members' data (#84).
+def test_swimlanes_synced_group_uses_combined_data_extent(plot: PlotArea) -> None:
+    """A synced group's lane must fit the union of all members' data (#84).
 
-    Before the fix, swimlanes() treated each linked member as its own unit;
-    the linked-sync handler then forced them to match whichever member's
+    Before the fix, swimlanes() treated each synced member as its own unit;
+    the synced-sync handler then forced them to match whichever member's
     setYRange() call ran last, which reflected only that one member's data
     — not the combined extent — while wasting a second lane's worth of
     layout space that was computed for the other member and never used.
@@ -1735,7 +1735,7 @@ def test_swimlanes_linked_group_uses_combined_data_extent(plot: PlotArea) -> Non
     b = _make_active_range("b", 100.0, 110.0)
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.link_signals([a, b])
+    plot.sync_signals([a, b])
 
     assert plot.swimlanes([a, b]) is True
 
@@ -1747,12 +1747,12 @@ def test_swimlanes_linked_group_uses_combined_data_extent(plot: PlotArea) -> Non
     assert y_a[1] > 100.0
 
 
-def test_zoom_y_to_view_linked_group_uses_combined_data_extent(plot: PlotArea) -> None:
+def test_zoom_y_to_view_synced_group_uses_combined_data_extent(plot: PlotArea) -> None:
     a = _make_active_range("a", 0.0, 10.0)
     b = _make_active_range("b", 100.0, 110.0)
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.link_signals([a, b])
+    plot.sync_signals([a, b])
 
     assert plot.zoom_y_to_view() is True
 
@@ -1763,12 +1763,12 @@ def test_zoom_y_to_view_linked_group_uses_combined_data_extent(plot: PlotArea) -
     assert y_a[1] > 100.0
 
 
-def test_zoom_to_fit_linked_group_uses_combined_data_extent(plot: PlotArea) -> None:
+def test_zoom_to_fit_synced_group_uses_combined_data_extent(plot: PlotArea) -> None:
     a = _make_active_range("a", 0.0, 10.0)
     b = _make_active_range("b", 100.0, 110.0)
     plot.add_signal(a)
     plot.add_signal(b)
-    plot.link_signals([a, b])
+    plot.sync_signals([a, b])
 
     plot.zoom_to_fit()
 

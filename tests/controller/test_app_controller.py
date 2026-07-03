@@ -1481,8 +1481,8 @@ def _make_viewer_config(**kwargs):
         signals=(),
         x_range=(0.0, 10.0),
         y_ranges={},
-        shared_groups=(),
-        linked_groups=(),
+        merged_groups=(),
+        synced_groups=(),
         cursor_mode="HIDDEN",
         cursor_positions=(0.0, 0.0),
         selected_signal=None,
@@ -1496,7 +1496,7 @@ def _make_viewer_config(**kwargs):
 
 def test_restore_config_calls_restore_axis_grouping(ctrl: AppController, deps: dict) -> None:
     config = _make_viewer_config(
-        shared_groups=(("a", "b"),),
+        merged_groups=(("a", "b"),),
     )
     ctrl.restore_config(config, [])
     deps["plot"].restore_axis_grouping.assert_called_once()
@@ -1579,52 +1579,52 @@ def test_restore_config_refreshes_display_names(deps: dict, tmp_path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# on_share_y_axis_requested / on_link_y_axes_requested — dual-group guard (#84)
+# on_merge_y_axis_requested / on_sync_y_axis_requested — dual-group guard (#84)
 # ---------------------------------------------------------------------------
 
-def test_share_y_axis_calls_share_signals_when_ungrouped(ctrl: AppController, deps: dict) -> None:
+def test_merge_y_axis_calls_merge_signals_when_ungrouped(ctrl: AppController, deps: dict) -> None:
     deps["plot"].get_group_type.return_value = None
     ctrl.add_signal(0, 1)
     ctrl.add_signal(0, 2)
-    ctrl.on_share_y_axis_requested(ctrl.active_signals)
-    deps["plot"].share_signals.assert_called_once()
+    ctrl.on_merge_y_axis_requested(ctrl.active_signals)
+    deps["plot"].merge_signals.assert_called_once()
 
 
-def test_share_y_axis_rejected_when_signal_already_linked(
+def test_merge_y_axis_rejected_when_signal_already_synced(
     ctrl: AppController, deps: dict
 ) -> None:
-    deps["plot"].get_group_type.return_value = "linked"
+    deps["plot"].get_group_type.return_value = "synced"
     ctrl.add_signal(0, 1)
     ctrl.add_signal(0, 2)
-    ctrl.on_share_y_axis_requested(ctrl.active_signals)
-    deps["plot"].share_signals.assert_not_called()
+    ctrl.on_merge_y_axis_requested(ctrl.active_signals)
+    deps["plot"].merge_signals.assert_not_called()
 
 
-def test_link_y_axes_calls_link_signals_when_ungrouped(ctrl: AppController, deps: dict) -> None:
+def test_sync_y_axis_calls_sync_signals_when_ungrouped(ctrl: AppController, deps: dict) -> None:
     deps["plot"].get_group_type.return_value = None
     ctrl.add_signal(0, 1)
     ctrl.add_signal(0, 2)
-    ctrl.on_link_y_axes_requested(ctrl.active_signals)
-    deps["plot"].link_signals.assert_called_once()
+    ctrl.on_sync_y_axis_requested(ctrl.active_signals)
+    deps["plot"].sync_signals.assert_called_once()
 
 
-def test_link_y_axes_rejected_when_signal_already_shared(
+def test_sync_y_axis_rejected_when_signal_already_merged(
     ctrl: AppController, deps: dict
 ) -> None:
-    deps["plot"].get_group_type.return_value = "shared"
+    deps["plot"].get_group_type.return_value = "merged"
     ctrl.add_signal(0, 1)
     ctrl.add_signal(0, 2)
-    ctrl.on_link_y_axes_requested(ctrl.active_signals)
-    deps["plot"].link_signals.assert_not_called()
+    ctrl.on_sync_y_axis_requested(ctrl.active_signals)
+    deps["plot"].sync_signals.assert_not_called()
 
 
-def test_refresh_table_group_state_pushes_shared_and_linked_sets(
+def test_refresh_table_group_state_pushes_merged_and_synced_sets(
     ctrl: AppController, deps: dict
 ) -> None:
     deps["plot"].get_group_type.return_value = None
-    deps["plot"].get_shared_signals.return_value = {"shared-marker"}
-    deps["plot"].get_linked_signals.return_value = {"linked-marker"}
+    deps["plot"].get_merged_signals.return_value = {"merged-marker"}
+    deps["plot"].get_synced_signals.return_value = {"synced-marker"}
     ctrl.add_signal(0, 1)
     ctrl.add_signal(0, 2)
-    ctrl.on_share_y_axis_requested(ctrl.active_signals)
-    deps["table"].set_group_membership.assert_called_with({"shared-marker"}, {"linked-marker"})
+    ctrl.on_merge_y_axis_requested(ctrl.active_signals)
+    deps["table"].set_group_membership.assert_called_with({"merged-marker"}, {"synced-marker"})

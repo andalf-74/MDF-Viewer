@@ -8,11 +8,19 @@ All notable changes to MDF-Viewer are documented in this file.
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the
   Active Signals Table to "Merge Y-Axis" / "Sync Y-Axis" for clearer,
   more predictive naming (#90). "Merge" implies becoming one axis;
-  "Sync" implies staying separate but moving together. Internal Python
-  identifiers, the `.mvc` session file's `shared`/`linked` JSON keys, and
-  `docs/api.md` are unchanged — only the user-facing labels and
+  "Sync" implies staying separate but moving together.
   `docs/requirements/plotting.md` (REQ-PLOT-030 through REQ-PLOT-037)
-  were updated.
+  updated to match.
+- Renamed the internal Share/Link identifiers left in place by #90 to
+  match: Qt signals, controller/handler methods, `PlotArea` internals
+  (`_shared_groups`/`_linked_groups`, `share_signals`/`link_signals`,
+  `get_shared_signals`/`get_linked_signals`, etc.), `ViewerConfig` fields,
+  and the `.mvc` session file's `"shared"`/`"linked"` JSON keys — all now
+  `merged`/`synced` (#95). Since negligible real-world `.mvc` usage
+  existed at the time, this was a straight rename with no migration: a
+  `.mvc` file saved with the old JSON keys still loads without error, but
+  its axis grouping silently comes back empty (everything else in the
+  session restores normally).
 
 ### Fixed
 - `docs/requirements/plotting.md`'s REQ-PLOT-121 incorrectly stated that

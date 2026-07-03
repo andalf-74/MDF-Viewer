@@ -2,8 +2,8 @@
 
 A shared X-axis (time) is panned/zoomed across all signals simultaneously.
 Each active signal normally gets its own ViewBox and right-side Y-axis. Signals
-can also be grouped: a *shared* group puts all member curves into one ViewBox
-with one neutral-coloured Y-axis (same Y scale); a *linked* group keeps each
+can also be grouped: a *merged* group puts all member curves into one ViewBox
+with one neutral-coloured Y-axis (same Y scale); a *synced* group keeps each
 signal's own ViewBox but syncs their Y ranges absolutely when any one is
 panned or zoomed.
 
@@ -70,7 +70,7 @@ _QT_PEN_STYLE: dict[str, Qt.PenStyle] = {
 
 
 _SELECTION_Z = 10   # Z-value base for selected signals; unselected signals stay at 0
-_NEUTRAL_AXIS_COLOR = (160, 160, 160)  # shared-axis colour (neither signal's colour)
+_NEUTRAL_AXIS_COLOR = (160, 160, 160)  # merged-axis colour (neither signal's colour)
 
 
 def _symbol_size(line_width: int) -> int:
@@ -201,15 +201,15 @@ class _SignalPlotData:
     curve: object           # pg.PlotDataItem
     view_box: object        # pg.ViewBox
     axis: object            # pg.AxisItem
-    owns_axis: bool = True  # False for non-first members of a shared group
+    owns_axis: bool = True  # False for non-first members of a merged group
 
 
 class PlotArea(QWidget):
     """PyQtGraph plot with a shared X-axis and one ViewBox/Y-axis per signal.
 
     Signals can be grouped for coordinated Y-axis behaviour:
-    - *shared*: all members render into one ViewBox with one neutral Y-axis.
-    - *linked*: each member keeps its own ViewBox/axis; Y-range changes are
+    - *merged*: all members render into one ViewBox with one neutral Y-axis.
+    - *synced*: each member keeps its own ViewBox/axis; Y-range changes are
       mirrored absolutely across all members of the group.
     """
 
@@ -242,7 +242,7 @@ class PlotArea(QWidget):
         self._selected_signals: list[ActiveSignal] = []
         self._selected_line_boost: int = 1
         self._show_only_selected_y_axis: bool = False
-        # Authoritative per-signal Z, independent of the ViewBox: shared-axis
+        # Authoritative per-signal Z, independent of the ViewBox: merged-axis
         # groups put multiple signals in the *same* ViewBox, so a Z stamped
         # only on the ViewBox can't distinguish between them (#80). This dict
         # is the source of truth for _hit_test's stacking order.
@@ -253,9 +253,9 @@ class PlotArea(QWidget):
         self._active_claimant: tuple["DragClaimant", object] | None = None
 
         # Axis grouping state
-        self._shared_groups: list[list[ActiveSignal]] = []
-        self._linked_groups: list[list[ActiveSignal]] = []
-        self._linked_handlers: dict[int, object] = {}  # id(vb) → handler
+        self._merged_groups: list[list[ActiveSignal]] = []
+        self._synced_groups: list[list[ActiveSignal]] = []
+        self._synced_handlers: dict[int, object] = {}  # id(vb) → handler
         self._syncing_y: bool = False
 
         self._pi.vb.sigResized.connect(self._update_view_geometries)
@@ -359,39 +359,39 @@ class PlotArea(QWidget):
         active.curve = None
         active.view_box = None
 
-        # Handle linked group cleanup before the ViewBox is destroyed.
-        linked_grp = self._find_linked_group(active)
-        if linked_grp is not None:
-            self._disconnect_linked_handler(active)
-            linked_grp.remove(active)
-            if len(linked_grp) <= 1:
-                if linked_grp:
-                    self._disconnect_linked_handler(linked_grp[0])
-                self._linked_groups.remove(linked_grp)
+        # Handle synced group cleanup before the ViewBox is destroyed.
+        synced_grp = self._find_synced_group(active)
+        if synced_grp is not None:
+            self._disconnect_synced_handler(active)
+            synced_grp.remove(active)
+            if len(synced_grp) <= 1:
+                if synced_grp:
+                    self._disconnect_synced_handler(synced_grp[0])
+                self._synced_groups.remove(synced_grp)
 
-        # Handle shared group / ViewBox lifecycle.
-        shared_grp = self._find_shared_group(active)
-        if shared_grp is not None:
-            shared_grp.remove(active)
+        # Handle merged group / ViewBox lifecycle.
+        merged_grp = self._find_merged_group(active)
+        if merged_grp is not None:
+            merged_grp.remove(active)
             if spd.owns_axis:
-                if shared_grp:
+                if merged_grp:
                     # Transfer ViewBox+axis ownership to the next remaining member.
-                    self._transfer_ownership(spd.view_box, spd.axis, shared_grp[0])
+                    self._transfer_ownership(spd.view_box, spd.axis, merged_grp[0])
                 else:
                     # Last member — destroy.
                     self._destroy_vb_and_axis(spd.view_box, spd.axis)
-            if len(shared_grp) == 1:
+            if len(merged_grp) == 1:
                 # Group shrinks to one — dissolve: give the last member its own axis.
-                last = shared_grp[0]
+                last = merged_grp[0]
                 old_vb = self._data[last].view_box
                 old_axis = self._data[last].axis
                 self._restore_signal_axis(last)
                 self._destroy_vb_and_axis(old_vb, old_axis)
-                self._shared_groups.remove(shared_grp)
-            elif len(shared_grp) == 0:
-                self._shared_groups.remove(shared_grp)
+                self._merged_groups.remove(merged_grp)
+            elif len(merged_grp) == 0:
+                self._merged_groups.remove(merged_grp)
         elif spd.owns_axis:
-            # Standard removal — signal was not in any shared group.
+            # Standard removal — signal was not in any merged group.
             self._destroy_vb_and_axis(spd.view_box, spd.axis)
 
         self._update_view_geometries()
@@ -446,8 +446,8 @@ class PlotArea(QWidget):
         if active.display_mode != "line":
             spd.curve.setSymbolPen(pg.mkPen(color=color))
             spd.curve.setSymbolBrush(pg.mkBrush(color=color))
-        # Only recolor the axis if this signal is the sole user (not in a shared group).
-        if self._find_shared_group(active) is None:
+        # Only recolor the axis if this signal is the sole user (not in a merged group).
+        if self._find_merged_group(active) is None:
             spd.axis.setPen(pg.mkPen(color=color))
             spd.axis.setTextPen(pg.mkPen(color=color))
         active.color = color
@@ -517,9 +517,9 @@ class PlotArea(QWidget):
         """Show enum labels (or raw integers) on this signal's Y-axis. No-op if not present."""
         if active not in self._data:
             return
-        grp = self._find_shared_group(active)
+        grp = self._find_merged_group(active)
         if grp is not None:
-            # Shared axis: any-on rule across all group members.
+            # Merged axis: any-on rule across all group members.
             any_enum = any(a.enum_display_yaxis for a in grp if a.metadata.enum_map)
             self._data[active].axis.set_enum_display(any_enum)
         else:
@@ -543,12 +543,12 @@ class PlotArea(QWidget):
         t_max = max(float(a.data.timestamps[-1]) for a in self._data if len(a.data.timestamps))
         self._pi.vb.setXRange(t_min, t_max, padding=0.02)
 
-        # Auto-range Y per display unit (ungrouped signal, Shared group, or
-        # Linked group). autoRange() only sees one ViewBox's own content, so
-        # it can't fit a Linked group's combined data on its own — compute
+        # Auto-range Y per display unit (ungrouped signal, Merged group, or
+        # Synced group). autoRange() only sees one ViewBox's own content, so
+        # it can't fit a Synced group's combined data on its own — compute
         # that explicitly instead of relying on autoRange() there.
-        for vb, members, is_linked in self._display_units():
-            if not is_linked:
+        for vb, members, is_synced in self._display_units():
+            if not is_synced:
                 vb.autoRange()
                 continue
             all_ys = [y for a in members for y in a.data.samples.tolist()]
@@ -567,7 +567,7 @@ class PlotArea(QWidget):
     def swimlanes(self, ordered_signals: list) -> bool:
         """Arrange signals in equal horizontal lanes by adjusting each Y range.
 
-        Shared-axis groups count as one lane: their combined visible Y extent
+        Merged-axis groups count as one lane: their combined visible Y extent
         fills a single band. Each signal (or group) occupies 1/N of the viewport.
 
         Returns True if applied, False if there are no active signals.
@@ -580,7 +580,7 @@ class PlotArea(QWidget):
         n = len(units)
         x_min, x_max = self._pi.vb.viewRange()[0]
 
-        for i, (vb, unit_signals, _is_linked) in enumerate(units):
+        for i, (vb, unit_signals, _is_synced) in enumerate(units):
             ys_all: list[float] = []
             for active in unit_signals:
                 ts = active.data.timestamps
@@ -620,13 +620,13 @@ class PlotArea(QWidget):
     def zoom_y_to_view(self) -> bool:
         """Rescale each signal's Y-axis to fit the currently visible X range.
 
-        For shared groups, the combined visible extent of all members fills the axis.
+        For merged groups, the combined visible extent of all members fills the axis.
         Returns True if any signals are active, False if there is nothing to zoom.
         """
         if not self._data:
             return False
         x_min, x_max = self._pi.vb.viewRange()[0]
-        for vb, signals, _is_linked in self._display_units():
+        for vb, signals, _is_synced in self._display_units():
             ys_all: list[float] = []
             for active in signals:
                 ts = active.data.timestamps
@@ -675,21 +675,21 @@ class PlotArea(QWidget):
     # Axis grouping — public API
     # ------------------------------------------------------------------
 
-    def share_signals(self, signals: list[ActiveSignal]) -> None:
+    def merge_signals(self, signals: list[ActiveSignal]) -> None:
         """Merge signals into one shared ViewBox and a single neutral Y-axis.
 
-        If any of the signals are already in a shared group, their whole group
+        If any of the signals are already in a merged group, their whole group
         is merged in. Mismatched-unit validation is done by the caller.
         """
         signals = [s for s in signals if s in self._data]
         if len(signals) < 2:
             return
 
-        # Expand to include all members of any existing shared groups.
+        # Expand to include all members of any existing merged groups.
         merged_ids: set[int] = set()
         existing_grps: list[list[ActiveSignal]] = []
         for s in signals:
-            grp = self._find_shared_group(s)
+            grp = self._find_merged_group(s)
             if grp is not None:
                 for m in grp:
                     merged_ids.add(id(m))
@@ -759,10 +759,10 @@ class PlotArea(QWidget):
 
         # Update group registry.
         for grp in existing_grps:
-            self._shared_groups.remove(grp)
-        self._shared_groups.append(list(merged))
+            self._merged_groups.remove(grp)
+        self._merged_groups.append(list(merged))
 
-        # Set shared axis to neutral color.
+        # Set merged axis to neutral color.
         neutral = pg.mkPen(color=_NEUTRAL_AXIS_COLOR)
         canonical_axis.setPen(neutral)
         canonical_axis.setTextPen(neutral)
@@ -775,81 +775,81 @@ class PlotArea(QWidget):
         self._update_view_geometries()
 
     def ungroup_signal(self, active: ActiveSignal) -> None:
-        """Remove active from its shared or linked group.
+        """Remove active from its merged or synced group.
 
-        For shared groups: the signal gets its own fresh ViewBox and Y-axis.
+        For merged groups: the signal gets its own fresh ViewBox and Y-axis.
         If the group shrinks to one member, that member is also restored to its
         own axis and the group is dissolved.
-        For linked groups: the signal's Y-range handler is disconnected.
+        For synced groups: the signal's Y-range handler is disconnected.
         """
-        # Linked group first.
-        linked_grp = self._find_linked_group(active)
-        if linked_grp is not None:
-            self._disconnect_linked_handler(active)
-            linked_grp.remove(active)
-            if len(linked_grp) <= 1:
-                if linked_grp:
-                    self._disconnect_linked_handler(linked_grp[0])
-                self._linked_groups.remove(linked_grp)
+        # Synced group first.
+        synced_grp = self._find_synced_group(active)
+        if synced_grp is not None:
+            self._disconnect_synced_handler(active)
+            synced_grp.remove(active)
+            if len(synced_grp) <= 1:
+                if synced_grp:
+                    self._disconnect_synced_handler(synced_grp[0])
+                self._synced_groups.remove(synced_grp)
             return
 
-        shared_grp = self._find_shared_group(active)
-        if shared_grp is None:
+        merged_grp = self._find_merged_group(active)
+        if merged_grp is None:
             return
 
         # Capture state before any modification.
         active_was_owner = self._data[active].owns_axis
-        old_shared_vb = self._data[active].view_box
-        old_shared_axis = self._data[active].axis
+        old_merged_vb = self._data[active].view_box
+        old_merged_axis = self._data[active].axis
 
-        shared_grp.remove(active)
+        merged_grp.remove(active)
 
-        # Give the leaving signal its own axis (removes curve from shared VB).
+        # Give the leaving signal its own axis (removes curve from merged VB).
         self._restore_signal_axis(active)
 
-        if len(shared_grp) == 0:
+        if len(merged_grp) == 0:
             # active was the only member (degenerate); clean up orphaned VB.
-            self._shared_groups.remove(shared_grp)
-            self._destroy_vb_and_axis(old_shared_vb, old_shared_axis)
+            self._merged_groups.remove(merged_grp)
+            self._destroy_vb_and_axis(old_merged_vb, old_merged_axis)
 
-        elif len(shared_grp) == 1:
+        elif len(merged_grp) == 1:
             # Dissolve: give the last remaining member its own axis too.
-            last = shared_grp[0]
+            last = merged_grp[0]
             self._restore_signal_axis(last)
-            self._destroy_vb_and_axis(old_shared_vb, old_shared_axis)
-            self._shared_groups.remove(shared_grp)
+            self._destroy_vb_and_axis(old_merged_vb, old_merged_axis)
+            self._merged_groups.remove(merged_grp)
 
         else:
             # Group continues with ≥ 2 members.
             if active_was_owner:
-                new_owner = shared_grp[0]
+                new_owner = merged_grp[0]
                 ns = self._data[new_owner]
                 self._data[new_owner] = _SignalPlotData(
                     curve=ns.curve, view_box=ns.view_box,
                     axis=ns.axis, owns_axis=True,
                 )
-            # Refresh enum display on the remaining shared axis.
-            any_enum = any(a.enum_display_yaxis for a in shared_grp if a.metadata.enum_map)
-            old_shared_axis.set_enum_display(any_enum)
+            # Refresh enum display on the remaining merged axis.
+            any_enum = any(a.enum_display_yaxis for a in merged_grp if a.metadata.enum_map)
+            old_merged_axis.set_enum_display(any_enum)
 
         self._update_axis_visibility()
         self._update_view_geometries()
 
-    def link_signals(self, signals: list[ActiveSignal]) -> None:
-        """Link Y-axes: when one signal's Y range changes, all linked peers follow.
+    def sync_signals(self, signals: list[ActiveSignal]) -> None:
+        """Sync Y-axes: when one signal's Y range changes, all synced peers follow.
 
-        If any of the signals are already in a linked group, the groups are merged.
+        If any of the signals are already in a synced group, the groups are combined.
         Mismatched-unit validation is done by the caller.
         """
         signals = [s for s in signals if s in self._data]
         if len(signals) < 2:
             return
 
-        # Expand any existing linked groups that overlap with the requested set.
+        # Expand any existing synced groups that overlap with the requested set.
         merged_ids: set[int] = set()
         existing_grps: list[list[ActiveSignal]] = []
         for s in signals:
-            grp = self._find_linked_group(s)
+            grp = self._find_synced_group(s)
             if grp is not None:
                 for m in grp:
                     merged_ids.add(id(m))
@@ -865,101 +865,101 @@ class PlotArea(QWidget):
         # Disconnect existing handlers before rebuilding.
         for grp in existing_grps:
             for s in grp:
-                self._disconnect_linked_handler(s)
-            self._linked_groups.remove(grp)
+                self._disconnect_synced_handler(s)
+            self._synced_groups.remove(grp)
 
         group: list[ActiveSignal] = list(merged)
-        self._linked_groups.append(group)
+        self._synced_groups.append(group)
 
         # Connect a sync handler on each member's ViewBox.
         for active in group:
-            self._connect_linked_handler(active, group)
+            self._connect_synced_handler(active, group)
 
     def is_in_group(self, active: ActiveSignal) -> bool:
-        """Return True if active is in any shared or linked group."""
+        """Return True if active is in any merged or synced group."""
         return (
-            self._find_shared_group(active) is not None
-            or self._find_linked_group(active) is not None
+            self._find_merged_group(active) is not None
+            or self._find_synced_group(active) is not None
         )
 
     def get_group_type(self, active: ActiveSignal) -> str | None:
-        """Return 'shared', 'linked', or None."""
-        if self._find_shared_group(active) is not None:
-            return "shared"
-        if self._find_linked_group(active) is not None:
-            return "linked"
+        """Return 'merged', 'synced', or None."""
+        if self._find_merged_group(active) is not None:
+            return "merged"
+        if self._find_synced_group(active) is not None:
+            return "synced"
         return None
 
     def get_grouped_signals(self) -> set[ActiveSignal]:
         """Return the set of all signals currently in any group."""
         result: set[ActiveSignal] = set()
-        for grp in self._shared_groups:
+        for grp in self._merged_groups:
             result.update(grp)
-        for grp in self._linked_groups:
-            result.update(grp)
-        return result
-
-    def get_shared_signals(self) -> set[ActiveSignal]:
-        """Return the set of all signals currently in a Shared Y-axis group."""
-        result: set[ActiveSignal] = set()
-        for grp in self._shared_groups:
+        for grp in self._synced_groups:
             result.update(grp)
         return result
 
-    def get_linked_signals(self) -> set[ActiveSignal]:
-        """Return the set of all signals currently in a Linked Y-axes group."""
+    def get_merged_signals(self) -> set[ActiveSignal]:
+        """Return the set of all signals currently in a Merged Y-axis group."""
         result: set[ActiveSignal] = set()
-        for grp in self._linked_groups:
+        for grp in self._merged_groups:
+            result.update(grp)
+        return result
+
+    def get_synced_signals(self) -> set[ActiveSignal]:
+        """Return the set of all signals currently in a Synced Y-axes group."""
+        result: set[ActiveSignal] = set()
+        for grp in self._synced_groups:
             result.update(grp)
         return result
 
     def get_axis_grouping(self) -> tuple[list[list[str]], list[list[str]]]:
-        """Return current shared and linked groups as signal-name lists.
+        """Return current merged and synced groups as signal-name lists.
 
-        Returns (shared_groups, linked_groups) where each inner list contains
+        Returns (merged_groups, synced_groups) where each inner list contains
         the metadata names of the signals in that group.
         """
-        shared = [[a.metadata.name for a in grp] for grp in self._shared_groups]
-        linked = [[a.metadata.name for a in grp] for grp in self._linked_groups]
-        return shared, linked
+        merged = [[a.metadata.name for a in grp] for grp in self._merged_groups]
+        synced = [[a.metadata.name for a in grp] for grp in self._synced_groups]
+        return merged, synced
 
     def restore_axis_grouping(
         self,
-        shared: list[list[str]],
-        linked: list[list[str]],
+        merged: list[list[str]],
+        synced: list[list[str]],
         active_signals: list,
     ) -> None:
-        """Restore shared and linked groups from signal-name lists.
+        """Restore merged and synced groups from signal-name lists.
 
         Names that don't match any active signal are silently skipped.
         """
         name_map = {a.metadata.name: a for a in active_signals}
-        for group_names in shared:
+        for group_names in merged:
             actives = [name_map[n] for n in group_names if n in name_map]
             if len(actives) >= 2:
-                self.share_signals(actives)
-        for group_names in linked:
+                self.merge_signals(actives)
+        for group_names in synced:
             actives = [name_map[n] for n in group_names if n in name_map]
             if len(actives) >= 2:
-                self.link_signals(actives)
+                self.sync_signals(actives)
 
     # ------------------------------------------------------------------
     # Internal helpers — grouping
     # ------------------------------------------------------------------
 
-    def _find_shared_group(self, active: ActiveSignal) -> list[ActiveSignal] | None:
-        for grp in self._shared_groups:
+    def _find_merged_group(self, active: ActiveSignal) -> list[ActiveSignal] | None:
+        for grp in self._merged_groups:
             if active in grp:
                 return grp
         return None
 
-    def _find_linked_group(self, active: ActiveSignal) -> list[ActiveSignal] | None:
-        for grp in self._linked_groups:
+    def _find_synced_group(self, active: ActiveSignal) -> list[ActiveSignal] | None:
+        for grp in self._synced_groups:
             if active in grp:
                 return grp
         return None
 
-    def _connect_linked_handler(self, active: ActiveSignal, group: list[ActiveSignal]) -> None:
+    def _connect_synced_handler(self, active: ActiveSignal, group: list[ActiveSignal]) -> None:
         """Connect a Y-range sync handler to active's ViewBox."""
         if active not in self._data:
             return
@@ -993,14 +993,14 @@ class PlotArea(QWidget):
                 _self._syncing_y = False
 
         vb.sigRangeChanged.connect(handler)
-        self._linked_handlers[id(vb)] = handler
+        self._synced_handlers[id(vb)] = handler
 
-    def _disconnect_linked_handler(self, active: ActiveSignal) -> None:
-        """Disconnect the linked Y-range handler from active's ViewBox."""
+    def _disconnect_synced_handler(self, active: ActiveSignal) -> None:
+        """Disconnect the synced Y-range handler from active's ViewBox."""
         if active not in self._data:
             return
         vb = self._data[active].view_box
-        handler = self._linked_handlers.pop(id(vb), None)
+        handler = self._synced_handlers.pop(id(vb), None)
         if handler is not None:
             try:
                 vb.sigRangeChanged.disconnect(handler)
@@ -1036,8 +1036,8 @@ class PlotArea(QWidget):
             vb.setXLink(None)
         except Exception:
             pass
-        # Disconnect linked handler if one exists for this VB.
-        handler = self._linked_handlers.pop(id(vb), None)
+        # Disconnect synced handler if one exists for this VB.
+        handler = self._synced_handlers.pop(id(vb), None)
         if handler is not None:
             try:
                 vb.sigRangeChanged.disconnect(handler)
@@ -1056,7 +1056,7 @@ class PlotArea(QWidget):
         self._pi.scene().removeItem(vb)
 
     def _transfer_ownership(self, vb, axis, new_owner: ActiveSignal) -> None:
-        """Give new_owner owns_axis=True for the shared ViewBox+axis."""
+        """Give new_owner owns_axis=True for the merged ViewBox+axis."""
         if new_owner not in self._data:
             return
         spd = self._data[new_owner]
@@ -1068,7 +1068,7 @@ class PlotArea(QWidget):
         """Give active its own independent ViewBox and Y-axis.
 
         Removes active's curve from whatever ViewBox it is currently in (which
-        may be a shared one) and creates a fresh ViewBox+AxisItem for this signal.
+        may be a merged one) and creates a fresh ViewBox+AxisItem for this signal.
         The old ViewBox is NOT destroyed here — callers handle that.
         """
         if active not in self._data:
@@ -1108,35 +1108,35 @@ class PlotArea(QWidget):
     ) -> list[tuple[object, list[ActiveSignal], bool]]:
         """Group active signals into independent Y-display units.
 
-        Returns (view_box, member_signals, is_linked_group) tuples. A unit is
+        Returns (view_box, member_signals, is_synced_group) tuples. A unit is
         either a unique ViewBox and everything sharing it (covers ungrouped
-        signals and Shared groups, which already collapse onto one ViewBox —
-        is_linked_group False), or an entire Linked group treated as a single
-        unit even though each member keeps its own ViewBox (is_linked_group
-        True). Linked members' Y-ranges are externally forced to match by the
-        sync handler in _connect_linked_handler, so treating them as N
+        signals and Merged groups, which already collapse onto one ViewBox —
+        is_synced_group False), or an entire Synced group treated as a single
+        unit even though each member keeps its own ViewBox (is_synced_group
+        True). Synced members' Y-ranges are externally forced to match by the
+        sync handler in _connect_synced_handler, so treating them as N
         independent units makes each one's setYRange()/autoRange() call
         clobber the others (#84). *view_box* is one representative member's —
         applying a range to it is enough, since the sync handler propagates
-        it to the rest of the linked group automatically.
+        it to the rest of the synced group automatically.
 
         If *ordered_signals* is given, unit order follows the earliest-
         appearing member; otherwise falls back to internal dict order.
         """
         signals = ordered_signals if ordered_signals is not None else list(self._data)
         seen_vb_ids: set[int] = set()
-        seen_linked_ids: set[int] = set()
+        seen_synced_ids: set[int] = set()
         units: list[tuple[object, list[ActiveSignal], bool]] = []
         for active in signals:
             if active not in self._data:
                 continue
-            linked_grp = self._find_linked_group(active)
-            if linked_grp is not None:
-                grp_id = id(linked_grp)
-                if grp_id in seen_linked_ids:
+            synced_grp = self._find_synced_group(active)
+            if synced_grp is not None:
+                grp_id = id(synced_grp)
+                if grp_id in seen_synced_ids:
                     continue
-                seen_linked_ids.add(grp_id)
-                members = [s for s in signals if s in self._data and s in linked_grp]
+                seen_synced_ids.add(grp_id)
+                members = [s for s in signals if s in self._data and s in synced_grp]
                 units.append((self._data[active].view_box, members, True))
                 continue
             vb_id = id(self._data[active].view_box)
@@ -1295,7 +1295,7 @@ class PlotArea(QWidget):
     def _update_axis_visibility(self) -> None:
         """Show or hide Y-axes according to the show-only-selected-Y-axis toggle.
 
-        For shared groups: the axis is shown if ANY member is selected.
+        For merged groups: the axis is shown if ANY member is selected.
         """
         if not self._show_only_selected_y_axis or not self._selected_signals:
             visible_set = set(self._data.keys())
