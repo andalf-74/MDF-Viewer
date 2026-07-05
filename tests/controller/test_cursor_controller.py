@@ -620,6 +620,55 @@ def test_mode_changed_callback_not_fired_on_reset_when_already_hidden(
 
 
 # ---------------------------------------------------------------------------
+# position_changed callback (REQ-PLUGIN-050)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-050")
+def test_position_changed_callback_fired_on_toggle(ctrl: CursorController) -> None:
+    seen = []
+    ctrl.set_position_changed_callback(lambda positions, mode: seen.append((positions, mode)))
+    ctrl.toggle()  # HIDDEN -> ONE, places viewport positions
+    assert len(seen) == 1
+    positions, mode = seen[0]
+    assert positions == ctrl._positions
+    assert mode == CursorMode.ONE
+
+
+@pytest.mark.requirement("REQ-PLUGIN-050")
+def test_position_changed_callback_fired_on_drag(ctrl: CursorController) -> None:
+    ctrl.toggle()  # ONE
+    seen = []
+    ctrl.set_position_changed_callback(lambda positions, mode: seen.append((positions, mode)))
+    ctrl._on_cursor_dragged(0, 0.75)
+    assert seen == [([0.75, ctrl._positions[1]], CursorMode.ONE)]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-050")
+def test_position_changed_callback_fired_on_fetch(ctrl: CursorController) -> None:
+    ctrl.toggle()  # ONE
+    seen = []
+    ctrl.set_position_changed_callback(lambda positions, mode: seen.append((positions, mode)))
+    ctrl._on_cursor_fetch(0, 0.5)
+    assert seen == [([0.5, ctrl._positions[1]], CursorMode.ONE)]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-050")
+def test_position_changed_callback_fired_on_restore(ctrl: CursorController) -> None:
+    seen = []
+    ctrl.set_position_changed_callback(lambda positions, mode: seen.append((positions, mode)))
+    ctrl.restore({"mode": "TWO", "positions": [0.2, 0.8]})
+    assert seen == [([0.2, 0.8], CursorMode.TWO)]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-050")
+def test_position_changed_callback_not_fired_while_hidden(ctrl: CursorController) -> None:
+    seen = []
+    ctrl.set_position_changed_callback(lambda positions, mode: seen.append((positions, mode)))
+    ctrl._on_cursor_dragged(0, 0.5)  # still HIDDEN — no visible cursor to move
+    assert seen == []
+
+
+# ---------------------------------------------------------------------------
 # Cursor persistence
 # ---------------------------------------------------------------------------
 

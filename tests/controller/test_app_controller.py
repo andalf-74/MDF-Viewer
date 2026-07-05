@@ -2046,3 +2046,128 @@ def test_zoom_to_fit_defaults_all_stripes_without_settings(deps: dict) -> None:
     )
     ctrl_no_settings.zoom_to_fit()
     deps["plot"].zoom_to_fit.assert_called_once_with(all_stripes=True)
+
+
+# ---------------------------------------------------------------------------
+# Event bus (#70)
+# ---------------------------------------------------------------------------
+
+def _two_distinct_signals(deps: dict) -> None:
+    """Make deps["loader"] return metadata matching whatever indices are requested."""
+    deps["loader"].load_signal.side_effect = (
+        lambda gi, ci: (_make_signal_data(), _make_metadata(name=f"s{ci}", gi=gi, ci=ci))
+    )
+
+
+@pytest.mark.requirement("REQ-PLUGIN-010")
+def test_load_file_emits_file_loaded(ctrl: AppController) -> None:
+    seen = []
+    ctrl.events.file_loaded.connect(seen.append)
+    ctrl.load_file("test.mf4")
+    assert len(seen) == 1
+    assert seen[0].path == "test.mf4"
+
+
+@pytest.mark.requirement("REQ-PLUGIN-020")
+def test_add_signal_emits_signal_added(ctrl: AppController) -> None:
+    seen = []
+    ctrl.events.signal_added.connect(seen.append)
+    ctrl.add_signal(0, 1)
+    assert len(seen) == 1
+    assert seen[0].signal is ctrl.active_signals[0]
+    assert seen[0].stripe is None
+
+
+@pytest.mark.requirement("REQ-PLUGIN-020")
+def test_add_signal_passes_stripe_in_event(ctrl: AppController) -> None:
+    stripe = MagicMock()
+    seen = []
+    ctrl.events.signal_added.connect(seen.append)
+    ctrl.add_signal(0, 1, stripe=stripe)
+    assert seen[0].stripe is stripe
+
+
+@pytest.mark.requirement("REQ-PLUGIN-020")
+def test_add_signal_duplicate_does_not_emit(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    seen = []
+    ctrl.events.signal_added.connect(seen.append)
+    ctrl.add_signal(0, 1)  # duplicate — no-op
+    assert seen == []
+
+
+@pytest.mark.requirement("REQ-PLUGIN-030")
+def test_remove_signal_emits_signal_removed(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    active = ctrl.active_signals[0]
+    seen = []
+    ctrl.events.signal_removed.connect(seen.append)
+    ctrl.remove_signal(active)
+    assert len(seen) == 1
+    assert seen[0].signal is active
+
+
+@pytest.mark.requirement("REQ-PLUGIN-030")
+def test_remove_signal_noop_does_not_emit(ctrl: AppController, deps: dict) -> None:
+    other = ActiveSignal(data=_make_signal_data(), metadata=_make_metadata(), color=(1, 2, 3))
+    seen = []
+    ctrl.events.signal_removed.connect(seen.append)
+    ctrl.remove_signal(other)  # not active — no-op
+    assert seen == []
+
+
+@pytest.mark.requirement("REQ-PLUGIN-030")
+def test_remove_signals_emits_once_per_signal(ctrl: AppController, deps: dict) -> None:
+    _two_distinct_signals(deps)
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    actives = list(ctrl.active_signals)
+    seen = []
+    ctrl.events.signal_removed.connect(seen.append)
+    ctrl.remove_signals(actives)
+    assert [e.signal for e in seen] == actives
+
+
+@pytest.mark.requirement("REQ-PLUGIN-030")
+def test_remove_all_emits_once_per_signal(ctrl: AppController, deps: dict) -> None:
+    _two_distinct_signals(deps)
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    actives = list(ctrl.active_signals)
+    seen = []
+    ctrl.events.signal_removed.connect(seen.append)
+    ctrl.remove_all()
+    assert [e.signal for e in seen] == actives
+
+
+@pytest.mark.requirement("REQ-PLUGIN-040")
+def test_set_selected_signal_emits_selection_changed(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    active = ctrl.active_signals[0]
+    seen = []
+    ctrl.events.selection_changed.connect(seen.append)
+    ctrl.set_selected_signal(active)
+    assert len(seen) == 1
+    assert seen[0].selected == [active]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-040")
+def test_set_selected_signal_none_emits_empty_selection(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    ctrl.set_selected_signal(ctrl.active_signals[0])
+    seen = []
+    ctrl.events.selection_changed.connect(seen.append)
+    ctrl.set_selected_signal(None)
+    assert seen[0].selected == []
+
+
+@pytest.mark.requirement("REQ-PLUGIN-040")
+def test_set_multi_selected_emits_selection_changed(ctrl: AppController, deps: dict) -> None:
+    _two_distinct_signals(deps)
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    actives = list(ctrl.active_signals)
+    seen = []
+    ctrl.events.selection_changed.connect(seen.append)
+    ctrl.set_multi_selected(actives)
+    assert seen[0].selected == actives

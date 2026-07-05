@@ -16,6 +16,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from mdf_viewer.controller.events import (
+    CursorMovedEvent,
+    EventBus,
+    FileLoadedEvent,
+    SelectionChangedEvent,
+    SignalAddedEvent,
+    SignalRemovedEvent,
+)
 from mdf_viewer.model.mdf_loader import MdfLoader
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
@@ -92,6 +100,7 @@ class AppController:
         self._zoom_ctrl = None    # set by set_zoom_controller()
         self._y_grid_enabled: bool = False
         self._current_config_path: Path | None = None
+        self.events = EventBus()
 
     # ------------------------------------------------------------------
     # Public API
@@ -100,6 +109,10 @@ class AppController:
     def set_cursor_controller(self, cursor_ctrl) -> None:
         """Wire in the CursorController after construction."""
         self._cursor_ctrl = cursor_ctrl
+        cursor_ctrl.set_position_changed_callback(self._emit_cursor_moved)
+
+    def _emit_cursor_moved(self, positions: list[float], mode) -> None:
+        self.events.cursor_moved.emit(CursorMovedEvent(positions=positions, mode=mode))
 
     def set_zoom_controller(self, zoom_ctrl) -> None:
         """Wire in the ZoomController after construction."""
@@ -212,6 +225,7 @@ class AppController:
         if self._settings is not None:
             self._settings.add_recent(path)
         self._current_config_path = None
+        self.events.file_loaded.emit(FileLoadedEvent(path=str(path)))
 
     def add_signal(self, group_index: int, channel_index: int, stripe=None) -> bool:
         """Load a channel and add it to the plot and the Active Signals Table.
@@ -239,6 +253,7 @@ class AppController:
         self.refresh_z_order()
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.refresh()
+        self.events.signal_added.emit(SignalAddedEvent(signal=active, stripe=stripe))
         return True
 
     # ------------------------------------------------------------------
@@ -367,6 +382,7 @@ class AppController:
             self._plot.remove_signal(active)
             self._active.remove(active)
             self._table.remove_row(active)
+            self.events.signal_removed.emit(SignalRemovedEvent(signal=active))
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.refresh()
         self._refresh_table_group_state()
@@ -413,6 +429,7 @@ class AppController:
     def set_multi_selected(self, actives: list) -> None:
         """Update the full multi-selection list and populate the Properties tab."""
         self._selected_signals = list(actives)
+        self.events.selection_changed.emit(SelectionChangedEvent(selected=list(self._selected_signals)))
         if not actives:
             return
         modes = {a.display_mode for a in actives}
@@ -516,6 +533,7 @@ class AppController:
         self._plot.remove_signal(active_signal)
         self._active.remove(active_signal)
         self._table.remove_row(active_signal)
+        self.events.signal_removed.emit(SignalRemovedEvent(signal=active_signal))
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.refresh()
         if self._selected is active_signal:
@@ -529,6 +547,7 @@ class AppController:
             self._cursor_ctrl.on_all_signals_cleared()
         for sig in list(self._active):
             self._plot.remove_signal(sig)
+            self.events.signal_removed.emit(SignalRemovedEvent(signal=sig))
         self._active.clear()
         self._table.clear()
         self.set_selected_signal(None)
@@ -569,6 +588,7 @@ class AppController:
         self._selected = active_signal
         self._selected_signals = [active_signal] if active_signal is not None else []
         self._plot.set_selected_signals(self._selected_signals, all_signals=self._active, top_first=self._top_first)
+        self.events.selection_changed.emit(SelectionChangedEvent(selected=list(self._selected_signals)))
         if active_signal is None:
             self._signal_info.clear()
         else:

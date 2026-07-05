@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from mdf_viewer.view_model.active_signal import ActiveSignal
 
 _ModeCallback = Callable[["CursorMode"], None]
+_PositionCallback = Callable[[list, "CursorMode"], None]
 
 # Cursor line colors (RGB tuples consumed by CursorView.set_line_colors)
 _COLOR_C1 = (220, 220, 50)   # yellow — Cursor 1 and Cursor L
@@ -172,6 +173,7 @@ class CursorController:
         self._initialized = False
         self._left_idx: int = 0
         self._mode_changed_cb: _ModeCallback | None = None
+        self._position_changed_cb: _PositionCallback | None = None
         self._active_cursor_idx: int | None = None
 
         cursor_view.cursor_moved.connect(self._on_cursor_dragged)
@@ -191,6 +193,10 @@ class CursorController:
     def set_mode_changed_callback(self, cb: _ModeCallback) -> None:
         """Register a callable invoked with the new CursorMode on every mode change."""
         self._mode_changed_cb = cb
+
+    def set_position_changed_callback(self, cb: _PositionCallback) -> None:
+        """Register a callable invoked with (positions, mode) whenever a visible cursor moves."""
+        self._position_changed_cb = cb
 
     def zoom_to_cursors(self) -> tuple[float, float] | None:
         """Return (x_min, x_max) spanning the two cursors, or None if not in TWO mode."""
@@ -319,6 +325,7 @@ class CursorController:
         self._active_cursor_idx = index
         self._positions[index] = x
         self._refresh(update_labels=True)
+        self._notify_moved()
 
     def _on_delta_line_dragged(self, y: float) -> None:
         self._delta_y_pos_by_stripe[self._get_active_stripe()] = y
@@ -328,6 +335,7 @@ class CursorController:
         self._positions[index] = x
         self._view.apply_mode(self._mode, self._positions)
         self._refresh(update_labels=True)
+        self._notify_moved()
 
     def _on_delta_fetch(self, y: float) -> None:
         """Move the delta-time line to the Y position clicked on the chevron."""
@@ -363,6 +371,7 @@ class CursorController:
         self._positions[idx] = new_x
         self._view.apply_mode(self._mode, self._positions)
         self._refresh(update_labels=True)
+        self._notify_moved()
 
     def _step_by_sample(self, signal: Any, x: float, direction: int, n: int) -> float:
         ts = signal.data.timestamps
@@ -407,6 +416,14 @@ class CursorController:
         self._refresh(update_labels=True)
         if self._mode_changed_cb is not None:
             self._mode_changed_cb(self._mode)
+        self._notify_moved()
+
+    def _notify_moved(self) -> None:
+        """Invoke the position-changed callback, unless cursors are hidden."""
+        if self._mode == CursorMode.HIDDEN:
+            return
+        if self._position_changed_cb is not None:
+            self._position_changed_cb(list(self._positions), self._mode)
 
     def _place_viewport_positions(self) -> None:
         try:
