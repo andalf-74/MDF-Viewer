@@ -18,7 +18,7 @@ from mdf_viewer.errors import MdfLoadError
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.main_window import MainWindow
 from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
-from mdf_viewer.view.plot_area import PlotArea
+from mdf_viewer.view.plot_stripes_area import PlotStripesArea
 from mdf_viewer.view.signal_browser import SignalBrowser
 from mdf_viewer.view.signal_info_box import SignalInfoBox
 
@@ -67,7 +67,7 @@ def test_has_signal_browser(window: MainWindow) -> None:
 
 
 def test_has_plot_area(window: MainWindow) -> None:
-    assert isinstance(window.plot_area, PlotArea)
+    assert isinstance(window.plot_area, PlotStripesArea)
 
 
 def test_has_active_signals_table(window: MainWindow) -> None:
@@ -132,6 +132,62 @@ def test_toolbar_has_cursor_action(window: MainWindow) -> None:
     toolbars = window.findChildren(type(window.addToolBar("_t")))
     toolbar_actions = [a for tb in toolbars for a in tb.actions()]
     assert window._cursor_action in toolbar_actions
+
+
+# ---------------------------------------------------------------------------
+# Zoom-scope toggle
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-057")
+def test_toolbar_has_zoom_all_stripes_action(window: MainWindow) -> None:
+    toolbars = window.findChildren(type(window.addToolBar("_t")))
+    toolbar_actions = [a for tb in toolbars for a in tb.actions()]
+    assert window._zoom_all_stripes_action in toolbar_actions
+
+
+@pytest.mark.requirement("REQ-PLOT-057")
+def test_zoom_all_stripes_action_checkable_and_checked_by_default(
+    window: MainWindow,
+) -> None:
+    assert window._zoom_all_stripes_action.isCheckable()
+    assert window._zoom_all_stripes_action.isChecked()
+
+
+@pytest.mark.requirement("REQ-PLOT-057")
+def test_zoom_scope_toggled_writes_active_stripe_to_settings(
+    window: MainWindow,
+) -> None:
+    from mdf_viewer.settings import Settings
+    settings = MagicMock(spec=Settings)
+    window.set_settings(settings)
+    window._zoom_all_stripes_action.setChecked(False)
+    assert settings.zoom_scope == "active_stripe"
+
+
+@pytest.mark.requirement("REQ-PLOT-057")
+def test_zoom_scope_toggled_writes_all_stripes_to_settings(
+    window: MainWindow,
+) -> None:
+    from mdf_viewer.settings import Settings
+    settings = MagicMock(spec=Settings)
+    window.set_settings(settings)
+    window._zoom_all_stripes_action.setChecked(False)
+    window._zoom_all_stripes_action.setChecked(True)
+    assert settings.zoom_scope == "all_stripes"
+
+
+def test_zoom_scope_toggled_without_settings_does_not_crash(
+    window: MainWindow,
+) -> None:
+    window._zoom_all_stripes_action.setChecked(False)  # must not raise
+
+
+@pytest.mark.requirement("REQ-PLOT-057")
+def test_set_zoom_all_stripes_updates_checked_state(window: MainWindow) -> None:
+    window.set_zoom_all_stripes(False)
+    assert not window._zoom_all_stripes_action.isChecked()
+    window.set_zoom_all_stripes(True)
+    assert window._zoom_all_stripes_action.isChecked()
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +311,78 @@ def test_add_signal_not_called_before_set_controller(
 ) -> None:
     # Emit before set_controller — must not crash
     window.signal_browser.add_signals_requested.emit([(0, 1)])
+
+
+# ---------------------------------------------------------------------------
+# Plot Stripes wiring
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-200")
+def test_signals_dropped_on_stripe_calls_add_signal_with_stripe(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    stripe = MagicMock()
+    wired.plot_area.signals_dropped_on_stripe.emit([(2, 5)], stripe)
+    mock_controller.add_signal.assert_called_once_with(2, 5, stripe=stripe)
+
+
+def test_set_controller_wires_stripe_providers(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window.set_controller(mock_controller)
+    assert window.active_signals_table._get_stripes is mock_controller.get_stripes
+    assert window.active_signals_table._get_stripe_for_signal is mock_controller.get_stripe_for_signal
+
+
+@pytest.mark.requirement("REQ-PLOT-202")
+def test_move_to_stripe_requested_calls_controller(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    stripe = MagicMock()
+    wired.active_signals_table.move_to_stripe_requested.emit(["sig"], stripe)
+    mock_controller.move_signals_to_stripe.assert_called_once_with(["sig"], stripe)
+
+
+@pytest.mark.requirement("REQ-PLOT-191")
+def test_move_to_new_stripe_requested_calls_controller(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired.active_signals_table.move_to_new_stripe_requested.emit(["sig"])
+    mock_controller.move_signals_to_new_stripe.assert_called_once_with(["sig"])
+
+
+@pytest.mark.requirement("REQ-PLOT-193")
+def test_delete_stripe_requested_empty_stripe_deletes_directly(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    stripe = MagicMock()
+    mock_controller.get_signals_in_stripe.return_value = []
+    mock_controller.delete_stripe.return_value = True
+    wired.plot_area.delete_stripe_requested.emit(stripe)
+    mock_controller.delete_stripe.assert_called_once_with(stripe)
+
+
+@pytest.mark.requirement("REQ-PLOT-194")
+def test_delete_stripe_requested_nonempty_shows_confirmation(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    stripe = MagicMock()
+    mock_controller.get_signals_in_stripe.return_value = ["sig"]
+    with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Cancel) as mock_q:
+        wired.plot_area.delete_stripe_requested.emit(stripe)
+    mock_q.assert_called_once()
+    mock_controller.delete_stripe.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-PLOT-194")
+def test_delete_stripe_requested_nonempty_confirmed_forces_delete(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    stripe = MagicMock()
+    mock_controller.get_signals_in_stripe.return_value = ["sig"]
+    with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes):
+        wired.plot_area.delete_stripe_requested.emit(stripe)
+    mock_controller.delete_stripe.assert_called_once_with(stripe, force=True)
 
 
 @pytest.mark.requirement("REQ-FILE-011")

@@ -27,7 +27,7 @@ def run(argv: list[str]) -> int:
     from mdf_viewer.license.license_manager import LicenseManager
     from mdf_viewer.model.mdf_loader import MdfLoader
     from mdf_viewer.settings import Settings
-    from mdf_viewer.view.cursors import CursorView
+    from mdf_viewer.view.cursors import CursorStripesView
     from mdf_viewer.view.main_window import MainWindow
 
     if sys.platform == "win32":
@@ -106,8 +106,11 @@ def run(argv: list[str]) -> int:
     )
     window.set_recent_files_provider(settings.get_and_prune)
 
-    cursor_view = CursorView(window.plot_area.plot_item)
-    window.plot_area.register_drag_claimant(cursor_view)
+    cursor_view = CursorStripesView()
+    for stripe in window.plot_area.get_stripes():
+        cursor_view.add_stripe(stripe)
+    window.plot_area.stripe_created.connect(cursor_view.add_stripe)
+    window.plot_area.stripe_deleted.connect(cursor_view.remove_stripe)
     cursor_ctrl = CursorController(
         cursor_view=cursor_view,
         get_x_range=lambda: tuple(window.plot_area.plot_item.vb.viewRange()[0]),
@@ -121,7 +124,7 @@ def run(argv: list[str]) -> int:
             settings.cursor_color_cl,
             settings.cursor_color_cr,
         ),
-        get_y_range=lambda: tuple(window.plot_area.plot_item.vb.viewRange()[1]),
+        get_y_range=lambda: tuple(window.plot_area.get_active_stripe().plot_item.vb.viewRange()[1]),
         get_show_delta_time=lambda: settings.show_delta_time_in_plot,
         get_delta_time_color=lambda: settings.delta_time_color,
         get_selected_signal=lambda: controller.selected_signal,
@@ -129,9 +132,14 @@ def run(argv: list[str]) -> int:
         get_cursor_step_samples=lambda: settings.cursor_step_samples,
         get_cursor_step_pixels=lambda: settings.cursor_step_pixels,
         get_cursor_step_time_ms=lambda: settings.cursor_step_time_ms,
-        get_x_per_pixel=lambda: window.plot_area.plot_item.vb.viewPixelSize()[0],
+        get_x_per_pixel=lambda: window.plot_area.get_active_stripe().plot_item.vb.viewPixelSize()[0],
+        get_active_stripe=lambda: window.plot_area.get_active_stripe(),
     )
     controller.set_cursor_controller(cursor_ctrl)
+    # Order matters: the view's own active-stripe bookkeeping must update
+    # before CursorController re-triggers update_delta_time() off of it.
+    window.plot_area.active_stripe_changed.connect(cursor_view.set_active_stripe)
+    window.plot_area.active_stripe_changed.connect(cursor_ctrl.on_active_stripe_changed)
 
     zoom_ctrl = ZoomController(
         plot_area=window.plot_area,
@@ -147,6 +155,7 @@ def run(argv: list[str]) -> int:
     # set_controller() only store references, they don't sync it in (#89).
     controller.refresh_display_names()
     window.active_signals_table.set_shorten_names_enabled(settings.display_name_rule_enabled)
+    window.set_zoom_all_stripes(settings.zoom_scope == "all_stripes")
 
     window.show()
     splash.finish(window)

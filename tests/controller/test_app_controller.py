@@ -1845,3 +1845,204 @@ def test_refresh_table_group_state_pushes_merged_and_synced_sets(
     ctrl.add_signal(0, 2)
     ctrl.on_merge_y_axis_requested(ctrl.active_signals)
     deps["table"].set_group_membership.assert_called_with({"merged-marker"}, {"synced-marker"})
+
+
+# ---------------------------------------------------------------------------
+# Plot Stripes
+# ---------------------------------------------------------------------------
+
+def test_add_signal_passes_stripe_through(ctrl: AppController, deps: dict) -> None:
+    stripe = MagicMock()
+    ctrl.add_signal(0, 1, stripe=stripe)
+    deps["plot"].add_signal.assert_called_once()
+    _, kwargs = deps["plot"].add_signal.call_args
+    assert kwargs["stripe"] is stripe
+
+
+def test_add_signal_defaults_stripe_to_none(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    _, kwargs = deps["plot"].add_signal.call_args
+    assert kwargs["stripe"] is None
+
+
+@pytest.mark.requirement("REQ-PLOT-190")
+def test_create_stripe_delegates_to_plot(ctrl: AppController, deps: dict) -> None:
+    deps["plot"].create_stripe.return_value = "new-stripe"
+    assert ctrl.create_stripe() == "new-stripe"
+    deps["plot"].create_stripe.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-PLOT-186")
+def test_delete_stripe_refuses_last_stripe(ctrl: AppController, deps: dict) -> None:
+    deps["plot"].get_stripes.return_value = ["only-stripe"]
+    stripe = MagicMock()
+    assert ctrl.delete_stripe(stripe) is False
+    deps["plot"].delete_stripe.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-PLOT-194")
+def test_delete_stripe_refuses_nonempty_without_force(ctrl: AppController, deps: dict) -> None:
+    deps["plot"].get_stripes.return_value = ["s0", "s1"]
+    deps["plot"].get_signals_in_stripe.return_value = ["sig"]
+    stripe = MagicMock()
+    assert ctrl.delete_stripe(stripe) is False
+    deps["plot"].delete_stripe.assert_not_called()
+
+
+def test_delete_stripe_deletes_directly_when_empty(ctrl: AppController, deps: dict) -> None:
+    deps["plot"].get_stripes.return_value = ["s0", "s1"]
+    deps["plot"].get_signals_in_stripe.return_value = []
+    deps["plot"].delete_stripe.return_value = True
+    stripe = MagicMock()
+    assert ctrl.delete_stripe(stripe) is True
+    deps["plot"].delete_stripe.assert_called_once_with(stripe)
+
+
+@pytest.mark.requirement("REQ-PLOT-194")
+def test_delete_stripe_with_force_removes_each_signal_via_full_pipeline(
+    ctrl: AppController, deps: dict
+) -> None:
+    """Regression test: force-deleting a non-empty stripe must remove each
+    signal via the full AppController.remove_signal pipeline (table row,
+    cursor cleanup, active-list) — not just tear it down from the plot."""
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    stripe = MagicMock()
+    deps["plot"].get_stripes.return_value = ["s0", "s1"]
+    deps["plot"].get_signals_in_stripe.return_value = list(ctrl.active_signals)
+    deps["plot"].delete_stripe.return_value = True
+
+    assert ctrl.delete_stripe(stripe, force=True) is True
+
+    assert ctrl.active_signals == []
+    assert deps["table"].remove_row.call_count == 2
+    deps["plot"].delete_stripe.assert_called_once_with(stripe)
+
+
+def test_get_stripes_delegates_to_plot(ctrl: AppController, deps: dict) -> None:
+    deps["plot"].get_stripes.return_value = ["s0", "s1"]
+    assert ctrl.get_stripes() == ["s0", "s1"]
+
+
+def test_get_stripe_for_signal_delegates_to_plot(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    active = ctrl.active_signals[0]
+    deps["plot"].get_stripe_for_signal.return_value = "s0"
+    assert ctrl.get_stripe_for_signal(active) == "s0"
+    deps["plot"].get_stripe_for_signal.assert_called_once_with(active)
+
+
+def test_get_signals_in_stripe_delegates_to_plot(ctrl: AppController, deps: dict) -> None:
+    stripe = MagicMock()
+    deps["plot"].get_signals_in_stripe.return_value = ["a", "b"]
+    assert ctrl.get_signals_in_stripe(stripe) == ["a", "b"]
+    deps["plot"].get_signals_in_stripe.assert_called_once_with(stripe)
+
+
+@pytest.mark.requirement("REQ-PLOT-202")
+def test_move_signals_to_stripe_calls_plot_per_signal(ctrl: AppController, deps: dict) -> None:
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    stripe = MagicMock()
+    ctrl.move_signals_to_stripe(ctrl.active_signals, stripe)
+    assert deps["plot"].move_signal_to_stripe.call_count == 2
+    for active in ctrl.active_signals:
+        deps["plot"].move_signal_to_stripe.assert_any_call(active, stripe)
+
+
+def test_move_signals_to_stripe_refreshes_cursor_labels(
+    ctrl: AppController, deps: dict
+) -> None:
+    cursor_ctrl = MagicMock()
+    ctrl.set_cursor_controller(cursor_ctrl)
+    ctrl.add_signal(0, 1)
+    cursor_ctrl.reset_mock()
+    ctrl.move_signals_to_stripe(ctrl.active_signals, MagicMock())
+    cursor_ctrl.refresh.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-PLOT-191")
+def test_move_signals_to_new_stripe_creates_then_moves(ctrl: AppController, deps: dict) -> None:
+    new_stripe = MagicMock()
+    deps["plot"].create_stripe.return_value = new_stripe
+    ctrl.add_signal(0, 1)
+    ctrl.move_signals_to_new_stripe(ctrl.active_signals)
+    deps["plot"].create_stripe.assert_called_once()
+    deps["plot"].move_signal_to_stripe.assert_called_once_with(ctrl.active_signals[0], new_stripe)
+
+
+def test_move_signals_to_new_stripe_refreshes_cursor_labels(
+    ctrl: AppController, deps: dict
+) -> None:
+    cursor_ctrl = MagicMock()
+    ctrl.set_cursor_controller(cursor_ctrl)
+    ctrl.add_signal(0, 1)
+    cursor_ctrl.reset_mock()
+    ctrl.move_signals_to_new_stripe(ctrl.active_signals)
+    cursor_ctrl.refresh.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Zoom scope (All Stripes / Active Stripe toggle)
+# ---------------------------------------------------------------------------
+
+def _ctrl_with_zoom_scope(tmp_path, deps: dict, scope: str) -> AppController:
+    from mdf_viewer.settings import Settings
+    s = Settings(path=tmp_path / "s.json")
+    s.zoom_scope = scope
+    return AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+        settings=s,
+    )
+
+
+@pytest.mark.requirement("REQ-PLOT-057")
+def test_zoom_to_fit_passes_all_stripes_true_by_default(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.zoom_to_fit()
+    deps["plot"].zoom_to_fit.assert_called_once_with(all_stripes=True)
+
+
+@pytest.mark.requirement("REQ-PLOT-057")
+def test_zoom_to_fit_passes_all_stripes_false_when_scope_is_active_stripe(
+    tmp_path, deps: dict
+) -> None:
+    ctrl = _ctrl_with_zoom_scope(tmp_path, deps, "active_stripe")
+    ctrl.zoom_to_fit()
+    deps["plot"].zoom_to_fit.assert_called_once_with(all_stripes=False)
+
+
+@pytest.mark.requirement("REQ-PLOT-057")
+def test_zoom_y_to_view_passes_all_stripes_true_by_default(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.zoom_y_to_view()
+    deps["plot"].zoom_y_to_view.assert_called_once_with(all_stripes=True)
+
+
+@pytest.mark.requirement("REQ-PLOT-057")
+def test_zoom_y_to_view_passes_all_stripes_false_when_scope_is_active_stripe(
+    tmp_path, deps: dict
+) -> None:
+    ctrl = _ctrl_with_zoom_scope(tmp_path, deps, "active_stripe")
+    ctrl.zoom_y_to_view()
+    deps["plot"].zoom_y_to_view.assert_called_once_with(all_stripes=False)
+
+
+def test_zoom_to_fit_defaults_all_stripes_without_settings(deps: dict) -> None:
+    ctrl_no_settings = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+    )
+    ctrl_no_settings.zoom_to_fit()
+    deps["plot"].zoom_to_fit.assert_called_once_with(all_stripes=True)

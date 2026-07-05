@@ -431,6 +431,40 @@ def test_signal_z_order_defaults_on_missing_key(tmp_path: Path) -> None:
     assert Settings(path=path).signal_z_order == "top_first"
 
 
+# zoom_scope
+
+
+@pytest.mark.requirement("REQ-PLOT-057")
+def test_zoom_scope_default(settings: Settings) -> None:
+    from mdf_viewer.settings import DEFAULT_ZOOM_SCOPE
+    assert settings.zoom_scope == DEFAULT_ZOOM_SCOPE
+
+
+@pytest.mark.requirement("REQ-PLOT-057")
+def test_zoom_scope_default_is_all_stripes(settings: Settings) -> None:
+    assert settings.zoom_scope == "all_stripes"
+
+
+@pytest.mark.requirement("REQ-PLOT-057")
+def test_zoom_scope_can_be_changed(settings: Settings) -> None:
+    settings.zoom_scope = "active_stripe"
+    assert settings.zoom_scope == "active_stripe"
+
+
+@pytest.mark.requirement("REQ-NFR-021")
+def test_zoom_scope_persists(settings: Settings) -> None:
+    settings.zoom_scope = "active_stripe"
+    reloaded = Settings(path=settings._path)
+    assert reloaded.zoom_scope == "active_stripe"
+
+
+@pytest.mark.requirement("REQ-NFR-020")
+def test_zoom_scope_defaults_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    assert Settings(path=path).zoom_scope == "all_stripes"
+
+
 # selected_line_boost
 
 

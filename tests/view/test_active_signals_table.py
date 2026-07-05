@@ -808,3 +808,82 @@ def test_ungroup_action_covers_both_merged_and_synced_selection(
     _select_rows(t, 0, 1)
     titles = [a.text() for a in _open_context_menu(t).actions()]
     assert "Remove from merged/synced axis" in titles
+
+
+# ---------------------------------------------------------------------------
+# Context menu — Move to Stripe
+# ---------------------------------------------------------------------------
+
+def test_move_to_stripe_actions_absent_without_providers(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    _select_rows(t, 0)
+    titles = [a.text() for a in _open_context_menu(t).actions()]
+    assert "Move to new Stripe" not in titles
+    assert "Move to Stripe" not in titles
+
+
+@pytest.mark.requirement("REQ-PLOT-191")
+def test_move_to_new_stripe_action_present_with_providers(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    t.set_stripe_providers(lambda: ["stripe0"], lambda a: "stripe0")
+    _select_rows(t, 0)
+    titles = [a.text() for a in _open_context_menu(t).actions()]
+    assert "Move to new Stripe" in titles
+
+
+def test_move_to_stripe_submenu_absent_with_only_one_stripe(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    t.set_stripe_providers(lambda: ["stripe0"], lambda a: "stripe0")
+    _select_rows(t, 0)
+    titles = [a.text() for a in _open_context_menu(t).actions()]
+    assert "Move to Stripe" not in titles
+
+
+@pytest.mark.requirement("REQ-PLOT-202")
+def test_move_to_stripe_submenu_lists_only_other_stripes(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    t.set_stripe_providers(lambda: ["s0", "s1"], lambda a: "s0")
+    _select_rows(t, 0)
+    menu = _open_context_menu(t)
+    submenu_action = next(a for a in menu.actions() if a.text() == "Move to Stripe")
+    sub_titles = [a.text() for a in submenu_action.menu().actions()]
+    assert sub_titles == ["Stripe 2"]
+
+
+def test_move_to_stripe_action_emits_signal(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    t.set_stripe_providers(lambda: ["s0", "s1"], lambda a: "s0")
+    _select_rows(t, 0)
+    menu = _open_context_menu(t)
+    submenu_action = next(a for a in menu.actions() if a.text() == "Move to Stripe")
+    target_action = next(a for a in submenu_action.menu().actions() if a.text() == "Stripe 2")
+
+    received: list = []
+    t.move_to_stripe_requested.connect(lambda signals, stripe: received.append((signals, stripe)))
+    target_action.trigger()
+    assert received == [([sigs[0]], "s1")]
+
+
+def test_move_to_new_stripe_action_emits_signal(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    t.set_stripe_providers(lambda: ["s0"], lambda a: "s0")
+    _select_rows(t, 0)
+    menu = _open_context_menu(t)
+    action = next(a for a in menu.actions() if a.text() == "Move to new Stripe")
+
+    received: list = []
+    t.move_to_new_stripe_requested.connect(received.append)
+    action.trigger()
+    assert received == [[sigs[0]]]

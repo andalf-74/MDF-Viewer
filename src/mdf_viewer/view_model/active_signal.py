@@ -28,7 +28,7 @@ class ActiveSignal:
     """Pairs model data with the plot objects that render a single signal.
 
     ``data`` and ``metadata`` are set at construction. ``curve`` and
-    ``view_box`` are filled in by PlotArea.add_signal() once a rendering
+    ``view_box`` are filled in by PlotStripe.add_signal() once a rendering
     context exists.
 
     ``color`` accepts either a ``QColor`` or a plain ``(r, g, b)`` tuple;

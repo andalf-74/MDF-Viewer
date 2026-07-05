@@ -31,6 +31,11 @@ _COLOR_C1 = (220, 220, 50)   # yellow — Cursor 1 and Cursor L
 _COLOR_C2 = (255, 140, 0)    # orange — Cursor 2
 _COLOR_CR = (50, 150, 255)   # blue   — Cursor R
 
+# Stable dict key for the delta-time-position memory when no get_active_stripe
+# is injected (single-stripe callers/tests) — keeps that whole codepath
+# behaving as "one implicit stripe" with zero call-site changes.
+_DEFAULT_STRIPE = object()
+
 
 class CursorMode(Enum):
     """The three states cycled by the Cursor Toggle toolbar button."""
@@ -65,6 +70,7 @@ class CursorController:
         get_cursor_step_pixels: Callable[[], int] | None = None,
         get_cursor_step_time_ms: Callable[[], float] | None = None,
         get_x_per_pixel: Callable[[], float] | None = None,
+        get_active_stripe: Callable[[], Any] | None = None,
     ) -> None:
         """
         Parameters
@@ -100,6 +106,12 @@ class CursorController:
         get_delta_time_color:
             Callable returning the delta-time line color as an RGB tuple.
             Defaults to ``lambda: (200, 200, 200)``.
+        get_active_stripe:
+            Callable returning the currently active plot stripe (any hashable
+            identity). Used only to key the delta-time line's remembered
+            vertical position independently per stripe (REQ-PLOT-105).
+            Defaults to a single fixed sentinel, so single-stripe callers see
+            no behavior change.
         """
         self._view = cursor_view
         self._get_x_range = get_x_range
@@ -147,10 +159,16 @@ class CursorController:
         self._get_x_per_pixel: Callable[[], float] = (
             get_x_per_pixel if get_x_per_pixel is not None else (lambda: 1.0)
         )
+        self._get_active_stripe: Callable[[], Any] = (
+            get_active_stripe if get_active_stripe is not None else (lambda: _DEFAULT_STRIPE)
+        )
 
         self._mode = CursorMode.HIDDEN
         self._positions: list[float] = [0.0, 0.0]
-        self._delta_y_pos: float | None = None
+        # Keyed by stripe identity so each stripe remembers its own delta-time
+        # line position independently (REQ-PLOT-105); a single implicit key
+        # is used when get_active_stripe isn't injected.
+        self._delta_y_pos_by_stripe: dict[Any, float | None] = {}
         self._initialized = False
         self._left_idx: int = 0
         self._mode_changed_cb: _ModeCallback | None = None
@@ -225,7 +243,7 @@ class CursorController:
     def reset(self) -> None:
         """Called by AppController on file load — next toggle re-places cursors."""
         self._initialized = False
-        self._delta_y_pos = None
+        self._delta_y_pos_by_stripe.clear()
         self._active_cursor_idx = None
         if self._mode != CursorMode.HIDDEN:
             self._mode = CursorMode.HIDDEN
@@ -241,7 +259,7 @@ class CursorController:
     def on_signal_removed(self, active: ActiveSignal) -> None:
         """Remove cursor labels before the signal's ViewBox is destroyed.
 
-        Must be called *before* PlotArea.remove_signal() so the ViewBox
+        Must be called *before* PlotStripe.remove_signal() so the ViewBox
         is still in the scene when the label is removed.
         """
         self._view.remove_labels_for(active)
@@ -249,6 +267,17 @@ class CursorController:
     def on_all_signals_cleared(self) -> None:
         """Clear all cursor labels before ViewBoxes are destroyed."""
         self._view.clear_labels()
+
+    def on_active_stripe_changed(self, stripe: Any) -> None:
+        """Re-show the delta-time line (if applicable) in the newly active stripe.
+
+        Must be wired *after* the view's own set_active_stripe() in the same
+        signal, so get_active_stripe() already reflects the new stripe by the
+        time this re-triggers update_delta_time() with that stripe's own
+        remembered position (REQ-PLOT-105).
+        """
+        if self._mode == CursorMode.TWO:
+            self._refresh_delta_time()
 
     def refresh(self) -> None:
         """Re-compute cursor values and labels for the current active signals.
@@ -292,7 +321,7 @@ class CursorController:
         self._refresh(update_labels=True)
 
     def _on_delta_line_dragged(self, y: float) -> None:
-        self._delta_y_pos = y
+        self._delta_y_pos_by_stripe[self._get_active_stripe()] = y
 
     def _on_cursor_fetch(self, index: int, x: float) -> None:
         """Move cursor to the X position clicked on the chevron."""
@@ -302,7 +331,7 @@ class CursorController:
 
     def _on_delta_fetch(self, y: float) -> None:
         """Move the delta-time line to the Y position clicked on the chevron."""
-        self._delta_y_pos = y
+        self._delta_y_pos_by_stripe[self._get_active_stripe()] = y
         self._refresh(update_labels=False)
 
     def _move_active_cursor(self, direction: int) -> None:
@@ -481,7 +510,7 @@ class CursorController:
                 x1=self._positions[0],
                 x2=self._positions[1],
                 delta_t_str=delta_t_str,
-                y_pos=self._delta_y_pos,
+                y_pos=self._delta_y_pos_by_stripe.get(self._get_active_stripe()),
                 show=self._get_show_delta_time(),
                 color=self._get_delta_time_color(),
             )

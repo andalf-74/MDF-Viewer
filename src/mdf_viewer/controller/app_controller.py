@@ -161,14 +161,14 @@ class AppController:
     def zoom_to_fit(self) -> None:
         if self._zoom_ctrl is not None:
             self._zoom_ctrl.before_discrete_action()
-        self._plot.zoom_to_fit()
+        self._plot.zoom_to_fit(all_stripes=self._zoom_all_stripes)
         if self._zoom_ctrl is not None:
             self._zoom_ctrl.after_discrete_action()
 
     def zoom_y_to_view(self) -> bool:
         if self._zoom_ctrl is not None:
             self._zoom_ctrl.before_discrete_action()
-        result = self._plot.zoom_y_to_view()
+        result = self._plot.zoom_y_to_view(all_stripes=self._zoom_all_stripes)
         if self._zoom_ctrl is not None:
             self._zoom_ctrl.after_discrete_action()
         return result
@@ -213,8 +213,11 @@ class AppController:
             self._settings.add_recent(path)
         self._current_config_path = None
 
-    def add_signal(self, group_index: int, channel_index: int) -> bool:
+    def add_signal(self, group_index: int, channel_index: int, stripe=None) -> bool:
         """Load a channel and add it to the plot and the Active Signals Table.
+
+        *stripe*, when given, is the target PlotStripe (e.g. a drag-and-drop
+        onto a specific stripe); omitted/None adds to the current active stripe.
 
         Returns True if added, False if the channel was already active.
         Raises MdfLoadError if the channel cannot be read or its samples are
@@ -231,12 +234,63 @@ class AppController:
         self._color_index += 1
         active = ActiveSignal(data=data, metadata=meta, color=rgb, step_mode=meta.is_integer)
         self._active.append(active)
-        self._plot.add_signal(active)
+        self._plot.add_signal(active, stripe=stripe)
         self._table.add_row(active)
         self.refresh_z_order()
         if self._cursor_ctrl is not None:
             self._cursor_ctrl.refresh()
         return True
+
+    # ------------------------------------------------------------------
+    # Plot Stripes
+    # ------------------------------------------------------------------
+
+    def create_stripe(self):
+        """Create a new empty plot stripe."""
+        return self._plot.create_stripe()
+
+    def delete_stripe(self, stripe, force: bool = False) -> bool:
+        """Delete *stripe*. Refuses if it's the last stripe, or non-empty without force.
+
+        With force=True, every signal in the stripe is removed first via the
+        normal full removal pipeline (remove_signal — plot, table row, cursor
+        labels, selection), not just torn down from the plot (REQ-PLOT-194).
+        """
+        if len(self._plot.get_stripes()) <= 1:
+            return False
+        signals = self._plot.get_signals_in_stripe(stripe)
+        if signals and not force:
+            return False
+        for active in list(signals):
+            self.remove_signal(active)
+        return self._plot.delete_stripe(stripe)
+
+    def get_stripes(self) -> list:
+        return self._plot.get_stripes()
+
+    def get_stripe_for_signal(self, active: ActiveSignal):
+        return self._plot.get_stripe_for_signal(active)
+
+    def get_signals_in_stripe(self, stripe) -> list[ActiveSignal]:
+        return self._plot.get_signals_in_stripe(stripe)
+
+    def move_signals_to_stripe(self, signals: list[ActiveSignal], stripe) -> None:
+        """Move each of *signals* into *stripe* (REQ-PLOT-202/203)."""
+        for active in signals:
+            self._plot.move_signal_to_stripe(active, stripe)
+        # Cursor labels are parented to the signal's ViewBox, which just
+        # changed — refresh so they re-attach to the new one immediately
+        # rather than waiting for the next unrelated cursor move.
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.refresh()
+
+    def move_signals_to_new_stripe(self, signals: list[ActiveSignal]) -> None:
+        """Create a new stripe and move each of *signals* into it (REQ-PLOT-191)."""
+        stripe = self._plot.create_stripe()
+        for active in signals:
+            self._plot.move_signal_to_stripe(active, stripe)
+        if self._cursor_ctrl is not None:
+            self._cursor_ctrl.refresh()
 
     def toggle_step_mode(self, active_signal: ActiveSignal) -> None:
         """Flip the step-mode flag for a signal and update the plot."""
@@ -442,6 +496,12 @@ class AppController:
         if self._settings is None:
             return False
         return self._settings.show_only_selected_y_axis
+
+    @property
+    def _zoom_all_stripes(self) -> bool:
+        if self._settings is None:
+            return True
+        return self._settings.zoom_scope == "all_stripes"
 
     def remove_signal(self, active_signal: ActiveSignal) -> None:
         """Remove one signal from the plot and the table.

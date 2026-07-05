@@ -1,4 +1,4 @@
-"""Tests for PlotArea.
+"""Tests for PlotStripe.
 
 Verifies the contract (active.curve/view_box set/cleared, no crashes) rather
 than PyQtGraph internals. All tests require a QApplication via qtbot.
@@ -16,13 +16,13 @@ import pytest
 from unittest.mock import patch
 
 from PyQt6.QtCore import QByteArray, QEvent, QMimeData, QPoint, QRectF, Qt, QUrl
-from PyQt6.QtGui import QColor
+from PyQt6.QtGui import QColor, QMouseEvent
 from pytestqt.qtbot import QtBot
 
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
 from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
-from mdf_viewer.view.plot_area import PlotArea, _SignalAxisItem, _ViewBox
+from mdf_viewer.view.plot_stripe import PlotStripe, _SignalAxisItem, _ViewBox
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
 
@@ -56,8 +56,8 @@ def _make_active(
 
 
 @pytest.fixture()
-def plot(qtbot: QtBot) -> PlotArea:
-    w = PlotArea()
+def plot(qtbot: QtBot) -> PlotStripe:
+    w = PlotStripe()
     qtbot.addWidget(w)
     return w
 
@@ -66,12 +66,12 @@ def plot(qtbot: QtBot) -> PlotArea:
 # Construction
 # ---------------------------------------------------------------------------
 
-def test_plot_widget_present(plot: PlotArea) -> None:
+def test_plot_widget_present(plot: PlotStripe) -> None:
     import pyqtgraph as pg
     assert isinstance(plot._pw, pg.PlotWidget)
 
 
-def test_initially_no_signals(plot: PlotArea) -> None:
+def test_initially_no_signals(plot: PlotStripe) -> None:
     assert len(plot._data) == 0
 
 
@@ -79,36 +79,206 @@ def test_initially_no_signals(plot: PlotArea) -> None:
 # _ViewBox mouse behaviour
 # ---------------------------------------------------------------------------
 
-def test_main_viewbox_is_custom_type(plot: PlotArea) -> None:
+def test_main_viewbox_is_custom_type(plot: PlotStripe) -> None:
     assert isinstance(plot._pi.vb, _ViewBox)
 
 
 @pytest.mark.requirement("REQ-PLOT-051")
-def test_main_viewbox_is_pan_mode(plot: PlotArea) -> None:
+def test_main_viewbox_is_pan_mode(plot: PlotStripe) -> None:
     import pyqtgraph as pg
     assert plot._pi.vb.state['mouseMode'] == pg.ViewBox.PanMode
 
 
-def test_signal_viewbox_is_custom_type(plot: PlotArea) -> None:
+def test_signal_viewbox_is_custom_type(plot: PlotStripe) -> None:
     plot.add_signal(_make_active())
     vb = list(plot._data.values())[0].view_box
     assert isinstance(vb, _ViewBox)
 
 
 @pytest.mark.requirement("REQ-PLOT-051")
-def test_signal_viewbox_is_pan_mode(plot: PlotArea) -> None:
+def test_signal_viewbox_is_pan_mode(plot: PlotStripe) -> None:
     import pyqtgraph as pg
     plot.add_signal(_make_active())
     vb = list(plot._data.values())[0].view_box
     assert vb.state['mouseMode'] == pg.ViewBox.PanMode
 
 
-def test_mouse_mode_menu_item_removed(plot: PlotArea) -> None:
+def test_mouse_mode_menu_item_removed(plot: PlotStripe) -> None:
     from unittest.mock import MagicMock
     ev = MagicMock()
     menu = plot._pi.vb.getMenu(ev)
     titles = [a.text() for a in menu.actions()]
     assert not any('mouse' in t.lower() for t in titles)
+
+
+@pytest.mark.requirement("REQ-PLOT-190")
+def test_create_new_stripe_menu_item_present(plot: PlotStripe) -> None:
+    from unittest.mock import MagicMock
+    menu = plot._pi.vb.getMenu(MagicMock())
+    titles = [a.text() for a in menu.actions()]
+    assert "Create new Stripe" in titles
+
+
+def test_create_new_stripe_menu_item_emits_signal(plot: PlotStripe, qtbot: QtBot) -> None:
+    from unittest.mock import MagicMock
+    menu = plot._pi.vb.getMenu(MagicMock())
+    action = next(a for a in menu.actions() if a.text() == "Create new Stripe")
+    with qtbot.waitSignal(plot.create_stripe_requested, timeout=1000) as blocker:
+        action.trigger()
+    assert blocker.args == [plot]
+
+
+def test_delete_this_stripe_menu_item_emits_signal(plot: PlotStripe, qtbot: QtBot) -> None:
+    from unittest.mock import MagicMock
+    menu = plot._pi.vb.getMenu(MagicMock())
+    action = next(a for a in menu.actions() if a.text() == "Delete this Stripe")
+    with qtbot.waitSignal(plot.delete_stripe_requested, timeout=1000) as blocker:
+        action.trigger()
+    assert blocker.args == [plot]
+
+
+def test_menu_items_not_duplicated_on_repeated_getMenu_calls(plot: PlotStripe) -> None:
+    from unittest.mock import MagicMock
+    plot._pi.vb.getMenu(MagicMock())
+    menu = plot._pi.vb.getMenu(MagicMock())
+    titles = [a.text() for a in menu.actions()]
+    assert titles.count("Create new Stripe") == 1
+
+
+# ---------------------------------------------------------------------------
+# Active-stripe marker / X-axis tick visibility / activated signal
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-211")
+def test_activated_emitted_on_mouse_press(plot: PlotStripe, qtbot: QtBot) -> None:
+    event = QMouseEvent(
+        QEvent.Type.MouseButtonPress,
+        QPoint(5, 5).toPointF(),
+        Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    with qtbot.waitSignal(plot.activated, timeout=1000) as blocker:
+        plot.eventFilter(plot._pw.viewport(), event)
+    assert blocker.args == [plot]
+
+
+@pytest.mark.requirement("REQ-PLOT-210")
+def test_set_active_toggles_marker_style(plot: PlotStripe) -> None:
+    plot.set_active(True)
+    active_style = plot._active_marker.styleSheet()
+    plot.set_active(False)
+    inactive_style = plot._active_marker.styleSheet()
+    assert active_style != inactive_style
+    assert "transparent" in inactive_style
+
+
+@pytest.mark.requirement("REQ-PLOT-181")
+def test_set_show_x_axis_ticks(plot: PlotStripe) -> None:
+    plot.set_show_x_axis_ticks(False)
+    assert plot._pi.getAxis('bottom').style['showValues'] is False
+    plot.set_show_x_axis_ticks(True)
+    assert plot._pi.getAxis('bottom').style['showValues'] is True
+
+
+@pytest.mark.requirement("REQ-PLOT-181")
+def test_set_show_x_axis_ticks_also_hides_time_label(plot: PlotStripe) -> None:
+    plot.set_show_x_axis_ticks(False)
+    assert plot._pi.getAxis('bottom').label.isVisible() is False
+    plot.set_show_x_axis_ticks(True)
+    assert plot._pi.getAxis('bottom').label.isVisible() is True
+
+
+# ---------------------------------------------------------------------------
+# Drag-target highlight (REQ-PLOT-200)
+# ---------------------------------------------------------------------------
+
+def test_drag_enter_signal_mime_shows_highlight(plot: PlotStripe) -> None:
+    mime = QMimeData()
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(json.dumps([[0, 0]]).encode()))
+    plot.eventFilter(plot._pw.viewport(), _drag_enter_event(mime))
+    assert plot._drag_hover_active is True
+
+
+def test_drag_leave_clears_highlight(plot: PlotStripe) -> None:
+    mime = QMimeData()
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(json.dumps([[0, 0]]).encode()))
+    plot.eventFilter(plot._pw.viewport(), _drag_enter_event(mime))
+    assert plot._drag_hover_active is True
+
+    leave_event = MagicMock()
+    leave_event.type.return_value = QEvent.Type.DragLeave
+    plot.eventFilter(plot._pw.viewport(), leave_event)
+    assert plot._drag_hover_active is False
+
+
+def test_drop_clears_highlight(plot: PlotStripe) -> None:
+    mime = QMimeData()
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(json.dumps([[0, 0]]).encode()))
+    plot.eventFilter(plot._pw.viewport(), _drag_enter_event(mime))
+    assert plot._drag_hover_active is True
+
+    plot.eventFilter(plot._pw.viewport(), _drop_event(mime))
+    assert plot._drag_hover_active is False
+
+
+# ---------------------------------------------------------------------------
+# Cross-stripe X sharing primitives
+# ---------------------------------------------------------------------------
+
+def test_sync_x_range_sets_exact_range_no_padding(plot: PlotStripe) -> None:
+    plot.sync_x_range(0.3, 0.7)
+    assert plot.plot_item.vb.viewRange()[0] == pytest.approx([0.3, 0.7], abs=1e-9)
+
+
+def test_autorange_y_does_not_change_x(plot: PlotStripe) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    plot.zoom_to_x_range(0.25, 0.75)
+    x_before = plot._pi.vb.viewRange()[0]
+    plot.autorange_y()
+    assert plot._pi.vb.viewRange()[0] == pytest.approx(x_before, abs=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Cross-stripe axis-width alignment (REQ-PLOT-180)
+# ---------------------------------------------------------------------------
+
+def test_content_axis_width_zero_with_no_signals(plot: PlotStripe) -> None:
+    assert plot.content_axis_width() == 0
+
+
+def test_content_axis_width_excludes_hidden_axis(plot: PlotStripe) -> None:
+    other = _make_active("other")
+    active = _make_active("target")
+    plot.add_signal(other)
+    plot.add_signal(active)
+    plot.set_show_only_selected_y_axis(True)
+    plot.set_selected_signals([other], all_signals=[other, active])  # hides active's axis
+    assert plot._data[active].axis.isVisible() is False
+    assert plot.content_axis_width() == pytest.approx(plot._data[other].axis.width())
+
+
+def test_set_axis_padding_adds_and_removes_spacer(plot: PlotStripe) -> None:
+    assert plot._axis_spacer is None
+    plot.set_axis_padding(25)
+    assert plot._axis_spacer is not None
+    assert plot._axis_spacer.width() == 25
+    plot.set_axis_padding(0)
+    assert plot._axis_spacer is None
+
+
+def test_set_axis_padding_does_not_count_toward_content_width(plot: PlotStripe) -> None:
+    active = _make_active()
+    plot.add_signal(active)
+    before = plot.content_axis_width()
+    plot.set_axis_padding(40)
+    assert plot.content_axis_width() == before
+
+
+def test_set_axis_padding_negative_clamped_to_zero(plot: PlotStripe) -> None:
+    plot.set_axis_padding(-10)
+    assert plot._axis_spacer is None
 
 
 def _drag_event(button, last_pos, pos, axis_finish=False):
@@ -124,7 +294,7 @@ def _drag_event(button, last_pos, pos, axis_finish=False):
 
 
 @pytest.mark.requirement("REQ-PLOT-051")
-def test_interior_left_drag_pans_x_only(plot: PlotArea) -> None:
+def test_interior_left_drag_pans_x_only(plot: PlotStripe) -> None:
     """Left-drag in the plot interior must not change an individual signal's Y (#78 follow-up).
 
     Y-panning a signal is only meant to happen via dragging its own Y-axis
@@ -144,7 +314,7 @@ def test_interior_left_drag_pans_x_only(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-051")
-def test_y_axis_drag_still_pans_y(plot: PlotArea) -> None:
+def test_y_axis_drag_still_pans_y(plot: PlotStripe) -> None:
     """Dragging the Y-axis item itself (axis=1) must still pan that signal's Y."""
     active = _make_active()
     plot.add_signal(active)
@@ -162,26 +332,26 @@ def test_y_axis_drag_still_pans_y(plot: PlotArea) -> None:
 # add_signal
 # ---------------------------------------------------------------------------
 
-def test_add_signal_sets_curve(plot: PlotArea) -> None:
+def test_add_signal_sets_curve(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     assert active.curve is not None
 
 
-def test_add_signal_sets_view_box(plot: PlotArea) -> None:
+def test_add_signal_sets_view_box(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     assert active.view_box is not None
 
 
-def test_add_signal_stored_in_data(plot: PlotArea) -> None:
+def test_add_signal_stored_in_data(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     assert active in plot._data
 
 
 @pytest.mark.requirement("REQ-PLOT-020")
-def test_add_signal_duplicate_is_noop(plot: PlotArea) -> None:
+def test_add_signal_duplicate_is_noop(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     curve_first = active.curve
@@ -190,7 +360,7 @@ def test_add_signal_duplicate_is_noop(plot: PlotArea) -> None:
     assert len(plot._data) == 1
 
 
-def test_add_multiple_signals(plot: PlotArea) -> None:
+def test_add_multiple_signals(plot: PlotStripe) -> None:
     sigs = [_make_active(f"s{i}", color=QColor(i * 30, 100, 200)) for i in range(3)]
     for s in sigs:
         plot.add_signal(s)
@@ -202,7 +372,7 @@ def test_add_multiple_signals(plot: PlotArea) -> None:
 
 @pytest.mark.requirement("REQ-PLOT-011")
 @pytest.mark.requirement("REQ-PLOT-030")
-def test_add_signal_view_boxes_are_distinct(plot: PlotArea) -> None:
+def test_add_signal_view_boxes_are_distinct(plot: PlotStripe) -> None:
     a = _make_active("a")
     b = _make_active("b")
     plot.add_signal(a)
@@ -210,7 +380,7 @@ def test_add_signal_view_boxes_are_distinct(plot: PlotArea) -> None:
     assert a.view_box is not b.view_box
 
 
-def test_add_signal_curves_are_distinct(plot: PlotArea) -> None:
+def test_add_signal_curves_are_distinct(plot: PlotStripe) -> None:
     a = _make_active("a")
     b = _make_active("b")
     plot.add_signal(a)
@@ -223,14 +393,14 @@ def test_add_signal_curves_are_distinct(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-010")
-def test_add_signal_links_x_axis_to_main_plot(plot: PlotArea) -> None:
+def test_add_signal_links_x_axis_to_main_plot(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     assert active.view_box.linkedView(0) is plot._pi.vb
 
 
 @pytest.mark.requirement("REQ-PLOT-010")
-def test_zoom_to_x_range_moves_all_signal_viewboxes_in_lockstep(plot: PlotArea) -> None:
+def test_zoom_to_x_range_moves_all_signal_viewboxes_in_lockstep(plot: PlotStripe) -> None:
     a = _make_active("a")
     b = _make_active("b")
     plot.add_signal(a)
@@ -247,7 +417,7 @@ def test_zoom_to_x_range_moves_all_signal_viewboxes_in_lockstep(plot: PlotArea) 
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-NFR-050")
-def test_add_signal_enables_curve_downsampling(plot: PlotArea) -> None:
+def test_add_signal_enables_curve_downsampling(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     assert active.curve.opts["autoDownsample"] is True
@@ -255,7 +425,7 @@ def test_add_signal_enables_curve_downsampling(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-NFR-051")
-def test_curve_data_is_full_resolution_despite_downsampling(plot: PlotArea) -> None:
+def test_curve_data_is_full_resolution_despite_downsampling(plot: PlotStripe) -> None:
     """Downsampling (above) is a pyqtgraph rendering optimization only — the
     curve still receives every sample, and cursor/interpolation code reads
     from active.data directly, never from a simplified rendering."""
@@ -270,21 +440,21 @@ def test_curve_data_is_full_resolution_despite_downsampling(plot: PlotArea) -> N
 # remove_signal
 # ---------------------------------------------------------------------------
 
-def test_remove_signal_clears_curve(plot: PlotArea) -> None:
+def test_remove_signal_clears_curve(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.remove_signal(active)
     assert active.curve is None
 
 
-def test_remove_signal_clears_view_box(plot: PlotArea) -> None:
+def test_remove_signal_clears_view_box(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.remove_signal(active)
     assert active.view_box is None
 
 
-def test_remove_signal_removed_from_data(plot: PlotArea) -> None:
+def test_remove_signal_removed_from_data(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.remove_signal(active)
@@ -292,12 +462,12 @@ def test_remove_signal_removed_from_data(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-023")
-def test_remove_signal_noop_for_unknown(plot: PlotArea) -> None:
+def test_remove_signal_noop_for_unknown(plot: PlotStripe) -> None:
     stranger = _make_active("stranger")
     plot.remove_signal(stranger)  # must not raise
 
 
-def test_remove_one_of_multiple(plot: PlotArea) -> None:
+def test_remove_one_of_multiple(plot: PlotStripe) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     for s in (a, b, c):
         plot.add_signal(s)
@@ -310,7 +480,7 @@ def test_remove_one_of_multiple(plot: PlotArea) -> None:
     assert b.view_box is None
 
 
-def test_add_after_remove(plot: PlotArea) -> None:
+def test_add_after_remove(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.remove_signal(active)
@@ -324,12 +494,12 @@ def test_add_after_remove(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-053")
-def test_zoom_to_fit_empty_is_noop(plot: PlotArea) -> None:
+def test_zoom_to_fit_empty_is_noop(plot: PlotStripe) -> None:
     plot.zoom_to_fit()  # must not raise
 
 
 @pytest.mark.requirement("REQ-PLOT-053")
-def test_zoom_to_fit_with_signals_no_crash(plot: PlotArea) -> None:
+def test_zoom_to_fit_with_signals_no_crash(plot: PlotStripe) -> None:
     for i in range(3):
         plot.add_signal(_make_active(f"s{i}"))
     plot.zoom_to_fit()  # must not raise
@@ -340,7 +510,7 @@ def test_zoom_to_fit_with_signals_no_crash(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_recolor_updates_active_color(plot: PlotArea) -> None:
+def test_recolor_updates_active_color(plot: PlotStripe) -> None:
     active = _make_active(color=QColor(255, 0, 0))
     plot.add_signal(active)
     new_color = QColor(0, 0, 255)
@@ -349,7 +519,7 @@ def test_recolor_updates_active_color(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_recolor_updates_curve_pen(plot: PlotArea) -> None:
+def test_recolor_updates_curve_pen(plot: PlotStripe) -> None:
     active = _make_active(color=QColor(255, 0, 0))
     plot.add_signal(active)
     new_color = QColor(0, 200, 50)
@@ -358,13 +528,13 @@ def test_recolor_updates_curve_pen(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-023")
-def test_recolor_noop_for_unknown(plot: PlotArea) -> None:
+def test_recolor_noop_for_unknown(plot: PlotStripe) -> None:
     stranger = _make_active()
     plot.recolor_signal(stranger, QColor(0, 255, 0))  # must not raise
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_recolor_does_not_affect_other_signals(plot: PlotArea) -> None:
+def test_recolor_does_not_affect_other_signals(plot: PlotStripe) -> None:
     a = _make_active("a", color=QColor(255, 0, 0))
     b = _make_active("b", color=QColor(0, 0, 255))
     plot.add_signal(a)
@@ -378,7 +548,7 @@ def test_recolor_does_not_affect_other_signals(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-012")
-def test_float_signal_uses_float_axis(plot: PlotArea) -> None:
+def test_float_signal_uses_float_axis(plot: PlotStripe) -> None:
     active = _make_active()  # float64 samples
     plot.add_signal(active)
     axis = plot._data[active].axis
@@ -386,7 +556,7 @@ def test_float_signal_uses_float_axis(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-013")
-def test_integer_signal_uses_integer_axis(plot: PlotArea) -> None:
+def test_integer_signal_uses_integer_axis(plot: PlotStripe) -> None:
     t = np.linspace(0.0, 1.0, 10)
     # Samples are float64 (as MdfLoader always produces), but metadata carries
     # is_integer=True set from the raw dtype before conversion.
@@ -418,7 +588,7 @@ def test_integer_tick_strings_are_plain_ints() -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-013")
-def test_integer_tick_values_no_fractions(plot: PlotArea) -> None:
+def test_integer_tick_values_no_fractions(plot: PlotStripe) -> None:
     axis = _SignalAxisItem("left", integer_ticks=True)
     # Ask for ticks across range 0–8 (gear signal)
     ticks = axis.tickValues(0.0, 8.0, 300)
@@ -428,7 +598,7 @@ def test_integer_tick_values_no_fractions(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-013")
-def test_integer_tick_values_no_duplicates(plot: PlotArea) -> None:
+def test_integer_tick_values_no_duplicates(plot: PlotStripe) -> None:
     axis = _SignalAxisItem("left", integer_ticks=True)
     ticks = axis.tickValues(-1.0, 8.0, 300)
     all_values = [v for _, vals in ticks for v in vals]
@@ -470,7 +640,7 @@ def test_axis_enum_display_falls_back_for_unmapped_value() -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-014")
-def test_set_enum_display_yaxis_enables_axis(plot: PlotArea) -> None:
+def test_set_enum_display_yaxis_enables_axis(plot: PlotStripe) -> None:
     active = _make_active_enum()
     plot.add_signal(active)
     plot.set_enum_display_yaxis(active, True)
@@ -478,7 +648,7 @@ def test_set_enum_display_yaxis_enables_axis(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-014")
-def test_set_enum_display_yaxis_disables_axis(plot: PlotArea) -> None:
+def test_set_enum_display_yaxis_disables_axis(plot: PlotStripe) -> None:
     active = _make_active_enum()
     plot.add_signal(active)
     plot.set_enum_display_yaxis(active, True)
@@ -487,13 +657,13 @@ def test_set_enum_display_yaxis_disables_axis(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-023")
-def test_set_enum_display_yaxis_noop_for_unknown(plot: PlotArea) -> None:
+def test_set_enum_display_yaxis_noop_for_unknown(plot: PlotStripe) -> None:
     stranger = _make_active_enum("x")
     plot.set_enum_display_yaxis(stranger, True)  # must not raise
 
 
 @pytest.mark.requirement("REQ-PLOT-014")
-def test_set_enum_display_yaxis_merged_any_on_rule(plot: PlotArea) -> None:
+def test_set_enum_display_yaxis_merged_any_on_rule(plot: PlotStripe) -> None:
     a = _make_active_enum("a")
     b = _make_active_enum("b")
     plot.add_signal(a)
@@ -514,7 +684,7 @@ def test_set_enum_display_yaxis_merged_any_on_rule(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-BROWSER-031")
-def test_signals_dropped_emitted_on_signal_mime(plot: PlotArea, qtbot: QtBot) -> None:
+def test_signals_dropped_emitted_on_signal_mime(plot: PlotStripe, qtbot: QtBot) -> None:
     locs = [[0, 1], [1, 2]]
     mime = QMimeData()
     mime.setData(SIGNAL_MIME_TYPE, QByteArray(json.dumps(locs).encode()))
@@ -525,7 +695,7 @@ def test_signals_dropped_emitted_on_signal_mime(plot: PlotArea, qtbot: QtBot) ->
 
 @pytest.mark.requirement("REQ-BROWSER-031")
 def test_signals_dropped_not_emitted_for_wrong_mime(
-    plot: PlotArea, qtbot: QtBot
+    plot: PlotStripe, qtbot: QtBot
 ) -> None:
     mime = QMimeData()
     mime.setText("irrelevant")
@@ -539,7 +709,7 @@ def test_signals_dropped_not_emitted_for_wrong_mime(
 
 @pytest.mark.requirement("REQ-FILE-011")
 def test_file_dropped_emitted_on_mdf_url(
-    plot: PlotArea, qtbot: QtBot, tmp_path: Path
+    plot: PlotStripe, qtbot: QtBot, tmp_path: Path
 ) -> None:
     path = tmp_path / "data.mf4"
     path.touch()
@@ -552,7 +722,7 @@ def test_file_dropped_emitted_on_mdf_url(
 
 @pytest.mark.requirement("REQ-FILE-011")
 def test_file_dropped_not_emitted_for_non_mdf(
-    plot: PlotArea, qtbot: QtBot, tmp_path: Path
+    plot: PlotStripe, qtbot: QtBot, tmp_path: Path
 ) -> None:
     path = tmp_path / "data.csv"
     path.touch()
@@ -563,7 +733,7 @@ def test_file_dropped_not_emitted_for_non_mdf(
 
 
 @pytest.mark.requirement("REQ-BROWSER-031")
-def test_drag_enter_accepted_for_signal_mime(plot: PlotArea) -> None:
+def test_drag_enter_accepted_for_signal_mime(plot: PlotStripe) -> None:
     mime = QMimeData()
     mime.setData(SIGNAL_MIME_TYPE, QByteArray(b"[]"))
     event = _drag_enter_event(mime)
@@ -572,7 +742,7 @@ def test_drag_enter_accepted_for_signal_mime(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-FILE-011")
-def test_drag_enter_accepted_for_mdf_url(plot: PlotArea, tmp_path: Path) -> None:
+def test_drag_enter_accepted_for_mdf_url(plot: PlotStripe, tmp_path: Path) -> None:
     path = tmp_path / "data.mf4"
     path.touch()
     mime = QMimeData()
@@ -582,7 +752,7 @@ def test_drag_enter_accepted_for_mdf_url(plot: PlotArea, tmp_path: Path) -> None
     event.acceptProposedAction.assert_called_once()
 
 
-def test_drag_enter_ignored_for_unknown_mime(plot: PlotArea) -> None:
+def test_drag_enter_ignored_for_unknown_mime(plot: PlotStripe) -> None:
     mime = QMimeData()
     mime.setText("not a signal or file")
     event = _drag_enter_event(mime)
@@ -595,18 +765,18 @@ def test_drag_enter_ignored_for_unknown_mime(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-054")
-def test_zoom_y_to_view_returns_false_when_empty(plot: PlotArea) -> None:
+def test_zoom_y_to_view_returns_false_when_empty(plot: PlotStripe) -> None:
     assert plot.zoom_y_to_view() is False
 
 
 @pytest.mark.requirement("REQ-PLOT-054")
-def test_zoom_y_to_view_returns_true_with_signals(plot: PlotArea) -> None:
+def test_zoom_y_to_view_returns_true_with_signals(plot: PlotStripe) -> None:
     plot.add_signal(_make_active())
     assert plot.zoom_y_to_view() is True
 
 
 @pytest.mark.requirement("REQ-PLOT-056")
-def test_zoom_y_to_view_constant_signal_expands_range(plot: PlotArea) -> None:
+def test_zoom_y_to_view_constant_signal_expands_range(plot: PlotStripe) -> None:
     t = np.linspace(0.0, 1.0, 50)
     data = SignalData(timestamps=t, samples=np.zeros(50))
     meta = SignalMetadata(name="z", group_index=0, channel_index=0)
@@ -623,7 +793,7 @@ def test_zoom_y_to_view_constant_signal_expands_range(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-053")
-def test_zoom_to_fit_sets_x_range(plot: PlotArea) -> None:
+def test_zoom_to_fit_sets_x_range(plot: PlotStripe) -> None:
     t = np.linspace(0.5, 2.5, 50)
     data = SignalData(timestamps=t, samples=np.ones(50))
     meta = SignalMetadata(name="x", group_index=0, channel_index=0)
@@ -641,7 +811,7 @@ def test_zoom_to_fit_sets_x_range(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-050")
-def test_wheel_axis_none_forces_x_zoom(plot: PlotArea) -> None:
+def test_wheel_axis_none_forces_x_zoom(plot: PlotStripe) -> None:
     """Wheel over plot interior (axis=None) must zoom X only."""
     import pyqtgraph as pg
     from unittest.mock import MagicMock, patch
@@ -652,7 +822,7 @@ def test_wheel_axis_none_forces_x_zoom(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-050")
-def test_wheel_axis_0_forces_x_zoom(plot: PlotArea) -> None:
+def test_wheel_axis_0_forces_x_zoom(plot: PlotStripe) -> None:
     """Wheel with explicit axis=0 must also zoom X only."""
     import pyqtgraph as pg
     from unittest.mock import MagicMock, patch
@@ -663,7 +833,7 @@ def test_wheel_axis_0_forces_x_zoom(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-050")
-def test_wheel_axis_1_allows_y_zoom(plot: PlotArea) -> None:
+def test_wheel_axis_1_allows_y_zoom(plot: PlotStripe) -> None:
     """Wheel over a Y-axis (axis=1) must zoom Y, not X."""
     import pyqtgraph as pg
     from unittest.mock import MagicMock, patch
@@ -678,7 +848,7 @@ def test_wheel_axis_1_allows_y_zoom(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-052")
-def test_zoom_rect_updates_all_signal_viewboxes(plot: PlotArea) -> None:
+def test_zoom_rect_updates_all_signal_viewboxes(plot: PlotStripe) -> None:
     """_on_zoom_rect_finished increments axHistoryPointer on every signal ViewBox."""
     a = _make_active("a")
     b = _make_active("b")
@@ -694,12 +864,12 @@ def test_zoom_rect_updates_all_signal_viewboxes(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-052")
-def test_zoom_rect_noop_when_no_signals(plot: PlotArea) -> None:
+def test_zoom_rect_noop_when_no_signals(plot: PlotStripe) -> None:
     """_on_zoom_rect_finished with no signals must not raise."""
     plot._on_zoom_rect_finished(QRectF(0, 0, 100, 100))  # must not raise
 
 
-def test_zoom_rect_signal_connected_on_add(plot: PlotArea) -> None:
+def test_zoom_rect_signal_connected_on_add(plot: PlotStripe) -> None:
     """zoom_rect_finished on a signal ViewBox must trigger _on_zoom_rect_finished."""
     active = _make_active()
     plot.add_signal(active)
@@ -712,7 +882,7 @@ def test_zoom_rect_signal_connected_on_add(plot: PlotArea) -> None:
     assert vb.axHistoryPointer == ptr_before + 1
 
 
-def test_zoom_rect_signal_disconnected_on_remove(plot: PlotArea) -> None:
+def test_zoom_rect_signal_disconnected_on_remove(plot: PlotStripe) -> None:
     """After remove_signal, the removed ViewBox's zoom_rect_finished must not fire the handler."""
     a = _make_active("a")
     b = _make_active("b")
@@ -734,17 +904,17 @@ def test_zoom_rect_signal_disconnected_on_remove(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-055")
-def test_swimlanes_returns_false_when_no_signals(plot: PlotArea) -> None:
+def test_swimlanes_returns_false_when_no_signals(plot: PlotStripe) -> None:
     assert plot.swimlanes([]) is False
 
 
 @pytest.mark.requirement("REQ-PLOT-055")
-def test_swimlanes_returns_false_when_data_empty(plot: PlotArea) -> None:
+def test_swimlanes_returns_false_when_data_empty(plot: PlotStripe) -> None:
     assert plot.swimlanes([_make_active()]) is False
 
 
 @pytest.mark.requirement("REQ-PLOT-055")
-def test_swimlanes_returns_true_with_signals(plot: PlotArea) -> None:
+def test_swimlanes_returns_true_with_signals(plot: PlotStripe) -> None:
     a = _make_active("a")
     plot.add_signal(a)
     plot.show()
@@ -752,7 +922,7 @@ def test_swimlanes_returns_true_with_signals(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-055")
-def test_swimlanes_sets_y_range_per_signal(plot: PlotArea) -> None:
+def test_swimlanes_sets_y_range_per_signal(plot: PlotStripe) -> None:
     a = _make_active("a")
     b = _make_active("b")
     plot.add_signal(a)
@@ -764,7 +934,7 @@ def test_swimlanes_sets_y_range_per_signal(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-023")
-def test_swimlanes_skips_unknown_signals(plot: PlotArea) -> None:
+def test_swimlanes_skips_unknown_signals(plot: PlotStripe) -> None:
     a = _make_active("a")
     plot.add_signal(a)
     plot.show()
@@ -779,13 +949,13 @@ def test_swimlanes_skips_unknown_signals(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-023")
-def test_set_display_mode_noop_for_unknown(plot: PlotArea) -> None:
+def test_set_display_mode_noop_for_unknown(plot: PlotStripe) -> None:
     stranger = _make_active("x")
     plot.set_display_mode(stranger, "marker", "circle")  # must not raise
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_set_display_mode_to_marker_removes_pen(plot: PlotArea) -> None:
+def test_set_display_mode_to_marker_removes_pen(plot: PlotStripe) -> None:
     from PyQt6.QtCore import Qt
     active = _make_active()
     plot.add_signal(active)
@@ -795,7 +965,7 @@ def test_set_display_mode_to_marker_removes_pen(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_set_display_mode_to_line_restores_pen(plot: PlotArea) -> None:
+def test_set_display_mode_to_line_restores_pen(plot: PlotStripe) -> None:
     from PyQt6.QtCore import Qt
     active = _make_active()
     plot.add_signal(active)
@@ -805,7 +975,7 @@ def test_set_display_mode_to_line_restores_pen(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_set_display_mode_line_clears_symbol(plot: PlotArea) -> None:
+def test_set_display_mode_line_clears_symbol(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_display_mode(active, "line_marker", "circle")
@@ -814,7 +984,7 @@ def test_set_display_mode_line_clears_symbol(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_set_display_mode_line_marker_sets_symbol(plot: PlotArea) -> None:
+def test_set_display_mode_line_marker_sets_symbol(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_display_mode(active, "line_marker", "square")
@@ -822,7 +992,7 @@ def test_set_display_mode_line_marker_sets_symbol(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_set_display_mode_marker_only_sets_symbol(plot: PlotArea) -> None:
+def test_set_display_mode_marker_only_sets_symbol(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_display_mode(active, "marker", "diamond")
@@ -830,7 +1000,7 @@ def test_set_display_mode_marker_only_sets_symbol(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_set_display_mode_cross_uses_correct_pg_symbol(plot: PlotArea) -> None:
+def test_set_display_mode_cross_uses_correct_pg_symbol(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_display_mode(active, "marker", "cross")
@@ -842,13 +1012,13 @@ def test_set_display_mode_cross_uses_correct_pg_symbol(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-023")
-def test_set_line_width_noop_for_unknown(plot: PlotArea) -> None:
+def test_set_line_width_noop_for_unknown(plot: PlotStripe) -> None:
     stranger = _make_active()
     plot.set_line_width(stranger, 3)  # must not raise
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_set_line_width_updates_active_field(plot: PlotArea) -> None:
+def test_set_line_width_updates_active_field(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_line_width(active, 4)
@@ -856,7 +1026,7 @@ def test_set_line_width_updates_active_field(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_set_line_width_updates_pen_width_in_line_mode(plot: PlotArea) -> None:
+def test_set_line_width_updates_pen_width_in_line_mode(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_line_width(active, 5)
@@ -864,7 +1034,7 @@ def test_set_line_width_updates_pen_width_in_line_mode(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-121")
-def test_set_line_width_no_pen_in_marker_only_mode(plot: PlotArea) -> None:
+def test_set_line_width_no_pen_in_marker_only_mode(plot: PlotStripe) -> None:
     from PyQt6.QtCore import Qt
     active = _make_active()
     active.display_mode = "marker"
@@ -875,8 +1045,8 @@ def test_set_line_width_no_pen_in_marker_only_mode(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_set_line_width_updates_symbol_size_in_line_marker_mode(plot: PlotArea) -> None:
-    from mdf_viewer.view.plot_area import _symbol_size
+def test_set_line_width_updates_symbol_size_in_line_marker_mode(plot: PlotStripe) -> None:
+    from mdf_viewer.view.plot_stripe import _symbol_size
     active = _make_active()
     active.display_mode = "line_marker"
     plot.add_signal(active)
@@ -885,7 +1055,7 @@ def test_set_line_width_updates_symbol_size_in_line_marker_mode(plot: PlotArea) 
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_add_signal_uses_line_width_from_active(plot: PlotArea) -> None:
+def test_add_signal_uses_line_width_from_active(plot: PlotStripe) -> None:
     active = _make_active()
     active.line_width = 5
     plot.add_signal(active)
@@ -897,13 +1067,13 @@ def test_add_signal_uses_line_width_from_active(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-023")
-def test_set_line_style_noop_for_unknown(plot: PlotArea) -> None:
+def test_set_line_style_noop_for_unknown(plot: PlotStripe) -> None:
     stranger = _make_active()
     plot.set_line_style(stranger, "dashes")  # must not raise
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_set_line_style_updates_active_field(plot: PlotArea) -> None:
+def test_set_line_style_updates_active_field(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_line_style(active, "dots")
@@ -911,7 +1081,7 @@ def test_set_line_style_updates_active_field(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_set_line_style_updates_pen_style(plot: PlotArea) -> None:
+def test_set_line_style_updates_pen_style(plot: PlotStripe) -> None:
     from PyQt6.QtCore import Qt
     active = _make_active()
     plot.add_signal(active)
@@ -920,7 +1090,7 @@ def test_set_line_style_updates_pen_style(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_set_line_style_all_styles_map_correctly(plot: PlotArea) -> None:
+def test_set_line_style_all_styles_map_correctly(plot: PlotStripe) -> None:
     from PyQt6.QtCore import Qt
     expected = {
         "solid":    Qt.PenStyle.SolidLine,
@@ -937,7 +1107,7 @@ def test_set_line_style_all_styles_map_correctly(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-121")
-def test_set_line_style_noop_in_marker_only_mode(plot: PlotArea) -> None:
+def test_set_line_style_noop_in_marker_only_mode(plot: PlotStripe) -> None:
     from PyQt6.QtCore import Qt
     active = _make_active()
     active.display_mode = "marker"
@@ -948,7 +1118,7 @@ def test_set_line_style_noop_in_marker_only_mode(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_add_signal_uses_line_style_from_active(plot: PlotArea) -> None:
+def test_add_signal_uses_line_style_from_active(plot: PlotStripe) -> None:
     from PyQt6.QtCore import Qt
     active = _make_active()
     active.line_style = "dots"
@@ -957,7 +1127,7 @@ def test_add_signal_uses_line_style_from_active(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_set_line_width_preserves_line_style(plot: PlotArea) -> None:
+def test_set_line_width_preserves_line_style(plot: PlotStripe) -> None:
     from PyQt6.QtCore import Qt
     active = _make_active()
     plot.add_signal(active)
@@ -971,7 +1141,7 @@ def test_set_line_width_preserves_line_style(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-044")
-def test_set_selected_signals_boosts_pen_width(plot: PlotArea) -> None:
+def test_set_selected_signals_boosts_pen_width(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_selected_signals([active])
@@ -979,7 +1149,7 @@ def test_set_selected_signals_boosts_pen_width(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-044")
-def test_set_selected_signals_restores_pen_on_deselect(plot: PlotArea) -> None:
+def test_set_selected_signals_restores_pen_on_deselect(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_selected_signals([active])
@@ -988,7 +1158,7 @@ def test_set_selected_signals_restores_pen_on_deselect(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-043")
-def test_set_selected_signals_raises_z_value(plot: PlotArea) -> None:
+def test_set_selected_signals_raises_z_value(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_selected_signals([active])
@@ -996,7 +1166,7 @@ def test_set_selected_signals_raises_z_value(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-043")
-def test_set_selected_signals_restores_z_on_deselect(plot: PlotArea) -> None:
+def test_set_selected_signals_restores_z_on_deselect(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_selected_signals([active])
@@ -1005,7 +1175,7 @@ def test_set_selected_signals_restores_z_on_deselect(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-043")
-def test_set_selected_signals_latest_has_highest_z(plot: PlotArea) -> None:
+def test_set_selected_signals_latest_has_highest_z(plot: PlotStripe) -> None:
     a1 = _make_active("a")
     a2 = _make_active("b")
     plot.add_signal(a1)
@@ -1015,7 +1185,7 @@ def test_set_selected_signals_latest_has_highest_z(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-043")
-def test_set_selected_signals_unselected_stays_at_zero(plot: PlotArea) -> None:
+def test_set_selected_signals_unselected_stays_at_zero(plot: PlotStripe) -> None:
     a1 = _make_active("a")
     a2 = _make_active("b")
     plot.add_signal(a1)
@@ -1025,7 +1195,7 @@ def test_set_selected_signals_unselected_stays_at_zero(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-121")
-def test_set_selected_signals_no_boost_in_marker_mode(plot: PlotArea) -> None:
+def test_set_selected_signals_no_boost_in_marker_mode(plot: PlotStripe) -> None:
     from PyQt6.QtCore import Qt
     active = _make_active()
     active.display_mode = "marker"
@@ -1036,7 +1206,7 @@ def test_set_selected_signals_no_boost_in_marker_mode(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-044")
-def test_recolor_preserves_boost_when_selected(plot: PlotArea) -> None:
+def test_recolor_preserves_boost_when_selected(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_selected_signals([active])
@@ -1045,7 +1215,7 @@ def test_recolor_preserves_boost_when_selected(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-044")
-def test_set_line_width_preserves_boost_when_selected(plot: PlotArea) -> None:
+def test_set_line_width_preserves_boost_when_selected(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_selected_signals([active])
@@ -1054,7 +1224,7 @@ def test_set_line_width_preserves_boost_when_selected(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-044")
-def test_set_line_style_preserves_boost_when_selected(plot: PlotArea) -> None:
+def test_set_line_style_preserves_boost_when_selected(plot: PlotStripe) -> None:
     from PyQt6.QtCore import Qt
     active = _make_active()
     plot.add_signal(active)
@@ -1065,7 +1235,7 @@ def test_set_line_style_preserves_boost_when_selected(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-042")
-def test_set_selected_signals_top_first_top_row_has_highest_z(plot: PlotArea) -> None:
+def test_set_selected_signals_top_first_top_row_has_highest_z(plot: PlotStripe) -> None:
     """With top_first=True, index-0 signal gets the highest base Z."""
     a1 = _make_active("a")  # top row
     a2 = _make_active("b")  # bottom row
@@ -1076,7 +1246,7 @@ def test_set_selected_signals_top_first_top_row_has_highest_z(plot: PlotArea) ->
 
 
 @pytest.mark.requirement("REQ-PLOT-042")
-def test_set_selected_signals_bottom_first_bottom_row_has_highest_z(plot: PlotArea) -> None:
+def test_set_selected_signals_bottom_first_bottom_row_has_highest_z(plot: PlotStripe) -> None:
     """With top_first=False, last signal in the list gets the highest base Z."""
     a1 = _make_active("a")  # top row
     a2 = _make_active("b")  # bottom row
@@ -1087,7 +1257,7 @@ def test_set_selected_signals_bottom_first_bottom_row_has_highest_z(plot: PlotAr
 
 
 @pytest.mark.requirement("REQ-PLOT-043")
-def test_set_selected_signals_selected_above_unselected(plot: PlotArea) -> None:
+def test_set_selected_signals_selected_above_unselected(plot: PlotStripe) -> None:
     """Selected signals' Z must exceed any unselected signal's Z."""
     a1 = _make_active("a")
     a2 = _make_active("b")
@@ -1098,7 +1268,7 @@ def test_set_selected_signals_selected_above_unselected(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-042")
-def test_set_selected_signals_unselected_z_equals_position(plot: PlotArea) -> None:
+def test_set_selected_signals_unselected_z_equals_position(plot: PlotStripe) -> None:
     """With top_first=True, unselected Z for row-0 is n, row-1 is n-1, …"""
     a1 = _make_active("a")  # index 0 → Z = 2
     a2 = _make_active("b")  # index 1 → Z = 1
@@ -1114,7 +1284,7 @@ def test_set_selected_signals_unselected_z_equals_position(plot: PlotArea) -> No
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-044")
-def test_set_selected_line_boost_changes_pen_width(plot: PlotArea) -> None:
+def test_set_selected_line_boost_changes_pen_width(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_selected_line_boost(3)
@@ -1123,7 +1293,7 @@ def test_set_selected_line_boost_changes_pen_width(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-044")
-def test_set_selected_line_boost_zero_disables_boost(plot: PlotArea) -> None:
+def test_set_selected_line_boost_zero_disables_boost(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_selected_line_boost(0)
@@ -1132,7 +1302,7 @@ def test_set_selected_line_boost_zero_disables_boost(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-044")
-def test_set_selected_line_boost_applies_to_subsequent_selection(plot: PlotArea) -> None:
+def test_set_selected_line_boost_applies_to_subsequent_selection(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     plot.set_selected_signals([active])
@@ -1163,7 +1333,7 @@ def _right_press_event(pos: QPoint = QPoint(100, 100)):
 
 
 @pytest.mark.requirement("REQ-PLOT-040")
-def test_signal_clicked_emits_none_on_empty_plot(plot: PlotArea) -> None:
+def test_signal_clicked_emits_none_on_empty_plot(plot: PlotStripe) -> None:
     received = []
     plot.signal_clicked.connect(received.append)
     plot.eventFilter(plot._pw.viewport(), _left_press_event())
@@ -1171,12 +1341,12 @@ def test_signal_clicked_emits_none_on_empty_plot(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-040")
-def test_miss_does_not_consume_event(plot: PlotArea) -> None:
+def test_miss_does_not_consume_event(plot: PlotStripe) -> None:
     result = plot.eventFilter(plot._pw.viewport(), _left_press_event())
     assert result is False
 
 
-def test_right_click_does_not_emit_signal_clicked(plot: PlotArea) -> None:
+def test_right_click_does_not_emit_signal_clicked(plot: PlotStripe) -> None:
     from PyQt6.QtWidgets import QWidget
     received = []
     plot.signal_clicked.connect(received.append)
@@ -1186,7 +1356,7 @@ def test_right_click_does_not_emit_signal_clicked(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-040")
-def test_hit_emits_active_signal(plot: PlotArea) -> None:
+def test_hit_emits_active_signal(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     received = []
@@ -1197,7 +1367,7 @@ def test_hit_emits_active_signal(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-040")
-def test_hit_consumes_event(plot: PlotArea) -> None:
+def test_hit_consumes_event(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     with patch.object(plot, "_hit_test", return_value=active):
@@ -1206,13 +1376,13 @@ def test_hit_consumes_event(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-040")
-def test_hit_test_returns_none_with_no_signals(plot: PlotArea) -> None:
+def test_hit_test_returns_none_with_no_signals(plot: PlotStripe) -> None:
     from PyQt6.QtCore import QPointF
     assert plot._hit_test(QPointF(0, 0)) is None
 
 
 @pytest.mark.requirement("REQ-PLOT-041")
-def test_hit_test_merged_axis_prefers_selected_signal(plot: PlotArea) -> None:
+def test_hit_test_merged_axis_prefers_selected_signal(plot: PlotStripe) -> None:
     """Two signals sharing a Y-axis must still hit-test in per-signal Z order (#80).
 
     Before the fix, _hit_test sorted by view_box.zValue(), which is identical
@@ -1239,7 +1409,7 @@ def test_hit_test_merged_axis_prefers_selected_signal(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-040")
-def test_hit_test_marker_scatter_miss_does_not_raise(plot: PlotArea) -> None:
+def test_hit_test_marker_scatter_miss_does_not_raise(plot: PlotStripe) -> None:
     """A marker-only signal's scatter miss must not crash _hit_test (#81).
 
     ScatterPlotItem.pointsAt() returns a numpy array; treating it as a bare
@@ -1256,7 +1426,7 @@ def test_hit_test_marker_scatter_miss_does_not_raise(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-041")
-def test_hit_test_marker_scatter_miss_does_not_block_lower_z_signal(plot: PlotArea) -> None:
+def test_hit_test_marker_scatter_miss_does_not_block_lower_z_signal(plot: PlotStripe) -> None:
     """A scatter-miss exception on a higher-Z marker signal must not abort
     the loop before it reaches lower-Z signals (#81).
 
@@ -1281,7 +1451,7 @@ def test_hit_test_marker_scatter_miss_does_not_block_lower_z_signal(plot: PlotAr
 
 
 @pytest.mark.requirement("REQ-PLOT-040")
-def test_near_any_point_hits_within_tolerance(plot: PlotArea) -> None:
+def test_near_any_point_hits_within_tolerance(plot: PlotStripe) -> None:
     """Marker fallback hit-test (#81): a near-miss a few px away still counts."""
     from PyQt6.QtCore import QPointF
 
@@ -1293,7 +1463,7 @@ def test_near_any_point_hits_within_tolerance(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-040")
-def test_near_any_point_misses_beyond_tolerance(plot: PlotArea) -> None:
+def test_near_any_point_misses_beyond_tolerance(plot: PlotStripe) -> None:
     from PyQt6.QtCore import QPointF
 
     scatter = pg.ScatterPlotItem(x=[5.0], y=[5.0], symbol="o", size=6)
@@ -1303,7 +1473,7 @@ def test_near_any_point_misses_beyond_tolerance(plot: PlotArea) -> None:
     assert plot._near_any_point(vb, scatter, far_pos) is False
 
 
-def test_near_any_point_returns_false_on_viewpixelsize_error(plot: PlotArea) -> None:
+def test_near_any_point_returns_false_on_viewpixelsize_error(plot: PlotStripe) -> None:
     """A ViewBox without real geometry raises inside viewPixelSize(); must not crash."""
     from PyQt6.QtCore import QPointF
 
@@ -1318,7 +1488,7 @@ def test_near_any_point_returns_false_on_viewpixelsize_error(plot: PlotArea) -> 
 # ---------------------------------------------------------------------------
 
 class _FakeClaimant:
-    """Minimal DragClaimant stub for testing PlotArea's press/move/release routing."""
+    """Minimal DragClaimant stub for testing PlotStripe's press/move/release routing."""
 
     def __init__(self, claim: bool = True) -> None:
         self._claim = claim
@@ -1337,7 +1507,7 @@ class _FakeClaimant:
         self.events.append("release")
 
 
-def test_drag_claimant_claims_press_and_skips_hit_test(plot: PlotArea) -> None:
+def test_drag_claimant_claims_press_and_skips_hit_test(plot: PlotStripe) -> None:
     claimant = _FakeClaimant()
     plot.register_drag_claimant(claimant)
     received = []
@@ -1350,7 +1520,7 @@ def test_drag_claimant_claims_press_and_skips_hit_test(plot: PlotArea) -> None:
     assert received == []  # curve hit-test never ran
 
 
-def test_drag_claimant_miss_falls_through_to_hit_test(plot: PlotArea) -> None:
+def test_drag_claimant_miss_falls_through_to_hit_test(plot: PlotStripe) -> None:
     claimant = _FakeClaimant(claim=False)
     plot.register_drag_claimant(claimant)
     received = []
@@ -1363,7 +1533,7 @@ def test_drag_claimant_miss_falls_through_to_hit_test(plot: PlotArea) -> None:
     assert received == [None]
 
 
-def test_drag_claimant_receives_move_and_release(plot: PlotArea) -> None:
+def test_drag_claimant_receives_move_and_release(plot: PlotStripe) -> None:
     claimant = _FakeClaimant()
     plot.register_drag_claimant(claimant)
     plot.eventFilter(plot._pw.viewport(), _left_press_event())
@@ -1387,14 +1557,14 @@ def test_drag_claimant_receives_move_and_release(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-045")
-def test_axis_visible_by_default(plot: PlotArea) -> None:
+def test_axis_visible_by_default(plot: PlotStripe) -> None:
     active = _make_active()
     plot.add_signal(active)
     assert plot._data[active].axis.isVisible()
 
 
 @pytest.mark.requirement("REQ-PLOT-045")
-def test_show_only_selected_off_all_axes_visible(plot: PlotArea) -> None:
+def test_show_only_selected_off_all_axes_visible(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1404,7 +1574,7 @@ def test_show_only_selected_off_all_axes_visible(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-045")
-def test_show_only_selected_on_no_selection_all_axes_visible(plot: PlotArea) -> None:
+def test_show_only_selected_on_no_selection_all_axes_visible(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1415,7 +1585,7 @@ def test_show_only_selected_on_no_selection_all_axes_visible(plot: PlotArea) -> 
 
 
 @pytest.mark.requirement("REQ-PLOT-045")
-def test_show_only_selected_on_hides_unselected_axis(plot: PlotArea) -> None:
+def test_show_only_selected_on_hides_unselected_axis(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1426,7 +1596,7 @@ def test_show_only_selected_on_hides_unselected_axis(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-045")
-def test_show_only_selected_on_multi_selection_shows_all_selected(plot: PlotArea) -> None:
+def test_show_only_selected_on_multi_selection_shows_all_selected(plot: PlotStripe) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     for sig in (a, b, c):
         plot.add_signal(sig)
@@ -1438,7 +1608,7 @@ def test_show_only_selected_on_multi_selection_shows_all_selected(plot: PlotArea
 
 
 @pytest.mark.requirement("REQ-PLOT-045")
-def test_show_only_selected_clearing_selection_restores_all_axes(plot: PlotArea) -> None:
+def test_show_only_selected_clearing_selection_restores_all_axes(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1451,7 +1621,7 @@ def test_show_only_selected_clearing_selection_restores_all_axes(plot: PlotArea)
 
 
 @pytest.mark.requirement("REQ-PLOT-045")
-def test_show_only_selected_toggling_off_restores_all_axes(plot: PlotArea) -> None:
+def test_show_only_selected_toggling_off_restores_all_axes(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1464,7 +1634,7 @@ def test_show_only_selected_toggling_off_restores_all_axes(plot: PlotArea) -> No
 
 
 @pytest.mark.requirement("REQ-PLOT-045")
-def test_new_signal_added_with_toggle_on_respects_visibility(plot: PlotArea) -> None:
+def test_new_signal_added_with_toggle_on_respects_visibility(plot: PlotStripe) -> None:
     a = _make_active("a")
     plot.add_signal(a)
     plot.set_show_only_selected_y_axis(True)
@@ -1488,7 +1658,7 @@ def _make_active_unit(name: str, unit: str = "V", n: int = 50) -> ActiveSignal:
 
 
 @pytest.mark.requirement("REQ-PLOT-034")
-def test_merge_signals_noop_when_less_than_two(plot: PlotArea) -> None:
+def test_merge_signals_noop_when_less_than_two(plot: PlotStripe) -> None:
     a = _make_active("a")
     plot.add_signal(a)
     plot.merge_signals([a])
@@ -1496,7 +1666,7 @@ def test_merge_signals_noop_when_less_than_two(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-031")
-def test_merge_signals_creates_merged_group(plot: PlotArea) -> None:
+def test_merge_signals_creates_merged_group(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1507,7 +1677,7 @@ def test_merge_signals_creates_merged_group(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-031")
-def test_merge_signals_both_use_same_viewbox(plot: PlotArea) -> None:
+def test_merge_signals_both_use_same_viewbox(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1516,7 +1686,7 @@ def test_merge_signals_both_use_same_viewbox(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-031")
-def test_merge_signals_both_use_same_axis(plot: PlotArea) -> None:
+def test_merge_signals_both_use_same_axis(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1525,7 +1695,7 @@ def test_merge_signals_both_use_same_axis(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-031")
-def test_merge_signals_one_signal_owns_axis(plot: PlotArea) -> None:
+def test_merge_signals_one_signal_owns_axis(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1537,8 +1707,8 @@ def test_merge_signals_one_signal_owns_axis(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-031")
-def test_merge_signals_axis_uses_neutral_color(plot: PlotArea) -> None:
-    from mdf_viewer.view.plot_area import _NEUTRAL_AXIS_COLOR
+def test_merge_signals_axis_uses_neutral_color(plot: PlotStripe) -> None:
+    from mdf_viewer.view.plot_stripe import _NEUTRAL_AXIS_COLOR
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1550,7 +1720,7 @@ def test_merge_signals_axis_uses_neutral_color(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-031")
-def test_merge_signals_is_in_group(plot: PlotArea) -> None:
+def test_merge_signals_is_in_group(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1560,7 +1730,7 @@ def test_merge_signals_is_in_group(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-031")
-def test_merge_signals_group_type_merged(plot: PlotArea) -> None:
+def test_merge_signals_group_type_merged(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1569,7 +1739,7 @@ def test_merge_signals_group_type_merged(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-031")
-def test_get_grouped_signals_includes_merged(plot: PlotArea) -> None:
+def test_get_grouped_signals_includes_merged(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1580,7 +1750,7 @@ def test_get_grouped_signals_includes_merged(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-031")
-def test_unmerged_signal_not_in_get_grouped(plot: PlotArea) -> None:
+def test_unmerged_signal_not_in_get_grouped(plot: PlotStripe) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1591,7 +1761,7 @@ def test_unmerged_signal_not_in_get_grouped(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-031")
-def test_get_merged_signals_includes_only_merged(plot: PlotArea) -> None:
+def test_get_merged_signals_includes_only_merged(plot: PlotStripe) -> None:
     a, b, c, d = (_make_active(n) for n in "abcd")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1604,7 +1774,7 @@ def test_get_merged_signals_includes_only_merged(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-032")
-def test_get_synced_signals_includes_only_synced(plot: PlotArea) -> None:
+def test_get_synced_signals_includes_only_synced(plot: PlotStripe) -> None:
     a, b, c, d = (_make_active(n) for n in "abcd")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1617,7 +1787,7 @@ def test_get_synced_signals_includes_only_synced(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-031")
-def test_merge_signals_three_signals(plot: PlotArea) -> None:
+def test_merge_signals_three_signals(plot: PlotStripe) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1628,7 +1798,7 @@ def test_merge_signals_three_signals(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-031")
-def test_merge_signals_merges_two_existing_groups(plot: PlotArea) -> None:
+def test_merge_signals_merges_two_existing_groups(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     c, d = _make_active("c"), _make_active("d")
     plot.add_signal(a)
@@ -1650,7 +1820,7 @@ def test_merge_signals_merges_two_existing_groups(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-024")
-def test_ungroup_signal_two_members_dissolves_group(plot: PlotArea) -> None:
+def test_ungroup_signal_two_members_dissolves_group(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1662,7 +1832,7 @@ def test_ungroup_signal_two_members_dissolves_group(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-035")
-def test_ungroup_signal_restores_own_viewbox(plot: PlotArea) -> None:
+def test_ungroup_signal_restores_own_viewbox(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1676,7 +1846,7 @@ def test_ungroup_signal_restores_own_viewbox(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-035")
-def test_ungroup_signal_three_to_two_keeps_group(plot: PlotArea) -> None:
+def test_ungroup_signal_three_to_two_keeps_group(plot: PlotStripe) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1694,7 +1864,7 @@ def test_ungroup_signal_three_to_two_keeps_group(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-035")
-def test_ungroup_signal_noop_when_not_in_group(plot: PlotArea) -> None:
+def test_ungroup_signal_noop_when_not_in_group(plot: PlotStripe) -> None:
     a = _make_active("a")
     plot.add_signal(a)
     plot.ungroup_signal(a)  # should not raise
@@ -1706,7 +1876,7 @@ def test_ungroup_signal_noop_when_not_in_group(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-024")
-def test_remove_signal_from_merged_group_two_members_dissolves(plot: PlotArea) -> None:
+def test_remove_signal_from_merged_group_two_members_dissolves(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1717,7 +1887,7 @@ def test_remove_signal_from_merged_group_two_members_dissolves(plot: PlotArea) -
 
 
 @pytest.mark.requirement("REQ-PLOT-024")
-def test_remove_signal_from_merged_group_three_members_shrinks(plot: PlotArea) -> None:
+def test_remove_signal_from_merged_group_three_members_shrinks(plot: PlotStripe) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1731,7 +1901,7 @@ def test_remove_signal_from_merged_group_three_members_shrinks(plot: PlotArea) -
 
 
 @pytest.mark.requirement("REQ-PLOT-024")
-def test_remove_owner_transfers_ownership(plot: PlotArea) -> None:
+def test_remove_owner_transfers_ownership(plot: PlotStripe) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1751,7 +1921,7 @@ def test_remove_owner_transfers_ownership(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-032")
-def test_sync_signals_creates_synced_group(plot: PlotArea) -> None:
+def test_sync_signals_creates_synced_group(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1762,7 +1932,7 @@ def test_sync_signals_creates_synced_group(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-032")
-def test_sync_signals_keeps_separate_viewboxes(plot: PlotArea) -> None:
+def test_sync_signals_keeps_separate_viewboxes(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1771,7 +1941,7 @@ def test_sync_signals_keeps_separate_viewboxes(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-032")
-def test_sync_signals_group_type_synced(plot: PlotArea) -> None:
+def test_sync_signals_group_type_synced(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1781,7 +1951,7 @@ def test_sync_signals_group_type_synced(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-032")
-def test_sync_signals_is_in_group(plot: PlotArea) -> None:
+def test_sync_signals_is_in_group(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1791,7 +1961,7 @@ def test_sync_signals_is_in_group(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-032")
-def test_get_grouped_signals_includes_synced(plot: PlotArea) -> None:
+def test_get_grouped_signals_includes_synced(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1802,7 +1972,7 @@ def test_get_grouped_signals_includes_synced(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-032")
-def test_sync_signals_syncs_y_range_when_vb_changes(plot: PlotArea) -> None:
+def test_sync_signals_syncs_y_range_when_vb_changes(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1818,7 +1988,7 @@ def test_sync_signals_syncs_y_range_when_vb_changes(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-032")
-def test_sync_signals_noop_feedback_loop(plot: PlotArea) -> None:
+def test_sync_signals_noop_feedback_loop(plot: PlotStripe) -> None:
     """Changing b's Y range (triggered by a's change) must not re-trigger a handler."""
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
@@ -1842,7 +2012,7 @@ def test_sync_signals_noop_feedback_loop(plot: PlotArea) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-035")
-def test_ungroup_synced_signal_removes_from_group(plot: PlotArea) -> None:
+def test_ungroup_synced_signal_removes_from_group(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1853,7 +2023,7 @@ def test_ungroup_synced_signal_removes_from_group(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-035")
-def test_ungroup_synced_three_to_two_keeps_group(plot: PlotArea) -> None:
+def test_ungroup_synced_three_to_two_keeps_group(plot: PlotStripe) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1866,7 +2036,7 @@ def test_ungroup_synced_three_to_two_keeps_group(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-024")
-def test_remove_signal_from_synced_group_dissolves_when_one_left(plot: PlotArea) -> None:
+def test_remove_signal_from_synced_group_dissolves_when_one_left(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1882,7 +2052,7 @@ def test_remove_signal_from_synced_group_dissolves_when_one_left(plot: PlotArea)
 
 @pytest.mark.requirement("REQ-PLOT-046")
 def test_show_only_selected_merged_axis_shown_when_any_member_selected(
-    plot: PlotArea,
+    plot: PlotStripe,
 ) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
@@ -1896,7 +2066,7 @@ def test_show_only_selected_merged_axis_shown_when_any_member_selected(
 
 @pytest.mark.requirement("REQ-PLOT-046")
 def test_show_only_selected_merged_axis_hidden_when_no_member_selected(
-    plot: PlotArea,
+    plot: PlotStripe,
 ) -> None:
     a, b = _make_active("a"), _make_active("b")
     c = _make_active("c")
@@ -1915,7 +2085,7 @@ def test_show_only_selected_merged_axis_hidden_when_no_member_selected(
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-PLOT-055")
-def test_swimlanes_counts_merged_group_as_one_lane(plot: PlotArea) -> None:
+def test_swimlanes_counts_merged_group_as_one_lane(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     c = _make_active("c")
     plot.add_signal(a)
@@ -1943,7 +2113,7 @@ def _make_active_range(name: str, y_min: float, y_max: float, n: int = 50) -> Ac
 
 
 @pytest.mark.requirement("REQ-PLOT-055")
-def test_display_units_treats_synced_group_as_one_unit(plot: PlotArea) -> None:
+def test_display_units_treats_synced_group_as_one_unit(plot: PlotStripe) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1956,7 +2126,7 @@ def test_display_units_treats_synced_group_as_one_unit(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-055")
-def test_display_units_merged_group_still_one_unit(plot: PlotArea) -> None:
+def test_display_units_merged_group_still_one_unit(plot: PlotStripe) -> None:
     a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1968,7 +2138,7 @@ def test_display_units_merged_group_still_one_unit(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-055")
-def test_display_units_ungrouped_signals_each_own_unit(plot: PlotArea) -> None:
+def test_display_units_ungrouped_signals_each_own_unit(plot: PlotStripe) -> None:
     a, b = _make_active("a"), _make_active("b")
     plot.add_signal(a)
     plot.add_signal(b)
@@ -1977,7 +2147,7 @@ def test_display_units_ungrouped_signals_each_own_unit(plot: PlotArea) -> None:
 
 
 @pytest.mark.requirement("REQ-PLOT-055")
-def test_swimlanes_synced_group_uses_combined_data_extent(plot: PlotArea) -> None:
+def test_swimlanes_synced_group_uses_combined_data_extent(plot: PlotStripe) -> None:
     """A synced group's lane must fit the union of all members' data (#84).
 
     Before the fix, swimlanes() treated each synced member as its own unit;
@@ -2003,7 +2173,7 @@ def test_swimlanes_synced_group_uses_combined_data_extent(plot: PlotArea) -> Non
 
 
 @pytest.mark.requirement("REQ-PLOT-054")
-def test_zoom_y_to_view_synced_group_uses_combined_data_extent(plot: PlotArea) -> None:
+def test_zoom_y_to_view_synced_group_uses_combined_data_extent(plot: PlotStripe) -> None:
     a = _make_active_range("a", 0.0, 10.0)
     b = _make_active_range("b", 100.0, 110.0)
     plot.add_signal(a)
@@ -2020,7 +2190,7 @@ def test_zoom_y_to_view_synced_group_uses_combined_data_extent(plot: PlotArea) -
 
 
 @pytest.mark.requirement("REQ-PLOT-053")
-def test_zoom_to_fit_synced_group_uses_combined_data_extent(plot: PlotArea) -> None:
+def test_zoom_to_fit_synced_group_uses_combined_data_extent(plot: PlotStripe) -> None:
     a = _make_active_range("a", 0.0, 10.0)
     b = _make_active_range("b", 100.0, 110.0)
     plot.add_signal(a)

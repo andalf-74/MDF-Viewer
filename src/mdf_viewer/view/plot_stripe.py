@@ -1,4 +1,10 @@
-"""PlotArea — center-top plotting widget built on PyQtGraph.
+"""PlotStripe — a single plot stripe widget built on PyQtGraph.
+
+One or more PlotStripes are composed by PlotStripesArea (see
+plot_stripes_area.py) into the full multi-stripe plot area, sharing one
+X-axis and cursors across stripes while each stripe keeps its own
+independent Y-axes. A PlotStripe on its own has no knowledge of sibling
+stripes — everything below is scoped to "this stripe's own signals".
 
 A shared X-axis (time) is panned/zoomed across all signals simultaneously.
 Each active signal normally gets its own ViewBox and right-side Y-axis. Signals
@@ -22,7 +28,7 @@ from typing import TYPE_CHECKING
 import pyqtgraph as pg
 from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QPen
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QWidget
 
 from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
 from mdf_viewer.view_model.active_signal import ActiveSignal
@@ -34,7 +40,7 @@ if TYPE_CHECKING:
     class DragClaimant(Protocol):
         """Something that gets first refusal on a left-button press in the plot.
 
-        Registered via PlotArea.register_drag_claimant(). hit_test() returns an
+        Registered via PlotStripe.register_drag_claimant(). hit_test() returns an
         opaque token identifying what was hit (e.g. a specific line), or None on
         a miss; the same token is passed back to on_move/on_release for the
         remainder of that gesture.
@@ -97,9 +103,17 @@ class _ViewBox(pg.ViewBox):
     # Emitted with the scene-space QRectF when a right-drag zoom rect finishes.
     zoom_rect_finished = pyqtSignal(object)
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, extra_menu_items=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.setMouseMode(pg.ViewBox.PanMode)
+        # Appended once here (not in getMenu(), which pyqtgraph calls on every
+        # right-click but always returns the same cached self.menu — adding
+        # items there would duplicate them on the second click).
+        if extra_menu_items and self.menu is not None:
+            self.menu.addSeparator()
+            for label, callback in extra_menu_items:
+                action = self.menu.addAction(label)
+                action.triggered.connect(callback)
 
     def getMenu(self, ev=None):
         menu = super().getMenu(ev)
@@ -204,8 +218,8 @@ class _SignalPlotData:
     owns_axis: bool = True  # False for non-first members of a merged group
 
 
-class PlotArea(QWidget):
-    """PyQtGraph plot with a shared X-axis and one ViewBox/Y-axis per signal.
+class PlotStripe(QWidget):
+    """One plot stripe: a shared X-axis and one ViewBox/Y-axis per signal.
 
     Signals can be grouped for coordinated Y-axis behaviour:
     - *merged*: all members render into one ViewBox with one neutral Y-axis.
@@ -223,11 +237,21 @@ class PlotArea(QWidget):
     range_changed = pyqtSignal()
     # Emitted on a left-click in the plot: the topmost hit ActiveSignal, or None on a miss.
     signal_clicked = pyqtSignal(object)
+    # Emitted (with self) on any mouse-press in this stripe's viewport, hit or
+    # miss — lets PlotStripesArea track which stripe the user last interacted with.
+    activated = pyqtSignal(object)
+    # Emitted (with self) when "Create new Stripe" is chosen from this stripe's
+    # context menu.
+    create_stripe_requested = pyqtSignal(object)
+    # Emitted (with self) when "Delete this Stripe" is chosen from this stripe's
+    # context menu. The caller decides whether that's actually allowed (see
+    # PlotStripesArea.delete_stripe).
+    delete_stripe_requested = pyqtSignal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
-        self._pw = pg.PlotWidget(viewBox=_ViewBox())
+        self._pw = pg.PlotWidget(viewBox=self._new_view_box())
         self._pi: pg.PlotItem = self._pw.getPlotItem()
 
         # Hide default axes; each signal provides its own right-side axis.
@@ -258,6 +282,11 @@ class PlotArea(QWidget):
         self._synced_handlers: dict[int, object] = {}  # id(vb) → handler
         self._syncing_y: bool = False
 
+        # Blank right-side spacer used by PlotStripesArea to pad this stripe's
+        # axis area so its plotting viewport aligns with wider stripes (see
+        # content_axis_width/set_axis_padding).
+        self._axis_spacer: pg.AxisItem | None = None
+
         self._pi.vb.sigResized.connect(self._update_view_geometries)
         self._pi.ctrl.yGridCheck.toggled.connect(self._on_y_grid_toggled)
         self._pi.vb.zoom_rect_finished.connect(self._on_zoom_rect_finished)
@@ -265,14 +294,92 @@ class PlotArea(QWidget):
 
         self._pw.viewport().setAcceptDrops(True)
         self._pw.viewport().installEventFilter(self)
+        self._drag_hover_active = False
 
-        layout = QVBoxLayout(self)
+        # Left-edge active-stripe marker (REQ-PLOT-210).
+        self._active_marker = QFrame(self)
+        self._active_marker.setFixedWidth(3)
+        self._active_marker.setStyleSheet("background: transparent;")
+
+        layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self._active_marker)
         layout.addWidget(self._pw)
 
     # ------------------------------------------------------------------
-    # Public API (called by AppController)
+    # Public API (called by AppController / PlotStripesArea)
     # ------------------------------------------------------------------
+
+    def _new_view_box(self) -> "_ViewBox":
+        """Construct a _ViewBox wired with this stripe's stripe-management menu items."""
+        return _ViewBox(
+            extra_menu_items=[
+                ("Create new Stripe", lambda: self.create_stripe_requested.emit(self)),
+                ("Delete this Stripe", lambda: self.delete_stripe_requested.emit(self)),
+            ]
+        )
+
+    def set_active(self, active: bool) -> None:
+        """Show/hide the colored left-edge marker indicating the active stripe."""
+        color = "palette(highlight)" if active else "transparent"
+        self._active_marker.setStyleSheet(f"background: {color};")
+
+    def set_show_x_axis_ticks(self, enabled: bool) -> None:
+        """Show or hide this stripe's bottom X-axis tick labels and "Time" title.
+
+        Only the bottom-most stripe in a PlotStripesArea shows ticks; other
+        stripes hide them since the X value is identical at any horizontal
+        position across all stripes (REQ-PLOT-181).
+        """
+        self._pi.getAxis('bottom').setStyle(showValues=enabled)
+        self._pi.showLabel('bottom', enabled)
+
+    def content_axis_width(self) -> float:
+        """Sum of the pixel widths of this stripe's own visible Y-axes.
+
+        Excludes any alignment spacer previously applied via
+        set_axis_padding() — this is the "real" content width PlotStripesArea
+        compares across stripes to compute each one's needed padding.
+
+        Forces the layout to settle first: an AxisItem's width() reflects a
+        pending setStyle()/visibility change only after Qt has run a layout
+        pass, which activate() does synchronously rather than waiting for the
+        next paint cycle.
+        """
+        self._pi.layout.activate()
+        seen: set[int] = set()
+        total = 0.0
+        for spd in self._data.values():
+            axis = spd.axis
+            if id(axis) in seen or not axis.isVisible():
+                continue
+            seen.add(id(axis))
+            total += axis.width()
+        return total
+
+    def set_axis_padding(self, px: float) -> None:
+        """Reserve *px* extra blank pixels on the right of this stripe's axes.
+
+        Used by PlotStripesArea to align every stripe's plotting viewport to
+        the same pixel width, since each stripe's Y-axis columns otherwise
+        auto-size independently (different signal counts/tick-label widths
+        per stripe would otherwise make the same X value land at a different
+        screen position in each stripe — REQ-PLOT-180).
+        """
+        px = max(0, round(px))
+        if px <= 0:
+            if self._axis_spacer is not None:
+                self._pi.layout.removeItem(self._axis_spacer)
+                self._axis_spacer = None
+            return
+        if self._axis_spacer is None:
+            self._axis_spacer = pg.AxisItem('right')
+            self._axis_spacer.setPen(pg.mkPen(None))
+            self._axis_spacer.setStyle(showValues=False, tickLength=0)
+            self._pi.layout.addItem(self._axis_spacer, 2, self._pi.layout.columnCount())
+        self._axis_spacer.setWidth(px)
+        self._pi.layout.activate()
 
     def register_drag_claimant(self, claimant: "DragClaimant") -> None:
         """Register an object that gets first refusal on left-button presses.
@@ -296,7 +403,7 @@ class PlotArea(QWidget):
         line_width = active.line_width
         pen = _make_pen(color, line_width, active.line_style) if active.display_mode != "marker" else None
 
-        vb = _ViewBox()
+        vb = self._new_view_box()
         self._pi.scene().addItem(vb)
         vb.setXLink(self._pi)
         vb.zoom_rect_finished.connect(self._on_zoom_rect_finished)
@@ -542,15 +649,21 @@ class PlotArea(QWidget):
         t_min = min(float(a.data.timestamps[0]) for a in self._data if len(a.data.timestamps))
         t_max = max(float(a.data.timestamps[-1]) for a in self._data if len(a.data.timestamps))
         self._pi.vb.setXRange(t_min, t_max, padding=0.02)
+        self.autorange_y()
 
-        # Auto-range Y per display unit (ungrouped signal, Merged group, or
-        # Synced group). autoRange() only sees one ViewBox's own content, so
-        # it can't fit a Synced group's combined data on its own — compute
-        # that explicitly instead of relying on autoRange() there.
-        for vb, members, is_synced in self._display_units():
-            if not is_synced:
-                vb.autoRange()
-                continue
+    def autorange_y(self) -> None:
+        """Auto-range Y independently for every display unit in this stripe.
+
+        A display unit is an ungrouped signal, a Merged group (one shared
+        ViewBox), or a Synced group (each member its own ViewBox, ranges
+        forced equal). Computes each unit's Y range directly from its
+        members' full sample data via setYRange, rather than pyqtgraph's
+        generic ViewBox.autoRange() — that also recomputes X from the
+        curve's own bounding rect, which would silently overwrite the
+        "full data range" X just set by zoom_to_fit() with whichever
+        signal's autoRange() call happened to run last.
+        """
+        for vb, members, _is_synced in self._display_units():
             all_ys = [y for a in members for y in a.data.samples.tolist()]
             if not all_ys:
                 continue
@@ -563,6 +676,15 @@ class PlotArea(QWidget):
     def zoom_to_x_range(self, x_min: float, x_max: float) -> None:
         """Set the shared X range to [x_min, x_max] with standard padding."""
         self._pi.vb.setXRange(x_min, x_max, padding=0.02)
+
+    def sync_x_range(self, x_min: float, x_max: float) -> None:
+        """Match another stripe's exact X range, with no added padding.
+
+        Used by PlotStripesArea to keep every stripe's X range in lockstep —
+        not a user-facing zoom action, so it must not add zoom_to_x_range()'s
+        margin (that would compound outward every time it propagates).
+        """
+        self._pi.vb.setXRange(x_min, x_max, padding=0)
 
     def swimlanes(self, ordered_signals: list) -> bool:
         """Arrange signals in equal horizontal lanes by adjusting each Y range.
@@ -1075,7 +1197,7 @@ class PlotArea(QWidget):
             return
         old_spd = self._data[active]
 
-        vb = _ViewBox()
+        vb = self._new_view_box()
         self._pi.scene().addItem(vb)
         vb.setXLink(self._pi)
         vb.zoom_rect_finished.connect(self._on_zoom_rect_finished)
@@ -1202,6 +1324,8 @@ class PlotArea(QWidget):
     def eventFilter(self, watched, event):
         if watched is self._pw.viewport():
             t = event.type()
+            if t == QEvent.Type.MouseButtonPress:
+                self.activated.emit(self)
             if t == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
                 scene_pos = self._pw.mapToScene(event.pos())
                 for claimant in self._drag_claimants:
@@ -1223,7 +1347,9 @@ class PlotArea(QWidget):
                 self._active_claimant = None
                 return True
             if t == QEvent.Type.DragEnter:
-                if self._accepts_drag(event.mimeData()):
+                accepted = self._accepts_drag(event.mimeData())
+                self._set_drag_highlight(accepted)
+                if accepted:
                     event.acceptProposedAction()
                 else:
                     event.ignore()
@@ -1234,10 +1360,22 @@ class PlotArea(QWidget):
                 else:
                     event.ignore()
                 return True
+            elif t == QEvent.Type.DragLeave:
+                self._set_drag_highlight(False)
+                return True
             elif t == QEvent.Type.Drop:
+                self._set_drag_highlight(False)
                 self._on_drop(event)
                 return True
         return super().eventFilter(watched, event)
+
+    def _set_drag_highlight(self, enabled: bool) -> None:
+        """Toggle the drop-target highlight shown while a drag hovers this stripe."""
+        if enabled == self._drag_hover_active:
+            return
+        self._drag_hover_active = enabled
+        border = "2px solid palette(highlight)" if enabled else "none"
+        self._pw.setStyleSheet(f"border: {border};")
 
     def _accepts_drag(self, mime_data) -> bool:
         if mime_data.hasFormat(SIGNAL_MIME_TYPE):

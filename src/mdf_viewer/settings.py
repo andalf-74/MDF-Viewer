@@ -33,6 +33,11 @@ DEFAULT_MAX_UNDO_STEPS = 1
 # Default signal Z-order ("top_first" = top table row on top, "bottom_first" = bottom row on top)
 DEFAULT_SIGNAL_Z_ORDER = "top_first"
 
+# Default zoom scope ("all_stripes" or "active_stripe") for Zoom to Fit / Zoom Y to
+# View when more than one plot stripe exists — "all_stripes" matches today's
+# single-stripe behavior exactly, so it's the safe default.
+DEFAULT_ZOOM_SCOPE = "all_stripes"
+
 # Default line-width boost applied to the currently selected signal (0 = disabled)
 DEFAULT_SELECTED_LINE_BOOST = 1
 
@@ -86,6 +91,7 @@ class Settings:
         self._cursor_step_time_ms: float = DEFAULT_CURSOR_STEP_TIME_MS
         self._max_undo_steps: int = DEFAULT_MAX_UNDO_STEPS
         self._signal_z_order: str = DEFAULT_SIGNAL_Z_ORDER
+        self._zoom_scope: str = DEFAULT_ZOOM_SCOPE
         self._selected_line_boost: int = DEFAULT_SELECTED_LINE_BOOST
         self._show_only_selected_y_axis: bool = DEFAULT_SHOW_ONLY_SELECTED_Y_AXIS
         self._display_name_rule_enabled: bool = DEFAULT_DISPLAY_NAME_RULE_ENABLED
@@ -248,6 +254,15 @@ class Settings:
         self._save()
 
     @property
+    def zoom_scope(self) -> str:
+        return self._zoom_scope
+
+    @zoom_scope.setter
+    def zoom_scope(self, value: str) -> None:
+        self._zoom_scope = value
+        self._save()
+
+    @property
     def selected_line_boost(self) -> int:
         return self._selected_line_boost
 
@@ -363,6 +378,7 @@ class Settings:
             self._cursor_step_time_ms = float(data.get("cursor_step_time_ms", DEFAULT_CURSOR_STEP_TIME_MS))
             self._max_undo_steps = max(1, int(data.get("max_undo_steps", DEFAULT_MAX_UNDO_STEPS)))
             self._signal_z_order = str(data.get("signal_z_order", DEFAULT_SIGNAL_Z_ORDER))
+            self._zoom_scope = str(data.get("zoom_scope", DEFAULT_ZOOM_SCOPE))
             self._selected_line_boost = max(0, min(5, int(data.get("selected_line_boost", DEFAULT_SELECTED_LINE_BOOST))))
             self._show_only_selected_y_axis = bool(data.get("show_only_selected_y_axis", DEFAULT_SHOW_ONLY_SELECTED_Y_AXIS))
             self._display_name_rule_enabled = bool(data.get("display_name_rule_enabled", DEFAULT_DISPLAY_NAME_RULE_ENABLED))
@@ -391,6 +407,7 @@ class Settings:
             self._cursor_step_time_ms = DEFAULT_CURSOR_STEP_TIME_MS
             self._max_undo_steps = DEFAULT_MAX_UNDO_STEPS
             self._signal_z_order = DEFAULT_SIGNAL_Z_ORDER
+            self._zoom_scope = DEFAULT_ZOOM_SCOPE
             self._selected_line_boost = DEFAULT_SELECTED_LINE_BOOST
             self._show_only_selected_y_axis = DEFAULT_SHOW_ONLY_SELECTED_Y_AXIS
             self._display_name_rule_enabled = DEFAULT_DISPLAY_NAME_RULE_ENABLED
@@ -431,6 +448,7 @@ class Settings:
                     "cursor_step_time_ms": self._cursor_step_time_ms,
                     "max_undo_steps": self._max_undo_steps,
                     "signal_z_order": self._signal_z_order,
+                    "zoom_scope": self._zoom_scope,
                     "selected_line_boost": self._selected_line_boost,
                     "show_only_selected_y_axis": self._show_only_selected_y_axis,
                     "display_name_rule_enabled": self._display_name_rule_enabled,

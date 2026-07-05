@@ -88,6 +88,11 @@ class ActiveSignalsTable(QWidget):
     sync_y_axis_requested = pyqtSignal(list)
     # list[ActiveSignal] — emitted when "Remove from merged/synced axis" is chosen
     ungroup_y_axis_requested = pyqtSignal(list)
+    # list[ActiveSignal], target stripe — emitted when a specific stripe is chosen
+    # from the "Move to Stripe" submenu
+    move_to_stripe_requested = pyqtSignal(list, object)
+    # list[ActiveSignal] — emitted when "Move to new Stripe" is chosen
+    move_to_new_stripe_requested = pyqtSignal(list)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -98,6 +103,8 @@ class ActiveSignalsTable(QWidget):
         self._shorten_names_enabled: bool = False
         self._merged_signals: set = set()
         self._synced_signals: set = set()
+        self._get_stripes: Callable[[], list] | None = None
+        self._get_stripe_for_signal: Callable[[ActiveSignal], object] | None = None
         self._build_ui()
 
     # ------------------------------------------------------------------
@@ -138,6 +145,15 @@ class ActiveSignalsTable(QWidget):
         """Update which signals are currently in a Merged or Synced Y-axis group."""
         self._merged_signals = set(merged)
         self._synced_signals = set(synced)
+
+    def set_stripe_providers(
+        self,
+        get_stripes: Callable[[], list],
+        get_stripe_for_signal: Callable[[ActiveSignal], object],
+    ) -> None:
+        """Wire the callables used to build the "Move to Stripe" context-menu submenu."""
+        self._get_stripes = get_stripes
+        self._get_stripe_for_signal = get_stripe_for_signal
 
     def set_row_color(self, active: ActiveSignal, color: QColor) -> None:
         """Update the color swatch for *active*. No-op if the signal is not in the table."""
@@ -385,6 +401,27 @@ class ActiveSignalsTable(QWidget):
                 lambda: self.ungroup_y_axis_requested.emit(grouped_selected)
             )
             menu.addAction(ungroup_action)
+
+        if self._get_stripes is not None and self._get_stripe_for_signal is not None:
+            menu.addSeparator()
+            stripes = self._get_stripes()
+            current_stripes = {self._get_stripe_for_signal(s) for s in selected}
+            other_stripes = [s for s in stripes if s not in current_stripes]
+            if other_stripes:
+                move_menu = menu.addMenu("Move to Stripe")
+                for i, stripe in enumerate(stripes):
+                    if stripe in current_stripes:
+                        continue
+                    action = move_menu.addAction(f"Stripe {i + 1}")
+                    action.triggered.connect(
+                        lambda checked=False, s=stripe: self.move_to_stripe_requested.emit(selected, s)
+                    )
+
+            move_new_action = QAction("Move to new Stripe", self)
+            move_new_action.triggered.connect(
+                lambda: self.move_to_new_stripe_requested.emit(selected)
+            )
+            menu.addAction(move_new_action)
 
         menu.exec(self._table.viewport().mapToGlobal(pos))
 

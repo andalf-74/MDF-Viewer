@@ -79,9 +79,10 @@ from mdf_viewer.settings import Settings
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.license_dialog import LicenseDialog
 from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
-from mdf_viewer.view.plot_area import PlotArea
+from mdf_viewer.view.plot_stripes_area import PlotStripesArea
 from mdf_viewer.view.signal_browser import SignalBrowser
 from mdf_viewer.view.signal_info_box import SignalInfoBox
+from mdf_viewer.view.widgets import make_splitter
 
 if TYPE_CHECKING:
     from mdf_viewer.controller.app_controller import AppController
@@ -91,12 +92,6 @@ _HOVER_PX = 10       # distance from left edge that triggers drawer slide-out
 _ANIM_MS = 200       # slide animation duration in ms
 
 
-def _make_splitter(orientation: Qt.Orientation) -> QSplitter:
-    """Splitter with a thin visible handle line."""
-    s = QSplitter(orientation)
-    s.setHandleWidth(3)
-    s.setStyleSheet("QSplitter::handle { background: palette(mid); }")
-    return s
 
 _MDF_FILE_FILTER = "MDF Files (*.mf4 *.mdf *.dat);;All Files (*)"
 _ALL_FILE_FILTER = "All Supported Files (*.mf4 *.mdf *.dat *.mvc);;MDF Files (*.mf4 *.mdf *.dat);;MDF Viewer Config (*.mvc);;All Files (*)"
@@ -134,8 +129,9 @@ class MainWindow(QMainWindow):
         self._controller = controller
         controller.set_cursor_mode_callback(self._on_cursor_mode_changed)
         self.signal_browser.add_signals_requested.connect(self._on_add_signals)
-        self.plot_area.signals_dropped.connect(self._on_add_signals)
+        self.plot_area.signals_dropped_on_stripe.connect(self._on_add_signals_to_stripe)
         self.plot_area.file_dropped.connect(self._on_file_dropped)
+        self.plot_area.delete_stripe_requested.connect(self._on_delete_stripe_requested)
         self.active_signals_table.signals_dropped.connect(self._on_add_signals)
         self.active_signals_table.remove_requested.connect(controller.remove_signals)
         self.active_signals_table.remove_all_requested.connect(controller.remove_all)
@@ -192,6 +188,15 @@ class MainWindow(QMainWindow):
         )
         self.active_signals_table.ungroup_y_axis_requested.connect(
             controller.on_ungroup_y_axis_requested
+        )
+        self.active_signals_table.move_to_stripe_requested.connect(
+            controller.move_signals_to_stripe
+        )
+        self.active_signals_table.move_to_new_stripe_requested.connect(
+            controller.move_signals_to_new_stripe
+        )
+        self.active_signals_table.set_stripe_providers(
+            controller.get_stripes, controller.get_stripe_for_signal
         )
 
     def show_status(self, message: str, timeout_ms: int = 3000) -> None:
@@ -261,6 +266,15 @@ class MainWindow(QMainWindow):
         self._swimlanes_action.setShortcut(QKeySequence("b"))
         self._swimlanes_action.setToolTip("Arrange signals in swimlanes (B)")
         self._swimlanes_action.triggered.connect(self._on_swimlanes)
+
+        self._zoom_all_stripes_action = QAction("All Stripes", self)
+        self._zoom_all_stripes_action.setCheckable(True)
+        self._zoom_all_stripes_action.setChecked(True)
+        self._zoom_all_stripes_action.setToolTip(
+            "Whether Zoom to Fit / Zoom Y to View apply to every stripe "
+            "or only the active one"
+        )
+        self._zoom_all_stripes_action.toggled.connect(self._on_zoom_scope_toggled)
 
         self._zoom_cursors_action = QAction(
             _load_icon(f"zoom_to_cursors{suffix}"), "Zoom to Cursors", self
@@ -345,13 +359,14 @@ class MainWindow(QMainWindow):
         toolbar.addSeparator()
         toolbar.addAction(self._zoom_fit_action)
         toolbar.addAction(self._zoom_y_action)
+        toolbar.addAction(self._zoom_all_stripes_action)
         toolbar.addAction(self._swimlanes_action)
         toolbar.addAction(self._zoom_cursors_action)
         toolbar.addAction(self._cursor_action)
 
     def _build_layout(self) -> None:
         self.signal_browser = SignalBrowser()
-        self.plot_area = PlotArea()
+        self.plot_area = PlotStripesArea()
         self.active_signals_table = ActiveSignalsTable()
         self.measurement_info_box = MeasurementInfoBox()
         self.signal_info_box = SignalInfoBox()
@@ -370,7 +385,7 @@ class MainWindow(QMainWindow):
         _pin_font.setPointSize(16)
         self._pin_button.setFont(_pin_font)
 
-        self._left_splitter = _make_splitter(Qt.Orientation.Vertical)
+        self._left_splitter = make_splitter(Qt.Orientation.Vertical)
         left_splitter = self._left_splitter
         left_splitter.addWidget(self.signal_browser)
         left_splitter.addWidget(self.measurement_info_box)
@@ -390,7 +405,7 @@ class MainWindow(QMainWindow):
 
         # ── Right panel ───────────────────────────────────────────────────
         right_panel = QWidget()
-        self._right_splitter = _make_splitter(Qt.Orientation.Vertical)
+        self._right_splitter = make_splitter(Qt.Orientation.Vertical)
         right_splitter = self._right_splitter
         right_splitter.addWidget(self.active_signals_table)
         right_splitter.addWidget(self.signal_info_box)
@@ -401,7 +416,7 @@ class MainWindow(QMainWindow):
         right_vbox.addWidget(right_splitter)
 
         # ── Content splitter (plot area + right panel) ────────────────────
-        self._content_splitter = _make_splitter(Qt.Orientation.Horizontal)
+        self._content_splitter = make_splitter(Qt.Orientation.Horizontal)
         self._content_splitter.addWidget(self.plot_area)
         self._content_splitter.addWidget(right_panel)
         self._content_splitter.setStretchFactor(0, 1)
@@ -412,7 +427,7 @@ class MainWindow(QMainWindow):
         # _panel_w tracks the current panel width so it's preserved across
         # pin/drawer transitions even after the user has resized the panel.
         self._panel_w = _PANEL_W
-        self._outer_splitter = _make_splitter(Qt.Orientation.Horizontal)
+        self._outer_splitter = make_splitter(Qt.Orientation.Horizontal)
         self._outer_splitter.addWidget(self._left_panel)
         self._outer_splitter.addWidget(self._content_splitter)
         self._outer_splitter.setStretchFactor(0, 0)
@@ -597,6 +612,37 @@ class MainWindow(QMainWindow):
         if skipped:
             noun = "signal" if skipped == 1 else "signals"
             self.show_status(f"{skipped} {noun} already active, skipped.")
+
+    def _on_add_signals_to_stripe(self, locations: list, stripe) -> None:
+        if self._controller is None:
+            return
+        skipped = 0
+        for gi, ci in locations:
+            try:
+                if not self._controller.add_signal(gi, ci, stripe=stripe):
+                    skipped += 1
+            except MdfLoadError as exc:
+                QMessageBox.critical(self, "Error Loading Signal", str(exc))
+        if skipped:
+            noun = "signal" if skipped == 1 else "signals"
+            self.show_status(f"{skipped} {noun} already active, skipped.")
+
+    def _on_delete_stripe_requested(self, stripe) -> None:
+        if self._controller is None:
+            return
+        if not self._controller.get_signals_in_stripe(stripe):
+            if not self._controller.delete_stripe(stripe):
+                self.show_status("Cannot delete the last remaining stripe.")
+            return
+        reply = QMessageBox.question(
+            self,
+            "Delete Stripe",
+            "This stripe still has signals in it. Delete anyway?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._controller.delete_stripe(stripe, force=True)
 
     def _on_file_dropped(self, path) -> None:
         if self._controller is None:
@@ -799,6 +845,15 @@ class MainWindow(QMainWindow):
         self._settings.display_name_rule_enabled = enabled
         self._controller.refresh_display_names()
         self.active_signals_table.set_shorten_names_enabled(enabled)
+
+    def _on_zoom_scope_toggled(self, checked: bool) -> None:
+        if self._settings is None:
+            return
+        self._settings.zoom_scope = "all_stripes" if checked else "active_stripe"
+
+    def set_zoom_all_stripes(self, enabled: bool) -> None:
+        """Set the toolbar toggle's initial state from a persisted setting."""
+        self._zoom_all_stripes_action.setChecked(enabled)
 
     def _on_merge_y_axis_requested(self, signals: list) -> None:
         if self._controller is None:

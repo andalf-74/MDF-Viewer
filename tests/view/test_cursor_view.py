@@ -1,4 +1,9 @@
-"""Tests for CursorView — requires QApplication via qtbot."""
+"""Tests for CursorView — requires QApplication via qtbot.
+
+Label bookkeeping and nearest-cursor tracking moved to CursorStripesView
+(tests/view/test_cursor_stripes_view.py) — CursorView itself no longer owns
+either, only the InfiniteLines/chevrons for its own stripe.
+"""
 
 from __future__ import annotations
 
@@ -24,19 +29,6 @@ def _make_active(name: str = "sig", color: QColor | None = None) -> ActiveSignal
     data = SignalData(timestamps=t, samples=np.sin(2 * np.pi * t))
     meta = SignalMetadata(name=name, unit="V", group_index=0, channel_index=0)
     return ActiveSignal(data=data, metadata=meta, color=color or QColor(255, 85, 85))
-
-
-def _make_active_with_vb(
-    pw: pg.PlotWidget,
-    name: str = "sig",
-    color: QColor | None = None,
-) -> ActiveSignal:
-    """Create an ActiveSignal with a real ViewBox attached (needed for label tests)."""
-    active = _make_active(name, color)
-    vb = pg.ViewBox()
-    pw.getPlotItem().scene().addItem(vb)
-    active.view_box = vb
-    return active
 
 
 @pytest.fixture()
@@ -66,10 +58,6 @@ def test_two_lines_added_to_plot(cv: CursorView) -> None:
 def test_lines_hidden_initially(cv: CursorView) -> None:
     assert not cv._lines[0].isVisible()
     assert not cv._lines[1].isVisible()
-
-
-def test_no_labels_initially(cv: CursorView) -> None:
-    assert len(cv._labels) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -103,172 +91,6 @@ def test_apply_mode_sets_line_positions(cv: CursorView) -> None:
     cv.apply_mode(CursorMode.TWO, [0.25, 0.75])
     assert cv._lines[0].value() == pytest.approx(0.25)
     assert cv._lines[1].value() == pytest.approx(0.75)
-
-
-# ---------------------------------------------------------------------------
-# update_labels
-# ---------------------------------------------------------------------------
-
-@pytest.mark.requirement("REQ-PLOT-080")
-def test_update_labels_creates_label_for_signal(
-    cv: CursorView, pw: pg.PlotWidget
-) -> None:
-    active = _make_active_with_vb(pw)
-    cv.apply_mode(CursorMode.ONE, [0.25, 0.75])
-    cv.update_labels([active], [0.25, 0.75], CursorMode.ONE)
-    assert len(cv._labels) == 1
-
-
-@pytest.mark.requirement("REQ-PLOT-080")
-def test_update_labels_two_mode_creates_two_per_signal(
-    cv: CursorView, pw: pg.PlotWidget
-) -> None:
-    active = _make_active_with_vb(pw)
-    cv.apply_mode(CursorMode.TWO, [0.25, 0.75])
-    cv.update_labels([active], [0.25, 0.75], CursorMode.TWO)
-    assert len(cv._labels) == 2
-
-
-@pytest.mark.requirement("REQ-PLOT-080")
-def test_update_labels_multiple_signals(
-    cv: CursorView, pw: pg.PlotWidget
-) -> None:
-    sigs = [_make_active_with_vb(pw, f"s{i}") for i in range(3)]
-    cv.apply_mode(CursorMode.ONE, [0.5, 0.8])
-    cv.update_labels(sigs, [0.5, 0.8], CursorMode.ONE)
-    assert len(cv._labels) == 3
-
-
-@pytest.mark.requirement("REQ-PLOT-080")
-def test_update_labels_removes_stale_labels(
-    cv: CursorView, pw: pg.PlotWidget
-) -> None:
-    sigs = [_make_active_with_vb(pw, "a"), _make_active_with_vb(pw, "b")]
-    cv.apply_mode(CursorMode.ONE, [0.5, 0.8])
-    cv.update_labels(sigs, [0.5, 0.8], CursorMode.ONE)
-    assert len(cv._labels) == 2
-    cv.update_labels(sigs[:1], [0.5, 0.8], CursorMode.ONE)
-    assert len(cv._labels) == 1
-
-
-@pytest.mark.requirement("REQ-PLOT-082")
-def test_update_labels_out_of_range_hides_label(
-    cv: CursorView, pw: pg.PlotWidget
-) -> None:
-    active = _make_active_with_vb(pw)
-    cv.apply_mode(CursorMode.ONE, [5.0, 6.0])
-    cv.update_labels([active], [5.0, 6.0], CursorMode.ONE)
-    # Cursor at x=5.0, signal only covers [0,1] → no label created
-    assert all(not lbl.isVisible() for lbl, _ in cv._labels.values())
-
-
-def test_update_labels_skips_signal_without_view_box(cv: CursorView) -> None:
-    # Signal with view_box=None (not yet added to plot) should be skipped.
-    active = _make_active()  # view_box is None
-    cv.apply_mode(CursorMode.ONE, [0.25, 0.75])
-    cv.update_labels([active], [0.25, 0.75], CursorMode.ONE)
-    assert len(cv._labels) == 0
-
-
-# ---------------------------------------------------------------------------
-# Label visibility rules
-# ---------------------------------------------------------------------------
-
-@pytest.mark.requirement("REQ-PLOT-080")
-def test_one_mode_label_always_visible(
-    cv: CursorView, pw: pg.PlotWidget
-) -> None:
-    active = _make_active_with_vb(pw)
-    cv.apply_mode(CursorMode.ONE, [0.25, 0.75])
-    cv.update_labels([active], [0.25, 0.75], CursorMode.ONE)
-    lbl, _ = cv._labels[(0, active)]
-    assert lbl.isVisible()
-
-
-# ---------------------------------------------------------------------------
-# Nearest-cursor label visibility in TWO mode (REQ-PLOT-081)
-# ---------------------------------------------------------------------------
-
-@pytest.mark.requirement("REQ-PLOT-081")
-def test_nearest_cursor_defaults_to_0(cv: CursorView) -> None:
-    assert cv._nearest_cursor == 0
-
-
-@pytest.mark.requirement("REQ-PLOT-081")
-def test_mouse_move_nearer_to_cursor_1_updates_nearest(
-    cv: CursorView, pw: pg.PlotWidget
-) -> None:
-    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
-    cv.apply_mode(CursorMode.TWO, [2.0, 8.0])
-    scene_pos = cv._pi.vb.mapViewToScene(pg.Point(9.0, 0.0))  # closer to cursor 1 (8.0)
-    cv._on_mouse_moved((scene_pos,))
-    assert cv._nearest_cursor == 1
-
-
-@pytest.mark.requirement("REQ-PLOT-081")
-def test_only_nearest_cursor_label_visible_in_two_mode(
-    cv: CursorView, pw: pg.PlotWidget
-) -> None:
-    _set_view_range(pw, (0.0, 1.0), (-1.0, 1.0))
-    active = _make_active_with_vb(pw)  # data spans [0, 1]
-    cv.apply_mode(CursorMode.TWO, [0.2, 0.8])
-    cv.update_labels([active], [0.2, 0.8], CursorMode.TWO)
-    scene_pos = cv._pi.vb.mapViewToScene(pg.Point(0.9, 0.0))  # near cursor 1 (0.8)
-    cv._on_mouse_moved((scene_pos,))
-    lbl0, _ = cv._labels[(0, active)]
-    lbl1, _ = cv._labels[(1, active)]
-    assert not lbl0.isVisible()
-    assert lbl1.isVisible()
-
-
-@pytest.mark.requirement("REQ-PLOT-081")
-def test_mouse_move_ignored_outside_two_mode(
-    cv: CursorView, pw: pg.PlotWidget
-) -> None:
-    _set_view_range(pw, (0.0, 10.0), (-1.0, 1.0))
-    cv.apply_mode(CursorMode.ONE, [2.0, 8.0])
-    scene_pos = cv._pi.vb.mapViewToScene(pg.Point(9.0, 0.0))
-    cv._on_mouse_moved((scene_pos,))
-    assert cv._nearest_cursor == 0  # unchanged — mouse tracking only applies in TWO mode
-
-
-@pytest.mark.requirement("REQ-PLOT-070")
-def test_hidden_mode_labels_not_visible(
-    cv: CursorView, pw: pg.PlotWidget
-) -> None:
-    active = _make_active_with_vb(pw)
-    cv.apply_mode(CursorMode.ONE, [0.25, 0.75])
-    cv.update_labels([active], [0.25, 0.75], CursorMode.ONE)
-    cv.apply_mode(CursorMode.HIDDEN, [0.25, 0.75])
-    for lbl, _ in cv._labels.values():
-        assert not lbl.isVisible()
-
-
-# ---------------------------------------------------------------------------
-# remove_labels_for / clear_labels
-# ---------------------------------------------------------------------------
-
-def test_remove_labels_for_removes_only_that_signal(
-    cv: CursorView, pw: pg.PlotWidget
-) -> None:
-    a = _make_active_with_vb(pw, "a")
-    b = _make_active_with_vb(pw, "b")
-    cv.apply_mode(CursorMode.ONE, [0.5, 0.8])
-    cv.update_labels([a, b], [0.5, 0.8], CursorMode.ONE)
-    cv.remove_labels_for(a)
-    remaining = [k[1] for k in cv._labels]
-    assert not any(r is a for r in remaining)
-    assert any(r is b for r in remaining)
-
-
-def test_clear_labels_removes_all(
-    cv: CursorView, pw: pg.PlotWidget
-) -> None:
-    sigs = [_make_active_with_vb(pw, f"s{i}") for i in range(3)]
-    cv.apply_mode(CursorMode.ONE, [0.5, 0.8])
-    cv.update_labels(sigs, [0.5, 0.8], CursorMode.ONE)
-    cv.clear_labels()
-    assert len(cv._labels) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -459,7 +281,7 @@ def test_update_delta_time_label_text_updates_live(cv: CursorView) -> None:
 
 
 # ---------------------------------------------------------------------------
-# DragClaimant protocol (registered with PlotArea.register_drag_claimant)
+# DragClaimant protocol (registered with PlotStripe.register_drag_claimant)
 # ---------------------------------------------------------------------------
 
 def test_hit_test_misses_when_no_line_visible(cv: CursorView, pw: pg.PlotWidget) -> None:

@@ -4,6 +4,33 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Plot Stripes (#97): the plot area can now be split into multiple
+  vertically-stacked stripes, each with its own independent Y-axes, sharing
+  one X-axis and one pair of cursors across all of them.
+  - "Create new Stripe" / "Delete this Stripe" from the plot area's
+    right-click menu; the last remaining stripe can't be deleted, and
+    deleting a stripe that still has signals asks for confirmation first.
+  - Drag a signal from the Signal Browser onto a specific stripe to add it
+    there directly (the stripe highlights while dragging); double-clicking a
+    signal adds it to the currently active stripe.
+  - "Move to Stripe" / "Move to new Stripe" added to the Active Signals
+    Table's context menu.
+  - Clicking inside a stripe makes it the active one, shown by a colored
+    marker on its left edge; only the bottom-most stripe shows the X-axis
+    time labels.
+  - Cursor lines and their value labels stay in lockstep across every
+    stripe; the delta-time line is shown only in the active stripe and
+    remembers its vertical position independently per stripe.
+  - A new "All Stripes / Active Stripe" toolbar toggle controls whether
+    "Zoom to Fit" and "Zoom Y to View" apply to every stripe or only the
+    active one; Swimlanes and box-zoom always stay scoped to the stripe
+    they were used in. Merge/Sync Y-Axis is confined to signals sharing one
+    stripe.
+  - `docs/requirements/plotting.md` gained a new "Plot Stripes" section
+    (REQ-PLOT-180 through 212) plus amendments to existing zoom/selection/
+    grouping requirements to describe the multi-stripe scoping rules.
+
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the
   Active Signals Table to "Merge Y-Axis" / "Sync Y-Axis" for clearer,

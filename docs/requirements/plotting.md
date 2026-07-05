@@ -67,7 +67,9 @@ session, keyed by signal name; a session member that no longer resolves
 by name on restore is dropped from the group rather than failing the
 whole restore [REQ-PLOT-036]. The context-menu actions that request these
 relationships are labeled "Merge Y-Axis" and "Sync Y-Axis"
-[REQ-PLOT-037].
+[REQ-PLOT-037]. A Merged or Synced group's members must all belong to the
+same plot stripe (see "Plot Stripes" below); merging or syncing is only
+offered between signals that already share a stripe [REQ-PLOT-038].
 
 ## Signal Selection and Z-Order
 
@@ -89,7 +91,13 @@ themselves stay visible; only their axis columns are hidden) — with
 nothing selected, or the option disabled, every axis is shown
 [REQ-PLOT-045]. For a Merged axis, it stays visible under this option if
 any member of that group is selected, not only the exact one that was
-clicked [REQ-PLOT-046].
+clicked [REQ-PLOT-046]. Signals in different plot stripes can be selected
+simultaneously; selecting a signal in one stripe does not clear the
+selection in another stripe [REQ-PLOT-047]. The "show only selected
+Y-axis" preference is a single global setting; when enabled, each stripe
+independently shows only the axes belonging to its own selected
+signal(s), or all of its axes if nothing in that stripe is selected
+[REQ-PLOT-048].
 
 ## Panning and Zooming
 
@@ -98,21 +106,28 @@ scrolling while over a specific signal's own Y-axis zooms that signal's Y
 only [REQ-PLOT-050]. Dragging inside the plot interior pans X only — an
 individual signal's Y range can only be panned by dragging directly on
 that signal's own Y-axis [REQ-PLOT-051]. Drawing a rectangle (box zoom)
-zooms X to the rectangle's X extent and applies the rectangle's Y extent
-to every active signal's Y range at once, regardless of which signal's
-axis area the rectangle was drawn over [REQ-PLOT-052]. "Zoom to Fit"
-rescales X to the full time span of all active signals (with a small
-padding margin) and rescales every signal's Y independently to its own
-full data range; it is a no-op with no active signals [REQ-PLOT-053].
-"Zoom Y to View" rescales each signal's Y range to fit only the data
-currently visible within the current X range, rather than the signal's
-full data range; a signal with no data points inside the current X range
-is left unchanged [REQ-PLOT-054]. "Swimlanes" arranges every signal (a
-Merged group counting as one) into an equal-height horizontal band
-spanning the plot's full Y extent, sized to that signal's visible data
-range [REQ-PLOT-055]. A signal whose visible Y data has no range (a flat
-line) is given a small fixed span rather than a degenerate zero-height
-view in any of the above zoom actions [REQ-PLOT-056].
+zooms the shared X-axis to the rectangle's X extent across every stripe,
+and applies the rectangle's Y extent only to the signals in the stripe
+the rectangle was drawn in [REQ-PLOT-052]. "Zoom to Fit" rescales the
+shared X-axis to the full time span of all active signals across every
+stripe (with a small padding margin); its Y-axis rescaling follows the
+All Stripes/Active Stripe scope described in REQ-PLOT-057, and it is a
+no-op with no active signals [REQ-PLOT-053]. "Zoom Y to View" rescales Y
+to fit only the data currently visible within the current X range, rather
+than each signal's full data range, following the same All
+Stripes/Active Stripe scope as REQ-PLOT-057; a signal with no data points
+inside the current X range is left unchanged [REQ-PLOT-054]. "Swimlanes"
+arranges every signal in the active stripe (a Merged group counting as
+one) into an equal-height horizontal band spanning that stripe's full Y
+extent, sized to that signal's visible data range [REQ-PLOT-055]. A
+signal whose visible Y data has no range (a flat line) is given a small
+fixed span rather than a degenerate zero-height view in any of the above
+zoom actions [REQ-PLOT-056]. A single "All Stripes / Active Stripe only"
+toggle governs whether "Zoom to Fit" (REQ-PLOT-053) and "Zoom Y to View"
+(REQ-PLOT-054) rescale Y for every stripe or only the currently active
+stripe; it does not affect Swimlanes, which always scopes to the active
+stripe, or box zoom, which always scopes to the stripe the rectangle was
+drawn in [REQ-PLOT-057].
 
 ## Zoom History (Undo/Redo)
 
@@ -127,7 +142,10 @@ to make room for a new one [REQ-PLOT-062]. Performing any new zoom action
 after an undo clears the redo history [REQ-PLOT-063]. Undo and redo are
 no-ops when their respective history is empty [REQ-PLOT-064]. Loading a
 new measurement file clears both the undo and redo history
-[REQ-PLOT-065].
+[REQ-PLOT-065]. Zoom actions performed in any stripe, and at any All
+Stripes/Active Stripe scope, share one undo/redo history for the whole
+plot area rather than each stripe keeping its own independent history
+[REQ-PLOT-066].
 
 ## Cursor Modes and Positioning
 
@@ -195,7 +213,12 @@ midpoint between the two cursors' current positions, and its label
 updates live as either cursor moves [REQ-PLOT-103]. Per-signal delta
 values (shown in the Active Signals Table) are that signal's value at
 cursor 2 minus its value at cursor 1, and are left blank if either
-cursor's value can't be determined for that signal [REQ-PLOT-104].
+cursor's value can't be determined for that signal [REQ-PLOT-104]. With
+multiple stripes, the delta-time line is shown only in the currently
+active stripe; each stripe remembers its own vertical position for it
+independently (REQ-PLOT-102), so switching the active stripe restores
+that stripe's own remembered position rather than sharing one position
+across stripes [REQ-PLOT-105].
 
 ## Off-Screen Cursor Indicators
 
@@ -275,3 +298,65 @@ segment count) also becomes the new global default for that preference
 going forward — but whether the shortening rule is enabled at all remains
 governed solely by the global preference, not saved per session
 [REQ-PLOT-170].
+
+## Plot Stripes
+
+Introduced to let signals of very different units/scales be viewed
+without crowding a single Y-axis area (#17/#97). A stripe is a horizontal
+region of the plot area; the sections below cover its structure, its
+lifecycle, and how signals are assigned to one.
+
+### Structure and Layout
+
+The plot area is composed of one or more horizontal stripes stacked
+vertically, sharing a single X-axis and cursors while each stripe keeps
+its own independent Y-axes [REQ-PLOT-180]. Only the bottom-most stripe
+displays X-axis time-tick labels; every other stripe hides its own
+X-axis labels, since the X value at any horizontal position is identical
+across all stripes [REQ-PLOT-181]. Cursor lines are drawn once per
+stripe, with every stripe's copy kept at the same X position, so they
+read as one continuous indicator spanning all stripes [REQ-PLOT-182].
+Unlike cursor lines, the delta-time line is not duplicated across every
+stripe — it exists once per stripe (each remembering its own position)
+but is only ever shown in the currently active stripe; see REQ-PLOT-105
+for the full rule. The delta-time line's off-screen edge indicator
+(REQ-PLOT-112) depends on the active stripe's own currently visible Y
+range; the cursor lines' own off-screen indicators (REQ-PLOT-110) depend
+only on the shared X range and are therefore identical across all
+stripes [REQ-PLOT-183]. Stripe height is user-resizable by dragging the
+divider between two adjacent stripes [REQ-PLOT-184]. Loading a file with
+no saved workspace starts with a single stripe [REQ-PLOT-185]. At least
+one stripe always exists; the action to delete the last remaining stripe
+is unavailable [REQ-PLOT-186].
+
+### Creating and Deleting Stripes
+
+A new stripe can be created via a "Create new Stripe" action on the plot
+area's context menu [REQ-PLOT-190]. A new stripe can also be created
+directly from a signal via a "Move to new Stripe" action, which creates
+the stripe and moves that signal into it in one step [REQ-PLOT-191].
+Creating a new stripe redistributes height equally across all stripes,
+existing and new [REQ-PLOT-192]. Deleting an empty stripe removes it
+immediately without confirmation [REQ-PLOT-193]. Deleting a stripe that
+still contains signals shows a warning offering "Delete anyway" — which
+removes every signal the stripe contains, then the stripe itself — or
+"Cancel" [REQ-PLOT-194]. There is no maximum number of stripes
+[REQ-PLOT-195].
+
+### Signal Assignment to Stripes
+
+A signal can be dragged from the Signal Browser and dropped onto a
+specific stripe, which highlights as the drop target while the drag is
+over it [REQ-PLOT-200]. Double-clicking a signal in the Signal Browser
+adds it to the currently active stripe [REQ-PLOT-201]. A signal can be
+moved from its current stripe to a different existing stripe via a
+context-menu submenu listing the available stripes [REQ-PLOT-202].
+Moving a signal between stripes relocates it; it is never duplicated
+into both the source and destination stripe [REQ-PLOT-203].
+
+### Active Stripe / Focus
+
+The active stripe is indicated by a small colored marker on its left
+edge [REQ-PLOT-210]. Clicking anywhere inside a stripe makes it the
+active stripe [REQ-PLOT-211]. Loading a file with no saved workspace
+makes the top stripe active by default [REQ-PLOT-212].

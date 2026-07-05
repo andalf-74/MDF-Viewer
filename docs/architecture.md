@@ -90,6 +90,12 @@ Grouped by topic; most-recent entries at the bottom of each group.
 - **Y-axis tick formatting:** `_SignalAxisItem` subclasses `pg.AxisItem`; float signals use `:.6g` (strips floating-point noise like "256.000000007"); integer signals snap ticks to integer positions and format as plain integers.
 - **Drag-and-drop MIME type:** `application/x-mdf-viewer-signals` (defined in `view/_mime.py`); payload is a JSON-encoded list of `[group_index, channel_index]` pairs. Event filters installed on `_pw.viewport()` (PlotArea) and `_table.viewport()` (ActiveSignalsTable) handle DragEnter/DragMove/Drop without subclassing PyQtGraph or QTableWidget.
 
+### Plot Stripes (#97)
+
+- **Container structure:** each stripe is a separate `pg.PlotWidget`/`PlotItem` (not multiple rows in one shared `GraphicsLayoutWidget`), stacked in a `QSplitter(Qt.Vertical)`. Stripe-height resizing is the splitter's native drag-handle behavior rather than hand-built divider painting. Every stripe's own `pi.vb` continues to be X-linked across all stripes (not just within one), so the existing per-signal `ViewBox`/axis pattern (see "Plot area" above) is unchanged within a stripe — a stripe is just another `PlotArea`-like host.
+- **Why not one shared `GraphicsLayoutWidget`:** a single shared scene would let one cursor `InfiniteLine` visually span every stripe without duplication, but PyQtGraph gives no splitter-equivalent for resizing `PlotItem` rows inside one layout — that would mean hand-rolling drag handles and manual `QGraphicsLayout` stretch-factor updates. Separate `PlotWidget`s get resize handles for free and keep each stripe's X-axis-tick visibility (only the bottom-most stripe shows ticks, REQ-PLOT-181) and active-stripe marker independent and easy to reason about.
+- **Cursor lines vs. the delta-time line:** because each stripe is its own `QGraphicsScene`, a single `InfiniteLine` can't span stripes — cursor lines are duplicated one-per-stripe and kept in lockstep (REQ-PLOT-182). The delta-time line is different: it isn't tied to any curve's data, so it only needs to exist in the currently active stripe's `pi.vb` at a time, reparented (or recreated) on active-stripe change, with its vertical position remembered independently per stripe (REQ-PLOT-105).
+
 ### Cursor system
 
 - **`CursorController` wiring:** optional dependency injected via `AppController.set_cursor_controller()`; all notify calls are guarded by `None` check so the cursor system can be omitted without touching `AppController`.

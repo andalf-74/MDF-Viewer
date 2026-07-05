@@ -893,11 +893,15 @@ def test_delta_column_header_reset_when_not_two(view: MagicMock, table: MagicMoc
     table.set_delta_column_header.assert_called_with("Δ")
 
 
+def _delta_y_pos(ctrl: CursorController) -> float | None:
+    return ctrl._delta_y_pos_by_stripe.get(ctrl._get_active_stripe())
+
+
 @pytest.mark.requirement("REQ-PLOT-102")
 def test_delta_y_pos_remembered_after_drag(view: MagicMock, table: MagicMock) -> None:
     ctrl = _make_ctrl_delta(view, table)
     ctrl._on_delta_line_dragged(0.42)
-    assert ctrl._delta_y_pos == pytest.approx(0.42)
+    assert _delta_y_pos(ctrl) == pytest.approx(0.42)
 
 
 @pytest.mark.requirement("REQ-PLOT-074")
@@ -906,7 +910,60 @@ def test_delta_y_pos_reset_on_file_load(view: MagicMock, table: MagicMock) -> No
     ctrl = _make_ctrl_delta(view, table)
     ctrl._on_delta_line_dragged(0.42)
     ctrl.reset()
-    assert ctrl._delta_y_pos is None
+    assert _delta_y_pos(ctrl) is None
+
+
+@pytest.mark.requirement("REQ-PLOT-105")
+def test_delta_y_pos_remembered_independently_per_stripe(
+    view: MagicMock, table: MagicMock
+) -> None:
+    active_stripe = ["stripe-a"]
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_stripe=lambda: active_stripe[0],
+    )
+    ctrl._on_delta_line_dragged(0.1)
+    active_stripe[0] = "stripe-b"
+    ctrl._on_delta_line_dragged(0.9)
+
+    assert ctrl._delta_y_pos_by_stripe["stripe-a"] == pytest.approx(0.1)
+    assert ctrl._delta_y_pos_by_stripe["stripe-b"] == pytest.approx(0.9)
+
+
+@pytest.mark.requirement("REQ-PLOT-105")
+def test_on_active_stripe_changed_refreshes_delta_time_with_new_stripes_position(
+    view: MagicMock, table: MagicMock
+) -> None:
+    active_stripe = ["stripe-a"]
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_stripe=lambda: active_stripe[0],
+    )
+    ctrl.toggle()  # ONE
+    ctrl.toggle()  # TWO
+    ctrl._on_delta_line_dragged(0.3)  # stripe-a remembers 0.3
+
+    active_stripe[0] = "stripe-b"
+    view.update_delta_time.reset_mock()
+    ctrl.on_active_stripe_changed("stripe-b")
+
+    _, kwargs = view.update_delta_time.call_args
+    assert kwargs["y_pos"] is None  # stripe-b has never shown the delta line before
+
+
+@pytest.mark.requirement("REQ-PLOT-105")
+def test_on_active_stripe_changed_noop_when_not_two_mode(
+    view: MagicMock, table: MagicMock
+) -> None:
+    ctrl = _make_ctrl_delta(view, table)
+    ctrl.toggle()  # ONE
+    view.update_delta_time.reset_mock()
+    ctrl.on_active_stripe_changed("some-stripe")
+    view.update_delta_time.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -974,7 +1031,7 @@ def test_fetch_delta_sets_position_to_clicked_y(
 ) -> None:
     ctrl = _make_ctrl_fetch(view, table)
     ctrl._on_delta_fetch(0.42)
-    assert ctrl._delta_y_pos == pytest.approx(0.42)
+    assert _delta_y_pos(ctrl) == pytest.approx(0.42)
 
 
 @pytest.mark.requirement("REQ-PLOT-112")
