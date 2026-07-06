@@ -178,12 +178,15 @@ See `docs/release.md` for the full build and publish steps.
 
 ## Current Status
 
-**As of 2026-07-02:** v2.1.1 released (https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.1.1) — 977 tests passing. The **2.1.1 Bugfixing milestone is fully resolved**, all bugs closed. Fix-by-fix detail lives in `CHANGELOG.md`'s `[2.1.1]` entry, not repeated here.
+**As of 2026-07-06:** v2.1.1 released (https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.1.1) — 1174+ tests passing. The **2.1.1 Bugfixing milestone is fully resolved**, all bugs closed. Fix-by-fix detail lives in `CHANGELOG.md`'s `[2.1.1]` entry, not repeated here.
 
-One active milestone remains on GitHub:
-- **2.2 Plugins** — new plugin architecture effort: #43 (umbrella), #70 (event bus on AppController), #71 (PluginContext API facade), #72 (Plugin base class/lifecycle), #73 (UI extension points in MainWindow), #74 (plugin loader/discovery), #75 (proof-of-concept built-in plugin), #76 (convert update checker into a first-party plugin).
+GitHub milestone numbering was reshuffled: **#17 (multi-file support) was pulled out of Backlog, broken into 10 sub-issues, and assigned version 2.2** as milestone **"2.2 Multiview/Multimeasurement"** (due 2026-07-31). The former "2.2 Plugins" effort was renumbered to **"2.3 Plugins"**. This is a version-number assignment only, not a release — 2.2 has not shipped.
 
-#17 (multi-file support) has been moved to the **Backlog** milestone (due 2028-12-31, i.e. unscheduled), along with #55, #57, #58, #60, #61.
+Two active milestones remain on GitHub:
+- **2.2 Multiview/Multimeasurement** — #17 (umbrella, epic), #97 Plot Stripes (done), #98 Bottom Drawer for Signal Info/Properties, #99 Main Widget Tabs, #100 Per-Stripe Active Signal Table, #101 Multi-Measurement Loading, #102 Measurement Synchronization, #103 Signal Browser multi-measurement support, #104 color/line-style convention, #105 apply selection to new measurement, #106 Workspace/Config format extension.
+- **2.3 Plugins** — new plugin architecture effort: #43 (umbrella), #70 (event bus on AppController, done), #71 (PluginContext API facade), #72 (Plugin base class/lifecycle), #73 (UI extension points in MainWindow), #74 (plugin loader/discovery), #75 (proof-of-concept built-in plugin), #76 (convert update checker into a first-party plugin).
+
+There's also a **2.X Artificial Signals** milestone (#58, #86) not yet assigned a version number, and a **Backlog** milestone (due 2028-12-31, unscheduled) holding #55, #57, #60, #61.
 
 ### Changelog
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
