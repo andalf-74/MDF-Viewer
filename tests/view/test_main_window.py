@@ -957,6 +957,34 @@ def test_apply_window_geometry_resizes_and_moves(window: MainWindow) -> None:
     assert window.height() == 600
 
 
+@pytest.mark.requirement("REQ-FILE-061")
+def test_apply_window_geometry_normalizes_before_resizing_when_maximized(
+    window: MainWindow,
+) -> None:
+    """#107: restoring a maximized config while already maximized must not
+    leave the window merely un-maximized (resize()/move() on an
+    already-maximized window can drop that state at the OS level, making a
+    later showMaximized() call a no-op unless normalized first)."""
+    with patch.object(window, "isMaximized", return_value=True), \
+         patch.object(window, "showNormal") as mock_show_normal, \
+         patch.object(window, "showMaximized") as mock_show_maximized:
+        window._apply_window_geometry(
+            {"x": 10, "y": 20, "width": 900, "height": 600, "maximized": True}
+        )
+    mock_show_normal.assert_called_once()
+    mock_show_maximized.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-FILE-061")
+def test_apply_window_geometry_does_not_normalize_when_not_maximized(
+    window: MainWindow,
+) -> None:
+    with patch.object(window, "isMaximized", return_value=False), \
+         patch.object(window, "showNormal") as mock_show_normal:
+        window._apply_window_geometry({"width": 900, "height": 600, "maximized": False})
+    mock_show_normal.assert_not_called()
+
+
 @pytest.mark.requirement("REQ-FILE-067")
 def test_apply_window_geometry_none_is_noop(window: MainWindow) -> None:
     window.resize(1280, 800)

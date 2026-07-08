@@ -68,6 +68,12 @@ All notable changes to MDF-Viewer are documented in this file.
   session restores normally).
 
 ### Fixed
+- Loading a `.mvc` config with a maximized window state, while the app was
+  already maximized, left the window merely windowed instead of staying
+  maximized (#107). `resize()`/`move()` on an already-maximized window can
+  drop that state at the OS level, making the following `showMaximized()`
+  call a no-op against Qt's stale cached window state; the window is now
+  normalized first if it's currently maximized.
 - `docs/requirements/plotting.md`'s REQ-PLOT-121 incorrectly stated that
   "line only" display mode disables the line style control. It doesn't —
   only the marker shape control is disabled in that mode, which is what

@@ -497,6 +497,13 @@ class MainWindow(QMainWindow):
     def _apply_window_geometry(self, geometry: dict | None) -> None:
         if not geometry:
             return
+        # Normalize first (#107): resizing/moving an already-maximized window
+        # forces Windows to drop the maximized state at the OS level, after
+        # which showMaximized() below becomes a no-op against Qt's stale
+        # cached window state — always start the restore from a clean,
+        # non-maximized state regardless of the window's current state.
+        if self.isMaximized():
+            self.showNormal()
         w, h = geometry.get("width"), geometry.get("height")
         if isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0:
             self.resize(w, h)
