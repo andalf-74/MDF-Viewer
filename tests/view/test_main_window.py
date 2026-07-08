@@ -968,8 +968,34 @@ def test_apply_window_geometry_none_is_noop(window: MainWindow) -> None:
 @pytest.mark.requirement("REQ-FILE-061")
 def test_capture_splitter_sizes_includes_all_splitters_and_left_panel(window: MainWindow) -> None:
     sizes = window._capture_splitter_sizes()
-    assert set(sizes) == {"left", "right", "content", "outer", "left_panel"}
-    assert sizes["left_panel"] == {"pinned": True, "width": window._panel_w}
+    assert set(sizes) == {"left", "content", "outer", "left_panel", "info_drawer"}
+    assert sizes["left_panel"] == {"pinned": True, "width": window._left_dock.width_px}
+
+
+@pytest.mark.requirement("REQ-PLOT-225")
+def test_capture_splitter_sizes_includes_info_drawer(window: MainWindow) -> None:
+    sizes = window._capture_splitter_sizes()
+    assert sizes["info_drawer"] == {
+        "pinned": True,
+        "width": window._info_dock.width_px,
+        "inner": window.signal_info_box.splitter_sizes(),
+    }
+
+
+@pytest.mark.requirement("REQ-PLOT-225")
+def test_apply_splitter_sizes_restores_info_drawer_width_and_pinned_state(
+    window: MainWindow,
+) -> None:
+    window._apply_splitter_sizes({"info_drawer": {"pinned": False, "width": 300}})
+    assert window._info_dock.width_px == 300
+    assert not window._info_dock.pinned
+
+
+@pytest.mark.requirement("REQ-PLOT-227")
+def test_apply_splitter_sizes_restores_info_drawer_inner_split(window: MainWindow) -> None:
+    with patch.object(window.signal_info_box, "set_splitter_sizes") as mock_set_sizes:
+        window._apply_splitter_sizes({"info_drawer": {"inner": [40, 150]}})
+    mock_set_sizes.assert_called_once_with([40, 150])
 
 
 @pytest.mark.requirement("REQ-FILE-061")

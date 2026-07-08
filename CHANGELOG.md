@@ -30,6 +30,24 @@ All notable changes to MDF-Viewer are documented in this file.
   - `docs/requirements/plotting.md` gained a new "Plot Stripes" section
     (REQ-PLOT-180 through 212) plus amendments to existing zoom/selection/
     grouping requirements to describe the multi-stripe scoping rules.
+- Side Drawer for Signal Info / Properties (#98): the Info/Properties panel
+  moved out of the Active Signals Table's own splitter into a full-height
+  drawer to its right, so the table can grow vertically regardless of how
+  many stripes exist.
+  - The drawer pins (docked) or unpins (hover-reveal overlay at the
+    window's right edge) exactly like the existing Signal Browser /
+    Measurement Info panel on the left — that shared mechanism was
+    extracted into a new reusable `DockablePanel`.
+  - Within the drawer, Info and Properties are stacked vertically behind
+    bold section headers instead of tabs, divided by a user-resizable
+    splitter, so both are visible at once.
+  - Pinned/unpinned state, width, and the inner Info/Properties split are
+    all saved to and restored from `.mvc` session files.
+  - A long, space-less signal name or comment no longer forces the drawer
+    wider than its column — value labels now wrap/shrink to fit instead of
+    propagating their unwrapped width as a hard minimum.
+  - `docs/requirements/plotting.md` gained a new "Info/Properties Drawer"
+    section (REQ-PLOT-220 through 229).
 
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the

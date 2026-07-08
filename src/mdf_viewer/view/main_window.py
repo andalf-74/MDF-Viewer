@@ -2,15 +2,19 @@
 
 Layout (per CLAUDE.md):
 
-    +-----------------------------------------------------------+
-    | Menu bar (File: Load MDF / Exit)                          |
-    | Toolbar (Load File | Zoom to Fit | Cursor Toggle)         |
-    +------------+--------------------------------+-------------+
-    |            | Plot Area                      |             |
-    | Signal     +--------------------------------+ Active      |
-    | Browser    | Measurement Info | Signal Info | Signals     |
-    | (tree)     |                                | Table       |
-    +------------+--------------------------------+-------------+
+    +-----------------------------------------------------------------+
+    | Menu bar (File: Load MDF / Exit)                                |
+    | Toolbar (Load File | Zoom to Fit | Cursor Toggle)               |
+    +------------+------------------------+----------+---------------+
+    | Signal     |                        | Active   | Signal Info / |
+    | Browser /  | Plot Stripes Area      | Signals  | Properties    |
+    | Meas. Info | (one or more stripes)  | Table    | (drawer)      |
+    | (drawer)   |                        |          |               |
+    +------------+------------------------+----------+---------------+
+
+The Signal Browser/Measurement Info panel (left) and the Signal Info/
+Properties panel (right) are each a `DockablePanel` (#98): pinned as a
+docked column by default, or collapsible into a hover-reveal overlay.
 
 This module only assembles widgets and exposes signals/slots; it contains no
 data-loading or plotting logic.
@@ -22,28 +26,21 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
 from PyQt6.QtCore import (
-    QAbstractAnimation,
-    QEasingCurve,
     QEvent,
-    QPoint,
-    QPropertyAnimation,
     QSize,
     Qt,
     QThread,
-    QTimer,
     QUrl,
     pyqtSignal,
 )
-from PyQt6.QtGui import QAction, QCursor, QDesktopServices, QFont, QIcon, QKeySequence, QShortcut
+from PyQt6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
-    QHBoxLayout,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QSplitter,
-    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -77,6 +74,7 @@ from mdf_viewer.license.license_info import LicenseInfo
 from mdf_viewer.license.license_manager import LicenseManager
 from mdf_viewer.settings import Settings
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
+from mdf_viewer.view.dockable_panel import DockablePanel
 from mdf_viewer.view.license_dialog import LicenseDialog
 from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
 from mdf_viewer.view.plot_stripes_area import PlotStripesArea
@@ -87,9 +85,8 @@ from mdf_viewer.view.widgets import make_splitter
 if TYPE_CHECKING:
     from mdf_viewer.controller.app_controller import AppController
 
-_PANEL_W = 260       # left panel width in pixels
-_HOVER_PX = 10       # distance from left edge that triggers drawer slide-out
-_ANIM_MS = 200       # slide animation duration in ms
+_PANEL_W = 260         # left panel default width in pixels
+_INFO_DRAWER_W = 260   # info/properties drawer default width in pixels
 
 
 
@@ -371,20 +368,7 @@ class MainWindow(QMainWindow):
         self.measurement_info_box = MeasurementInfoBox()
         self.signal_info_box = SignalInfoBox()
 
-        # ── Left panel (collapsible / drawer) ────────────────────────────
-        self._left_panel = QWidget()
-        self._left_panel.setAutoFillBackground(True)  # opaque over content
-
-        self._pin_button = QToolButton()
-        self._pin_button.setText("‹")
-        self._pin_button.setFixedHeight(32)
-        self._pin_button.setAutoRaise(True)
-        self._pin_button.setToolTip("Collapse panel")
-        self._pin_button.clicked.connect(self._toggle_pin)
-        _pin_font = QFont()
-        _pin_font.setPointSize(16)
-        self._pin_button.setFont(_pin_font)
-
+        # ── Left panel content (Signal Browser / Measurement Info) ───────
         self._left_splitter = make_splitter(Qt.Orientation.Vertical)
         left_splitter = self._left_splitter
         left_splitter.addWidget(self.signal_browser)
@@ -392,70 +376,65 @@ class MainWindow(QMainWindow):
         left_splitter.setStretchFactor(0, 3)
         left_splitter.setStretchFactor(1, 1)
 
-        pin_row = QHBoxLayout()
-        pin_row.setContentsMargins(0, 0, 0, 0)
-        pin_row.addStretch()
-        pin_row.addWidget(self._pin_button)
+        # ── Central container ─────────────────────────────────────────────
+        # In pinned mode the outer splitter fills it. Unpinned DockablePanels
+        # re-parent themselves here as floating overlays.
+        self._central = QWidget()
+        self.setCentralWidget(self._central)
+        self._central.installEventFilter(self)
 
-        left_vbox = QVBoxLayout(self._left_panel)
-        left_vbox.setContentsMargins(0, 0, 0, 0)
-        left_vbox.setSpacing(0)
-        left_vbox.addLayout(pin_row)
-        left_vbox.addWidget(left_splitter)
-
-        # ── Right panel ───────────────────────────────────────────────────
-        right_panel = QWidget()
-        self._right_splitter = make_splitter(Qt.Orientation.Vertical)
-        right_splitter = self._right_splitter
-        right_splitter.addWidget(self.active_signals_table)
-        right_splitter.addWidget(self.signal_info_box)
-        right_splitter.setStretchFactor(0, 3)
-        right_splitter.setStretchFactor(1, 1)
-        right_vbox = QVBoxLayout(right_panel)
-        right_vbox.setContentsMargins(0, 0, 0, 0)
-        right_vbox.addWidget(right_splitter)
-
-        # ── Content splitter (plot area + right panel) ────────────────────
+        # ── Content splitter (plot area | Active Signals Table | info drawer)
+        self._info_dock = DockablePanel(
+            content=self.signal_info_box,
+            edge=Qt.Edge.RightEdge,
+            overlay_parent=self._central,
+            dock_callback=self._dock_info_panel,
+            default_width=_INFO_DRAWER_W,
+        )
         self._content_splitter = make_splitter(Qt.Orientation.Horizontal)
         self._content_splitter.addWidget(self.plot_area)
-        self._content_splitter.addWidget(right_panel)
+        self._content_splitter.addWidget(self.active_signals_table)
+        self._content_splitter.addWidget(self._info_dock)
         self._content_splitter.setStretchFactor(0, 1)
         self._content_splitter.setStretchFactor(1, 0)
-        self._content_splitter.setSizes([760, 260])
+        self._content_splitter.setStretchFactor(2, 0)
+        self._content_splitter.setSizes([500, _PANEL_W, _INFO_DRAWER_W])
 
         # ── Outer splitter (pinned mode: left panel + content) ───────────
-        # _panel_w tracks the current panel width so it's preserved across
-        # pin/drawer transitions even after the user has resized the panel.
-        self._panel_w = _PANEL_W
+        self._left_dock = DockablePanel(
+            content=self._left_splitter,
+            edge=Qt.Edge.LeftEdge,
+            overlay_parent=self._central,
+            dock_callback=self._dock_left_panel,
+            default_width=_PANEL_W,
+        )
         self._outer_splitter = make_splitter(Qt.Orientation.Horizontal)
-        self._outer_splitter.addWidget(self._left_panel)
+        self._outer_splitter.addWidget(self._left_dock)
         self._outer_splitter.addWidget(self._content_splitter)
         self._outer_splitter.setStretchFactor(0, 0)
         self._outer_splitter.setStretchFactor(1, 1)
         self._outer_splitter.setSizes([_PANEL_W, 760])
-
-        # ── Central container ─────────────────────────────────────────────
-        # In pinned mode the outer splitter fills it.  In drawer mode the
-        # left panel is re-parented here as a floating overlay.
-        self._central = QWidget()
-        self.setCentralWidget(self._central)
-        self._central.installEventFilter(self)
         self._outer_splitter.setParent(self._central)
 
-        # ── Collapse/drawer state ─────────────────────────────────────────
-        self._pinned = True
-        self._drawer_shown = False
-
-        self._hover_timer = QTimer(self)
-        self._hover_timer.setInterval(50)
-        self._hover_timer.timeout.connect(self._check_hover)
-
-        self._panel_anim = QPropertyAnimation(self._left_panel, b"pos", self)
-        self._panel_anim.setDuration(_ANIM_MS)
-        self._panel_anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
-
         self._content_splitter.show()
-        self._left_panel.show()
+        self._left_dock.show()
+        self._info_dock.show()
+
+    def _dock_left_panel(self, panel: DockablePanel) -> None:
+        """Re-insert the left DockablePanel into _outer_splitter on re-pin."""
+        self._outer_splitter.insertWidget(0, panel)
+        w = self._central.width()
+        self._outer_splitter.setSizes([panel.width_px, max(0, w - panel.width_px)])
+
+    def _dock_info_panel(self, panel: DockablePanel) -> None:
+        """Re-append the info DockablePanel into _content_splitter on re-pin."""
+        sizes_before = self._content_splitter.sizes()  # [plot_w, ast_w]
+        plot_w = sizes_before[0] if sizes_before else self._content_splitter.width()
+        ast_w = sizes_before[1] if len(sizes_before) > 1 else 0
+        self._content_splitter.addWidget(panel)
+        self._content_splitter.setSizes(
+            [max(0, plot_w - panel.width_px), ast_w, panel.width_px]
+        )
 
     # ------------------------------------------------------------------
     # Geometry management
@@ -482,12 +461,8 @@ class MainWindow(QMainWindow):
         if w == 0 or h == 0:
             return
         self._outer_splitter.setGeometry(0, 0, w, h)
-        if not self._pinned:
-            # In drawer mode the left panel floats as an overlay child of _central
-            self._left_panel.resize(self._panel_w, h)
-            if self._panel_anim.state() != QAbstractAnimation.State.Running:
-                x = 0 if self._drawer_shown else -self._panel_w
-                self._left_panel.move(x, 0)
+        self._left_dock.update_geometry(w, h)
+        self._info_dock.update_geometry(w, h)
 
     # ------------------------------------------------------------------
     # Layout persistence (.mvc window/splitter state)
@@ -506,10 +481,17 @@ class MainWindow(QMainWindow):
     def _capture_splitter_sizes(self) -> dict:
         return {
             "left": self._left_splitter.sizes(),
-            "right": self._right_splitter.sizes(),
             "content": self._content_splitter.sizes(),
             "outer": self._outer_splitter.sizes(),
-            "left_panel": {"pinned": self._pinned, "width": self._panel_w},
+            "left_panel": {
+                "pinned": self._left_dock.pinned,
+                "width": self._left_dock.width_px,
+            },
+            "info_drawer": {
+                "pinned": self._info_dock.pinned,
+                "width": self._info_dock.width_px,
+                "inner": self.signal_info_box.splitter_sizes(),
+            },
         }
 
     def _apply_window_geometry(self, geometry: dict | None) -> None:
@@ -529,7 +511,6 @@ class MainWindow(QMainWindow):
             return
         for attr, key in (
             ("_left_splitter", "left"),
-            ("_right_splitter", "right"),
             ("_content_splitter", "content"),
             ("_outer_splitter", "outer"),
         ):
@@ -537,63 +518,29 @@ class MainWindow(QMainWindow):
             if isinstance(values, list) and all(isinstance(v, int) for v in values):
                 getattr(self, attr).setSizes(values)
 
-        left_panel = sizes.get("left_panel")
-        if isinstance(left_panel, dict):
-            width = left_panel.get("width")
+        for dock, key in (
+            (self._left_dock, "left_panel"),
+            (self._info_dock, "info_drawer"),
+        ):
+            entry = sizes.get(key)
+            if not isinstance(entry, dict):
+                continue
+            # Toggle first: unpinning captures the dock's *current* on-screen
+            # width into width_px, which the width override below must win
+            # over — reversing this order would let toggle_pin() clobber an
+            # explicitly saved width with whatever the widget happened to be
+            # rendered at.
+            if entry.get("pinned") is False and dock.pinned:
+                dock.toggle_pin()
+            width = entry.get("width")
             if isinstance(width, int) and width > 0:
-                self._panel_w = width
-            if left_panel.get("pinned") is False and self._pinned:
-                self._toggle_pin()
+                dock.set_width(width)
 
-    # ------------------------------------------------------------------
-    # Collapse / drawer
-    # ------------------------------------------------------------------
-
-    def _toggle_pin(self) -> None:
-        if self._pinned:
-            # Record current width before removing from splitter
-            self._panel_w = self._left_panel.width()
-            self._pinned = False
-            self._pin_button.setText("›")
-            self._pin_button.setToolTip("Pin panel")
-            # Re-parent to _central as a floating overlay
-            self._left_panel.setParent(self._central)
-            self._left_panel.resize(self._panel_w, self._central.height())
-            self._left_panel.move(0, 0)
-            self._left_panel.show()
-            self._left_panel.raise_()
-            self._hover_timer.start()
-            self._slide_panel(show=False)
-        else:
-            self._panel_anim.stop()
-            self._hover_timer.stop()
-            self._pinned = True
-            self._drawer_shown = False
-            self._pin_button.setText("‹")
-            self._pin_button.setToolTip("Collapse panel")
-            # Re-insert into the outer splitter at position 0
-            self._outer_splitter.insertWidget(0, self._left_panel)
-            w = self._central.width()
-            self._outer_splitter.setSizes([self._panel_w, max(0, w - self._panel_w)])
-
-    def _slide_panel(self, show: bool) -> None:
-        self._panel_anim.stop()
-        self._drawer_shown = show
-        end = QPoint(0, 0) if show else QPoint(-self._panel_w, 0)
-        if self._left_panel.pos() == end:
-            return
-        self._panel_anim.setStartValue(self._left_panel.pos())
-        self._panel_anim.setEndValue(end)
-        self._panel_anim.start()
-
-    def _check_hover(self) -> None:
-        if self._pinned:
-            return
-        x = self._central.mapFromGlobal(QCursor.pos()).x()
-        if not self._drawer_shown and x < _HOVER_PX:
-            self._slide_panel(show=True)
-        elif self._drawer_shown and x > self._panel_w + 20:
-            self._slide_panel(show=False)
+        info_drawer = sizes.get("info_drawer")
+        if isinstance(info_drawer, dict):
+            inner = info_drawer.get("inner")
+            if isinstance(inner, list) and all(isinstance(v, int) for v in inner):
+                self.signal_info_box.set_splitter_sizes(inner)
 
     # ------------------------------------------------------------------
     # Slots

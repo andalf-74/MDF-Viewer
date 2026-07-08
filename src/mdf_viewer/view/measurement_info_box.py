@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QLabel,
     QScrollArea,
+    QSizePolicy,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -53,7 +54,10 @@ class MeasurementInfoBox(QWidget):
         """Populate the form from a MeasurementInfo and show it."""
         _clear_form(self._form)
         for label, value in _measurement_rows(info):
-            _add_row(self._form, label, value)
+            if label == "Comment":
+                _add_wrapped_row(self._form, label, value)
+            else:
+                _add_row(self._form, label, value)
         self._stack.setCurrentIndex(1)
 
     def clear(self) -> None:
@@ -71,13 +75,40 @@ def _clear_form(form: QFormLayout) -> None:
         form.removeRow(0)
 
 
+def _make_wrapped_value_label(value: str) -> QLabel:
+    """QLabel that actually shrinks to its column instead of forcing it wider.
+
+    setWordWrap(True) alone isn't enough: Qt still reports a
+    minimumSizeHint() based on the label's longest unbreakable substring
+    (e.g. an underscore-separated channel name or comment with no spaces),
+    and that minimum propagates up through the form/scroll area to force
+    the whole drawer wider than its assigned splitter width. Ignoring the
+    horizontal size policy tells the layout not to treat that width as a
+    hard minimum, so the label wraps/shrinks to whatever space it's given.
+    """
+    val = QLabel(value)
+    val.setWordWrap(True)
+    val.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+    val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    return val
+
+
 def _add_row(form: QFormLayout, label: str, value: str) -> None:
     lbl = QLabel(label + ":")
     lbl.setStyleSheet("font-weight: bold;")
-    val = QLabel(value)
-    val.setWordWrap(True)
-    val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-    form.addRow(lbl, val)
+    form.addRow(lbl, _make_wrapped_value_label(value))
+
+
+def _add_wrapped_row(form: QFormLayout, label: str, value: str) -> None:
+    """Add a row whose value wraps on its own full-width line below the label.
+
+    Used for long free-text fields (e.g. Comment) where a side-by-side
+    label/field row would squeeze wrapped text into a narrow column.
+    """
+    lbl = QLabel(label + ":")
+    lbl.setStyleSheet("font-weight: bold;")
+    form.addRow(lbl)
+    form.addRow(_make_wrapped_value_label(value))
 
 
 def _clean_text(text: str) -> str:

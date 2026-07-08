@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import pytest
 from PyQt6.QtWidgets import QLabel
 from pytestqt.qtbot import QtBot
@@ -399,36 +401,44 @@ def test_sbox_clear_removes_form_rows(sbox: SignalInfoBox) -> None:
 
 
 # ---------------------------------------------------------------------------
-# SignalInfoBox – Properties tab
+# SignalInfoBox – Info/Properties sections (#98: vertical splitter, not tabs)
 # ---------------------------------------------------------------------------
 
-def test_sbox_has_two_tabs(sbox: SignalInfoBox) -> None:
-    assert sbox._tabs.count() == 2
+@pytest.mark.requirement("REQ-PLOT-226")
+def test_sbox_has_info_and_properties_sections(sbox: SignalInfoBox) -> None:
+    assert sbox._splitter.count() == 2
 
 
 @pytest.mark.requirement("REQ-PLOT-152")
-def test_sbox_properties_tab_disabled_initially(sbox: SignalInfoBox) -> None:
-    assert not sbox._tabs.isTabEnabled(1)
+def test_sbox_properties_section_disabled_initially(sbox: SignalInfoBox) -> None:
+    assert not sbox._props_widget.isEnabled()
+
+
+@pytest.mark.requirement("REQ-PLOT-227")
+def test_sbox_set_splitter_sizes_restores_inner_split(sbox: SignalInfoBox) -> None:
+    with patch.object(sbox._splitter, "setSizes") as mock_set_sizes:
+        sbox.set_splitter_sizes([50, 200])
+    mock_set_sizes.assert_called_once_with([50, 200])
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_sbox_enable_properties_enables_tab(sbox: SignalInfoBox) -> None:
+def test_sbox_enable_properties_enables_section(sbox: SignalInfoBox) -> None:
     sbox.enable_properties(True)
-    assert sbox._tabs.isTabEnabled(1)
+    assert sbox._props_widget.isEnabled()
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
-def test_sbox_enable_properties_disables_tab(sbox: SignalInfoBox) -> None:
+def test_sbox_enable_properties_disables_section(sbox: SignalInfoBox) -> None:
     sbox.enable_properties(True)
     sbox.enable_properties(False)
-    assert not sbox._tabs.isTabEnabled(1)
+    assert not sbox._props_widget.isEnabled()
 
 
 @pytest.mark.requirement("REQ-PLOT-152")
-def test_sbox_clear_disables_properties_tab(sbox: SignalInfoBox) -> None:
+def test_sbox_clear_disables_properties_section(sbox: SignalInfoBox) -> None:
     sbox.enable_properties(True)
     sbox.clear()
-    assert not sbox._tabs.isTabEnabled(1)
+    assert not sbox._props_widget.isEnabled()
 
 
 @pytest.mark.requirement("REQ-PLOT-120")

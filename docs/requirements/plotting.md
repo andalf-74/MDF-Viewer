@@ -279,6 +279,37 @@ at least two samples [REQ-PLOT-151]. Selecting more than one signal, or
 none, does not show single-signal descriptive information
 [REQ-PLOT-152].
 
+## Info/Properties Drawer
+
+The Signal Info Box (REQ-PLOT-150 through REQ-PLOT-152) is presented in a
+dedicated panel to the right of the Active Signals Table, spanning the
+full height of the content area independently of the table's own height
+[REQ-PLOT-220]. The panel can be pinned, keeping it permanently docked as
+a column beside the Active Signals Table, or unpinned, in which case it
+stays hidden until revealed [REQ-PLOT-221]. While unpinned, moving the
+pointer near the right edge of the window slides the panel into view as
+an overlay, and moving the pointer away slides it back out of view
+[REQ-PLOT-222]. Revealing or hiding the unpinned panel happens only
+through hovering or the pin toggle, never automatically in response to a
+signal selection change [REQ-PLOT-223]. A newly created session (no
+saved workspace) starts with the panel pinned at a default width of 260
+pixels [REQ-PLOT-224]. The panel's pinned/unpinned state and width are
+saved to and restored from `.mvc` session files [REQ-PLOT-225].
+
+Within the panel, the Info view and the Properties view are stacked
+vertically rather than presented as tabs, each under its own section
+label, and divided by a splitter the user can drag to reallocate space
+between the two [REQ-PLOT-226]. The Info/Properties
+splitter position is saved to and restored from `.mvc` session files
+[REQ-PLOT-227]. When no signal is selected, the Info section shows its
+"No signal selected" placeholder (REQ-PLOT-152) and the Properties
+section is disabled, matching today's single-selection content rules
+without requiring a tab switch to see either state [REQ-PLOT-228]. The
+panel is a single instance shared across all stripes, showing
+information for whichever signal was most recently selected regardless
+of which stripe's Active Signals Table the selection came from
+[REQ-PLOT-229].
+
 ## Display Name Shortening
 
 A global preference can shorten displayed signal names by splitting each

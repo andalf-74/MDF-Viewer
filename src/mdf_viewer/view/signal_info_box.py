@@ -1,6 +1,7 @@
-"""SignalInfoBox — bottom-right panel showing metadata and properties for the selected signal.
+"""SignalInfoBox — Info/Properties panel for the selected signal, hosted in the info drawer (#98).
 
-Two tabs:
+Two sections stacked vertically in a resizable splitter (not tabs, so both
+are visible at once in the drawer's narrow-but-tall shape):
   * Info — read-only metadata (name, unit, min/max, etc.)
   * Properties — per-signal display settings (display mode, marker shape)
 
@@ -19,13 +20,13 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QSpinBox,
     QStackedWidget,
-    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from mdf_viewer.model.signal_metadata import SignalMetadata
-from mdf_viewer.view.measurement_info_box import _add_row, _clear_form
+from mdf_viewer.view.measurement_info_box import _add_row, _add_wrapped_row, _clear_form
+from mdf_viewer.view.widgets import make_splitter
 
 _DISPLAY_MODES: list[tuple[str, str]] = [
     ("line", "Line"),
@@ -184,7 +185,7 @@ class _SignalPropertiesWidget(QWidget):
 
 
 class SignalInfoBox(QWidget):
-    """Info and Properties tabs for the selected signal(s)."""
+    """Info and Properties sections, stacked vertically, for the selected signal(s)."""
 
     display_mode_requested = pyqtSignal(str)
     marker_shape_requested = pyqtSignal(str)
@@ -200,13 +201,18 @@ class SignalInfoBox(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 4, 4, 4)
 
-        self._tabs = QTabWidget()
-        layout.addWidget(self._tabs)
+        self._splitter = make_splitter(Qt.Orientation.Vertical)
+        layout.addWidget(self._splitter)
 
-        # ── Info tab ──────────────────────────────────────────────────────
-        info_widget = QWidget()
-        info_layout = QVBoxLayout(info_widget)
+        # ── Info section ─────────────────────────────────────────────────
+        info_section = QWidget()
+        info_layout = QVBoxLayout(info_section)
         info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setSpacing(2)
+
+        self._info_label = QLabel("Info")
+        self._info_label.setStyleSheet("font-weight: bold;")
+        info_layout.addWidget(self._info_label)
 
         self._stack = QStackedWidget()
         info_layout.addWidget(self._stack)
@@ -226,12 +232,30 @@ class SignalInfoBox(QWidget):
         scroll.setWidget(self._content)
         self._stack.addWidget(scroll)  # index 1
 
-        self._tabs.addTab(info_widget, "Info")
+        # ── Properties section ───────────────────────────────────────────
+        props_section = QWidget()
+        props_layout = QVBoxLayout(props_section)
+        props_layout.setContentsMargins(0, 0, 0, 0)
+        props_layout.setSpacing(2)
 
-        # ── Properties tab ────────────────────────────────────────────────
+        self._props_label = QLabel("Properties")
+        self._props_label.setStyleSheet("font-weight: bold;")
+        props_layout.addWidget(self._props_label)
+
         self._props_widget = _SignalPropertiesWidget()
-        self._tabs.addTab(self._props_widget, "Properties")
-        self._tabs.setTabEnabled(1, False)
+        props_layout.addWidget(self._props_widget)
+
+        # Properties (on top) is a short, fixed-row form; Info (below) is a
+        # scrollable, variable-length metadata list. Bias both the initial
+        # split and extra space on resize toward Info rather than the
+        # QSplitter default of splitting newly-added panes evenly.
+        self._splitter.addWidget(props_section)
+        self._splitter.addWidget(info_section)
+        self._splitter.setSizes([140, 300])
+        self._splitter.setStretchFactor(0, 0)
+        self._splitter.setStretchFactor(1, 1)
+
+        self.enable_properties(False)
 
         self._props_widget.display_mode_requested.connect(self.display_mode_requested)
         self._props_widget.marker_shape_requested.connect(self.marker_shape_requested)
@@ -246,10 +270,13 @@ class SignalInfoBox(QWidget):
     # ------------------------------------------------------------------
 
     def set_metadata(self, meta: SignalMetadata) -> None:
-        """Populate the Info tab from a SignalMetadata and show it."""
+        """Populate the Info section from a SignalMetadata and show it."""
         _clear_form(self._form)
         for label, value in _metadata_rows(meta):
-            _add_row(self._form, label, value)
+            if label == "Comment":
+                _add_wrapped_row(self._form, label, value)
+            else:
+                _add_row(self._form, label, value)
         self._stack.setCurrentIndex(1)
 
     def show_multi_selection(self) -> None:
@@ -258,12 +285,12 @@ class SignalInfoBox(QWidget):
         self._stack.setCurrentIndex(0)
 
     def clear(self) -> None:
-        """Reset Info tab to placeholder and disable the Properties tab."""
+        """Reset the Info section to its placeholder and disable Properties."""
         self._placeholder.setText("No signal selected.")
         _clear_form(self._form)
         self._stack.setCurrentIndex(0)
         self._props_widget.set_enum_options(None, None, None)
-        self._tabs.setTabEnabled(1, False)
+        self.enable_properties(False)
 
     # ------------------------------------------------------------------
     # Properties tab API
@@ -283,8 +310,21 @@ class SignalInfoBox(QWidget):
         self._props_widget.set_enum_options(table, cursor, yaxis)
 
     def enable_properties(self, enabled: bool) -> None:
-        """Enable or disable the Properties tab."""
-        self._tabs.setTabEnabled(1, enabled)
+        """Enable or disable the Properties section."""
+        self._props_widget.setEnabled(enabled)
+        self._props_label.setEnabled(enabled)
+
+    # ------------------------------------------------------------------
+    # Layout persistence (.mvc session state)
+    # ------------------------------------------------------------------
+
+    def splitter_sizes(self) -> list[int]:
+        """Current pixel sizes of the Info/Properties inner splitter."""
+        return self._splitter.sizes()
+
+    def set_splitter_sizes(self, sizes: list[int]) -> None:
+        """Restore the Info/Properties inner splitter's pixel sizes."""
+        self._splitter.setSizes(sizes)
 
 
 # ---------------------------------------------------------------------------
