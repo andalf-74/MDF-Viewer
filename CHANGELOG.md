@@ -71,6 +71,16 @@ All notable changes to MDF-Viewer are documented in this file.
     worked.
   - `docs/requirements/plotting.md` gained a new "Main Widget Tabs" section
     (REQ-PLOT-230 through 260).
+- Near-match signal resolution on reload (#109): when keeping active
+  signals across a file reload (or restoring a `.mvc` config) and a signal
+  isn't found by exact name, the app now also checks for a signal recorded
+  under a different protocol or source — same name up to the last `\`,
+  differing only in what follows it (e.g. `...\ETKC:1` vs `...\XCP:1`).
+  Any such near-matches found are shown in one confirmation dialog listing
+  original name → matched name, with a checkbox per row (checked by
+  default); declined or unmatched signals still end up in the existing
+  "signals not found" summary.
+  - `docs/requirements/file-handling.md` gained REQ-FILE-032 through 036.
 
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the

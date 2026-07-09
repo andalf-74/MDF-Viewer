@@ -794,6 +794,10 @@ class AppController:
         """Return all SignalMetadata entries in the loaded file that match *name*."""
         return self._loader.find_signal_by_name(name)
 
+    def find_similar_signal_by_name(self, name: str) -> list:
+        """Return SignalMetadata entries that near-match *name* (REQ-FILE-032/033)."""
+        return self._loader.find_similar_signal_by_name(name)
+
     def restore_signals(
         self, resolved: list[tuple[ActiveSignalSnapshot, int, int]]
     ) -> None:

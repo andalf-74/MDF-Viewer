@@ -191,6 +191,30 @@ class MdfLoader:
             pass
         return result
 
+    def find_similar_signal_by_name(self, name: str) -> list[SignalMetadata]:
+        """Return channels whose name matches *name* up to its own last "\\",
+        differing only in what follows it (REQ-FILE-032) — covers a signal
+        recorded under a different protocol/source, e.g. "...\\ETKC:1" vs
+        "...\\XCP:1". A name with no "\\" has no such prefix and never
+        matches, on either side of the comparison (REQ-FILE-033). Excludes
+        exact matches, which find_signal_by_name already covers. Returns an
+        empty list when the file has no such channel or no file is open.
+        """
+        if not self.is_open or "\\" not in name:
+            return []
+        prefix = name.rsplit("\\", 1)[0]
+        result: list[SignalMetadata] = []
+        try:
+            for group in self.channel_tree():
+                for ch in group.channels:
+                    if ch.name == name or "\\" not in ch.name:
+                        continue
+                    if ch.name.rsplit("\\", 1)[0] == prefix:
+                        result.append(ch)
+        except Exception:
+            pass
+        return result
+
     def load_signal(
         self, group_index: int, channel_index: int
     ) -> tuple[SignalData, SignalMetadata]:

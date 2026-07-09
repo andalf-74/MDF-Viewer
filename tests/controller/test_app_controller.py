@@ -1384,6 +1384,15 @@ def test_find_signal_by_name_returns_empty_when_not_found(ctrl: AppController, d
     assert ctrl.find_signal_by_name("no_such") == []
 
 
+@pytest.mark.requirement("REQ-FILE-032")
+def test_find_similar_signal_by_name_delegates_to_loader(ctrl: AppController, deps: dict) -> None:
+    meta = _make_metadata("FZGG_NAB_AKT\\ETKC:1", gi=0, ci=3)
+    deps["loader"].find_similar_signal_by_name.return_value = [meta]
+    result = ctrl.find_similar_signal_by_name("FZGG_NAB_AKT\\XCP:1")
+    deps["loader"].find_similar_signal_by_name.assert_called_once_with("FZGG_NAB_AKT\\XCP:1")
+    assert result == [meta]
+
+
 @pytest.mark.requirement("REQ-PLOT-162")
 def test_find_signal_by_name_ignores_display_shortening(tmp_path, deps: dict) -> None:
     """Display-name shortening only affects the table's shown text

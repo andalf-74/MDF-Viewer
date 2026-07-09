@@ -49,6 +49,28 @@ groups) prompt the user to pick which one; names with no match in the new
 file are reported to the user in a summary rather than silently dropped
 [REQ-FILE-031].
 
+A signal name with no exact match is additionally checked for a near
+match: another channel whose name is identical up to its own last
+backslash ("\"), differing only in what follows it — covering a signal
+recorded under a different measurement protocol or source, e.g.
+"...FZGG_NAB_AKT\ETKC:1" against "...FZGG_NAB_AKT\XCP:1" [REQ-FILE-032]. A
+signal name containing no backslash is never treated as a near-match
+candidate, on either side of the comparison [REQ-FILE-033]. Near-match
+detection runs unconditionally whenever signals are resolved by name
+(REQ-FILE-031, REQ-FILE-066) — there is no separate preference to disable
+it [REQ-FILE-034]. Exactly one near-match candidate is added to a pending
+list, presented for confirmation once every signal has been resolved
+(REQ-FILE-036); more than one near-match candidate for the same signal is
+offered through the same ambiguous-match picker used for multiple exact
+matches (REQ-FILE-031), and canceling that picker treats the signal as not
+found rather than retrying [REQ-FILE-035]. Once every signal has been
+resolved, any pending near-match signals are shown together in one
+confirmation dialog, each listing the original name and its matched
+candidate name with a checkbox that starts checked; accepted rows are
+added as if they had matched exactly, and declined rows are folded into
+the same not-found summary as signals with no match at all
+[REQ-FILE-036].
+
 ## Load Failure Handling
 
 The application must never crash because a measurement file is malformed,

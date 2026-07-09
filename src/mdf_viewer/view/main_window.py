@@ -900,6 +900,30 @@ class MainWindow(QMainWindow):
         if load_ok and snapshots:
             self._restore_snapshots(snapshots)
 
+    def _classify_signal_name(self, name: str, group_name: str = "") -> tuple[str, list]:
+        """Classify *name* against the loaded file for signal-restore purposes.
+
+        Tries an exact match first, falling back to a near match
+        (REQ-FILE-032/033) only when there's no exact match at all — a
+        near match is never preferred over an exact one. Returns
+        (status, candidates) where status is one of "exact_single",
+        "exact_multiple", "near_single", "near_multiple", or "not_found".
+        """
+        candidates = self._controller.find_signal_by_name(name)
+        is_near = False
+        if not candidates:
+            candidates = self._controller.find_similar_signal_by_name(name)
+            is_near = True
+        if group_name and candidates:
+            narrowed = [c for c in candidates if c.group_name == group_name]
+            if narrowed:
+                candidates = narrowed
+        if not candidates:
+            return "not_found", []
+        prefix = "near" if is_near else "exact"
+        suffix = "single" if len(candidates) == 1 else "multiple"
+        return f"{prefix}_{suffix}", candidates
+
     def _collect_snapshots_if_keeping(self) -> dict[int, list]:
         """Return {tab_index: snapshots} for every tab with active signals,
         if the user wants to keep them, else {} (REQ-PLOT-260 — all tabs,
@@ -927,31 +951,64 @@ class MainWindow(QMainWindow):
         return {i: self._controller.snapshot_tab_signals(i) for i in tabs_with_signals}
 
     def _restore_snapshots(self, snapshots_by_tab: dict[int, list]) -> None:
-        """Resolve each tab's snapshots against the new file and re-add matched signals."""
+        """Resolve each tab's snapshots against the new file and re-add matched signals.
+
+        Near-matches (REQ-FILE-032/033) across every tab are confirmed in
+        one NearMatchDialog after all tabs have been classified, rather
+        than resolving them inline per tab — see REQ-FILE-036 and
+        docs/architecture.md "Near-Match Signal Resolution (#109)".
+        """
+        from mdf_viewer.view.near_match_dialog import NearMatchDialog
         from mdf_viewer.view.signal_group_picker_dialog import SignalGroupPickerDialog
         from mdf_viewer.view.signals_not_found_dialog import SignalsNotFoundDialog
 
         not_found: list[str] = []
+        resolved_by_tab: dict[int, list] = {}
+        pending_near_matches: list[tuple[int, object, object]] = []
 
         for tab_index, snapshots in snapshots_by_tab.items():
-            resolved: list[tuple] = []
             for snap in snapshots:
-                candidates = self._controller.find_signal_by_name(snap.name)
-                if not candidates:
-                    not_found.append(snap.name)
-                elif len(candidates) == 1:
+                status, candidates = self._classify_signal_name(snap.name)
+                if status == "exact_single":
                     meta = candidates[0]
-                    resolved.append((snap, meta.group_index, meta.channel_index))
-                else:
+                    resolved_by_tab.setdefault(tab_index, []).append(
+                        (snap, meta.group_index, meta.channel_index)
+                    )
+                elif status == "exact_multiple":
                     dlg = SignalGroupPickerDialog(snap.name, candidates, self)
                     if dlg.exec():
                         meta = dlg.selected()
-                        resolved.append((snap, meta.group_index, meta.channel_index))
+                        resolved_by_tab.setdefault(tab_index, []).append(
+                            (snap, meta.group_index, meta.channel_index)
+                        )
                     else:
                         not_found.append(snap.name)
+                elif status == "near_single":
+                    pending_near_matches.append((tab_index, snap, candidates[0]))
+                elif status == "near_multiple":
+                    dlg = SignalGroupPickerDialog(snap.name, candidates, self)
+                    if dlg.exec():
+                        pending_near_matches.append((tab_index, snap, dlg.selected()))
+                    else:
+                        not_found.append(snap.name)
+                else:  # not_found
+                    not_found.append(snap.name)
 
-            if resolved:
-                self._controller.restore_tab_signals(tab_index, resolved)
+        if pending_near_matches:
+            dlg = NearMatchDialog(
+                [(snap.name, candidate) for _, snap, candidate in pending_near_matches], self
+            )
+            checked = dlg.checked_mask() if dlg.exec() else [False] * len(pending_near_matches)
+            for (tab_index, snap, candidate), accepted in zip(pending_near_matches, checked):
+                if accepted:
+                    resolved_by_tab.setdefault(tab_index, []).append(
+                        (snap, candidate.group_index, candidate.channel_index)
+                    )
+                else:
+                    not_found.append(snap.name)
+
+        for tab_index, resolved in resolved_by_tab.items():
+            self._controller.restore_tab_signals(tab_index, resolved)
 
         if not_found:
             dlg = SignalsNotFoundDialog(sorted(set(not_found)), self)
@@ -1276,24 +1333,22 @@ class MainWindow(QMainWindow):
 
         Returns (resolved, not_found) where resolved is a list of
         (ActiveSignalSnapshot, group_index, channel_index) tuples.
+
+        Near-matches (REQ-FILE-032/033) across every signal in *config* are
+        confirmed in one NearMatchDialog after all signals have been
+        classified, rather than resolving them inline one at a time — see
+        REQ-FILE-036.
         """
         from mdf_viewer.controller.app_controller import ActiveSignalSnapshot
+        from mdf_viewer.view.near_match_dialog import NearMatchDialog
         from mdf_viewer.view.signal_group_picker_dialog import SignalGroupPickerDialog
 
         resolved: list = []
         not_found: list[str] = []
+        pending_near_matches: list[tuple[object, object]] = []  # (snap, candidate)
 
         for sig in config.signals:
-            candidates = self._controller.find_signal_by_name(sig.name)
-            if not candidates:
-                not_found.append(sig.name)
-                continue
-
-            # Narrow by group_name when stored
-            if sig.group_name:
-                group_match = [c for c in candidates if c.group_name == sig.group_name]
-                if group_match:
-                    candidates = group_match
+            status, candidates = self._classify_signal_name(sig.name, sig.group_name)
 
             snap = ActiveSignalSnapshot(
                 name=sig.name,
@@ -1309,16 +1364,37 @@ class MainWindow(QMainWindow):
                 group_name=sig.group_name,
             )
 
-            if len(candidates) == 1:
+            if status == "exact_single":
                 meta = candidates[0]
                 resolved.append((snap, meta.group_index, meta.channel_index))
-            else:
+            elif status == "exact_multiple":
                 dlg = SignalGroupPickerDialog(sig.name, candidates, self)
                 if dlg.exec():
                     meta = dlg.selected()
                     resolved.append((snap, meta.group_index, meta.channel_index))
                 else:
                     not_found.append(sig.name)
+            elif status == "near_single":
+                pending_near_matches.append((snap, candidates[0]))
+            elif status == "near_multiple":
+                dlg = SignalGroupPickerDialog(sig.name, candidates, self)
+                if dlg.exec():
+                    pending_near_matches.append((snap, dlg.selected()))
+                else:
+                    not_found.append(sig.name)
+            else:  # not_found
+                not_found.append(sig.name)
+
+        if pending_near_matches:
+            dlg = NearMatchDialog(
+                [(snap.name, candidate) for snap, candidate in pending_near_matches], self
+            )
+            checked = dlg.checked_mask() if dlg.exec() else [False] * len(pending_near_matches)
+            for (snap, candidate), accepted in zip(pending_near_matches, checked):
+                if accepted:
+                    resolved.append((snap, candidate.group_index, candidate.channel_index))
+                else:
+                    not_found.append(snap.name)
 
         return resolved, not_found
 

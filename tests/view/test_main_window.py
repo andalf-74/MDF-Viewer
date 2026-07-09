@@ -1269,6 +1269,227 @@ def test_restore_snapshots_restores_into_each_tab(
 
 
 # ---------------------------------------------------------------------------
+# Near-match resolution wiring (#109, REQ-FILE-032-036)
+# ---------------------------------------------------------------------------
+
+def _snap(name: str) -> MagicMock:
+    m = MagicMock()
+    m.name = name
+    return m
+
+
+def _near_candidate(name: str, gi: int = 0, ci: int = 1) -> MagicMock:
+    m = MagicMock(group_index=gi, channel_index=ci)
+    m.name = name
+    return m
+
+
+class _FakeNearMatchDialog:
+    """Stand-in for NearMatchDialog that records what it was built with."""
+    instances: list["_FakeNearMatchDialog"] = []
+
+    def __init__(self, pending, parent=None):
+        self.pending = pending
+        self.exec_result = True
+        self.mask = [True] * len(pending)
+        _FakeNearMatchDialog.instances.append(self)
+
+    def exec(self):
+        return self.exec_result
+
+    def checked_mask(self):
+        return self.mask
+
+
+@pytest.fixture(autouse=False)
+def fake_near_match_dialog():
+    _FakeNearMatchDialog.instances = []
+    with patch("mdf_viewer.view.near_match_dialog.NearMatchDialog", _FakeNearMatchDialog):
+        yield _FakeNearMatchDialog
+
+
+def test_restore_snapshots_near_single_resolves_when_accepted(
+    window: MainWindow, mock_controller: MagicMock, fake_near_match_dialog
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []
+    snap = _snap("a\\XCP:1")
+    candidate = _near_candidate("a\\ETKC:1")
+
+    with patch.object(window, "_classify_signal_name", return_value=("near_single", [candidate])):
+        window._restore_snapshots({0: [snap]})
+
+    assert len(fake_near_match_dialog.instances) == 1
+    mock_controller.restore_tab_signals.assert_called_once_with(
+        0, [(snap, candidate.group_index, candidate.channel_index)]
+    )
+
+
+def test_restore_snapshots_near_match_declined_goes_to_not_found(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []
+    snap = _snap("a\\XCP:1")
+    candidate = _near_candidate("a\\ETKC:1")
+    dlg = _FakeNearMatchDialog([("a\\XCP:1", candidate)])
+    dlg.mask = [False]
+
+    with patch.object(window, "_classify_signal_name", return_value=("near_single", [candidate])), \
+         patch("mdf_viewer.view.near_match_dialog.NearMatchDialog", return_value=dlg), \
+         patch("mdf_viewer.view.signals_not_found_dialog.SignalsNotFoundDialog") as mock_not_found_cls:
+        mock_not_found_cls.return_value.exec.return_value = True
+        window._restore_snapshots({0: [snap]})
+
+    mock_controller.restore_tab_signals.assert_not_called()
+    mock_not_found_cls.assert_called_once_with(["a\\XCP:1"], window)
+
+
+def test_restore_snapshots_cancelling_near_match_dialog_declines_all(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []
+    snap = _snap("a\\XCP:1")
+    candidate = _near_candidate("a\\ETKC:1")
+    dlg = _FakeNearMatchDialog([("a\\XCP:1", candidate)])
+    dlg.exec_result = False
+
+    with patch.object(window, "_classify_signal_name", return_value=("near_single", [candidate])), \
+         patch("mdf_viewer.view.near_match_dialog.NearMatchDialog", return_value=dlg), \
+         patch("mdf_viewer.view.signals_not_found_dialog.SignalsNotFoundDialog") as mock_not_found_cls:
+        mock_not_found_cls.return_value.exec.return_value = True
+        window._restore_snapshots({0: [snap]})
+
+    mock_controller.restore_tab_signals.assert_not_called()
+    mock_not_found_cls.assert_called_once_with(["a\\XCP:1"], window)
+
+
+def test_restore_snapshots_one_near_match_dialog_spans_all_tabs(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []
+    snap_a = _snap("a\\XCP:1")
+    snap_b = _snap("b\\XCP:1")
+    candidate_a = _near_candidate("a\\ETKC:1")
+    candidate_b = _near_candidate("b\\ETKC:1")
+
+    def classify(name, group_name=""):
+        return ("near_single", [candidate_a if name == "a\\XCP:1" else candidate_b])
+
+    captured = {}
+
+    def make_dialog(pending, parent=None):
+        dlg = _FakeNearMatchDialog(pending, parent)
+        captured["dlg"] = dlg
+        return dlg
+
+    with patch.object(window, "_classify_signal_name", side_effect=classify), \
+         patch("mdf_viewer.view.near_match_dialog.NearMatchDialog", side_effect=make_dialog):
+        window._restore_snapshots({0: [snap_a], 1: [snap_b]})
+
+    assert len(captured["dlg"].pending) == 2
+    assert mock_controller.restore_tab_signals.call_count == 2
+
+
+def test_restore_snapshots_near_multiple_uses_picker_then_near_match_dialog(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []
+    snap = _snap("a\\XCP:1")
+    candidate_1 = _near_candidate("a\\ETKC:1", ci=1)
+    candidate_2 = _near_candidate("a\\ETKC:2", ci=2)
+    dlg = _FakeNearMatchDialog([("a\\XCP:1", candidate_2)])
+
+    with patch.object(window, "_classify_signal_name", return_value=("near_multiple", [candidate_1, candidate_2])), \
+         patch("mdf_viewer.view.signal_group_picker_dialog.SignalGroupPickerDialog") as mock_picker_cls, \
+         patch("mdf_viewer.view.near_match_dialog.NearMatchDialog", return_value=dlg):
+        mock_picker_cls.return_value.exec.return_value = True
+        mock_picker_cls.return_value.selected.return_value = candidate_2
+        window._restore_snapshots({0: [snap]})
+
+    mock_controller.restore_tab_signals.assert_called_once_with(
+        0, [(snap, candidate_2.group_index, candidate_2.channel_index)]
+    )
+
+
+# ---------------------------------------------------------------------------
+# _resolve_config_signals near-match wiring (#109)
+# ---------------------------------------------------------------------------
+
+def _signal_config(name: str, group_name: str = "") -> "SignalConfig":
+    from mdf_viewer.model.viewer_config import SignalConfig
+    return SignalConfig(
+        name=name,
+        group_name=group_name,
+        color=(255, 0, 0),
+        line_width=1,
+        line_style="solid",
+        display_mode="line",
+        marker_shape="circle",
+        step_mode=False,
+        enum_display_table=False,
+        enum_display_cursor=False,
+        enum_display_yaxis=False,
+    )
+
+
+def test_resolve_config_signals_near_single_resolves_when_accepted(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []
+    config = MagicMock(signals=[_signal_config("a\\XCP:1")])
+    candidate = _near_candidate("a\\ETKC:1")
+    dlg = _FakeNearMatchDialog([("a\\XCP:1", candidate)])
+
+    with patch.object(window, "_classify_signal_name", return_value=("near_single", [candidate])), \
+         patch("mdf_viewer.view.near_match_dialog.NearMatchDialog", return_value=dlg):
+        resolved, not_found = window._resolve_config_signals(config)
+
+    assert not_found == []
+    assert len(resolved) == 1
+    snap, gi, ci = resolved[0]
+    assert snap.name == "a\\XCP:1"
+    assert (gi, ci) == (candidate.group_index, candidate.channel_index)
+
+
+def test_resolve_config_signals_near_match_declined_goes_to_not_found(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []
+    config = MagicMock(signals=[_signal_config("a\\XCP:1")])
+    candidate = _near_candidate("a\\ETKC:1")
+    dlg = _FakeNearMatchDialog([("a\\XCP:1", candidate)])
+    dlg.mask = [False]
+
+    with patch.object(window, "_classify_signal_name", return_value=("near_single", [candidate])), \
+         patch("mdf_viewer.view.near_match_dialog.NearMatchDialog", return_value=dlg):
+        resolved, not_found = window._resolve_config_signals(config)
+
+    assert resolved == []
+    assert not_found == ["a\\XCP:1"]
+
+
+def test_resolve_config_signals_exact_single_unaffected_by_near_match_logic(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []
+    config = MagicMock(signals=[_signal_config("plain")])
+    exact = _near_candidate("plain")
+
+    with patch.object(window, "_classify_signal_name", return_value=("exact_single", [exact])):
+        resolved, not_found = window._resolve_config_signals(config)
+
+    assert not_found == []
+    assert len(resolved) == 1
+
+
+# ---------------------------------------------------------------------------
 # open_config — public entry point used by app.py for CLI / file association
 # ---------------------------------------------------------------------------
 
@@ -1302,6 +1523,127 @@ def test_open_config_mvc_not_routed_to_load_file(
         with patch.object(window, "_load_file") as mock_lf:
             window.open_config(mvc)
             mock_lf.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# _classify_signal_name (#109, REQ-FILE-032/033)
+# ---------------------------------------------------------------------------
+
+def _candidate(name: str = "sig", group_name: str = "") -> MagicMock:
+    m = MagicMock()
+    m.name = name
+    m.group_name = group_name
+    return m
+
+
+def test_classify_exact_single_match(window: MainWindow, mock_controller: MagicMock) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    exact = _candidate("sig")
+    mock_controller.find_signal_by_name.return_value = [exact]
+
+    status, candidates = window._classify_signal_name("sig")
+
+    assert status == "exact_single"
+    assert candidates == [exact]
+    mock_controller.find_similar_signal_by_name.assert_not_called()
+
+
+def test_classify_exact_multiple_matches(window: MainWindow, mock_controller: MagicMock) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    mock_controller.find_signal_by_name.return_value = [_candidate("sig"), _candidate("sig")]
+
+    status, candidates = window._classify_signal_name("sig")
+
+    assert status == "exact_multiple"
+    assert len(candidates) == 2
+
+
+def test_classify_near_single_match_only_when_no_exact(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    mock_controller.find_signal_by_name.return_value = []
+    near = _candidate("a\\ETKC:1")
+    mock_controller.find_similar_signal_by_name.return_value = [near]
+
+    status, candidates = window._classify_signal_name("a\\XCP:1")
+
+    assert status == "near_single"
+    assert candidates == [near]
+
+
+def test_classify_near_multiple_matches(window: MainWindow, mock_controller: MagicMock) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    mock_controller.find_signal_by_name.return_value = []
+    mock_controller.find_similar_signal_by_name.return_value = [
+        _candidate("a\\ETKC:1"), _candidate("a\\ETKC:2"),
+    ]
+
+    status, candidates = window._classify_signal_name("a\\XCP:1")
+
+    assert status == "near_multiple"
+    assert len(candidates) == 2
+
+
+def test_classify_not_found_when_no_exact_or_near_match(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    mock_controller.find_signal_by_name.return_value = []
+    mock_controller.find_similar_signal_by_name.return_value = []
+
+    status, candidates = window._classify_signal_name("unrelated")
+
+    assert status == "not_found"
+    assert candidates == []
+
+
+def test_classify_never_prefers_near_match_over_exact(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    """A near-match lookup must not even run when an exact match exists."""
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    mock_controller.find_signal_by_name.return_value = [_candidate("sig")]
+
+    window._classify_signal_name("sig")
+
+    mock_controller.find_similar_signal_by_name.assert_not_called()
+
+
+def test_classify_narrows_exact_matches_by_group_name(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    wanted = _candidate("sig", group_name="Group B")
+    mock_controller.find_signal_by_name.return_value = [_candidate("sig", group_name="Group A"), wanted]
+
+    status, candidates = window._classify_signal_name("sig", group_name="Group B")
+
+    assert status == "exact_single"
+    assert candidates == [wanted]
+
+
+def test_classify_group_name_narrowing_falls_back_when_no_match(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    """If none of the candidates match group_name, keep the full candidate
+    list rather than narrowing to nothing."""
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    all_candidates = [_candidate("sig", group_name="Group A"), _candidate("sig", group_name="Group A")]
+    mock_controller.find_signal_by_name.return_value = all_candidates
+
+    status, candidates = window._classify_signal_name("sig", group_name="Group Z")
+
+    assert status == "exact_multiple"
+    assert candidates == all_candidates
 
 
 # ---------------------------------------------------------------------------

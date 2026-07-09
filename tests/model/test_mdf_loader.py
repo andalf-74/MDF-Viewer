@@ -905,3 +905,72 @@ def test_open_known_corrupt_faultfile_raises_cleanly() -> None:
         ldr.open(faultfile)
 
     assert not ldr.is_open
+
+
+# ---------------------------------------------------------------------------
+# find_similar_signal_by_name (#109, REQ-FILE-032/033)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def loader_with_protocol_names(tmp_path: Path) -> MdfLoader:
+    """A file with two protocol-suffixed names sharing a prefix, plus a
+    plain no-backslash name, for near-match testing."""
+    t = np.linspace(0.0, 1.0, 11)
+    mdf = asammdf.MDF(version="4.10")
+    mdf.append([
+        asammdf.Signal(samples=t, timestamps=t, name="FZGG_NAB_AKT\\ETKC:1"),
+        asammdf.Signal(samples=t, timestamps=t, name="FZGG_NAB_AKT\\XCP:1"),
+        asammdf.Signal(samples=t, timestamps=t, name="plain_signal"),
+    ])
+    path = tmp_path / "protocol_names.mf4"
+    mdf.save(str(path), overwrite=True)
+    mdf.close()
+
+    ldr = MdfLoader()
+    ldr.open(path)
+    yield ldr
+    ldr.close()
+
+
+def test_find_similar_signal_by_name_returns_empty_when_not_open() -> None:
+    ldr = MdfLoader()
+    assert ldr.find_similar_signal_by_name("a\\ETKC:1") == []
+
+
+@pytest.mark.requirement("REQ-FILE-032")
+def test_find_similar_signal_by_name_matches_same_prefix(
+    loader_with_protocol_names: MdfLoader,
+) -> None:
+    result = loader_with_protocol_names.find_similar_signal_by_name("FZGG_NAB_AKT\\XCP:1")
+    assert [m.name for m in result] == ["FZGG_NAB_AKT\\ETKC:1"]
+
+
+@pytest.mark.requirement("REQ-FILE-032")
+def test_find_similar_signal_by_name_excludes_exact_match(
+    loader_with_protocol_names: MdfLoader,
+) -> None:
+    result = loader_with_protocol_names.find_similar_signal_by_name("FZGG_NAB_AKT\\ETKC:1")
+    assert "FZGG_NAB_AKT\\ETKC:1" not in [m.name for m in result]
+
+
+@pytest.mark.requirement("REQ-FILE-033")
+def test_find_similar_signal_by_name_no_backslash_in_query_returns_empty(
+    loader_with_protocol_names: MdfLoader,
+) -> None:
+    assert loader_with_protocol_names.find_similar_signal_by_name("plain_signal") == []
+
+
+@pytest.mark.requirement("REQ-FILE-033")
+def test_find_similar_signal_by_name_ignores_no_backslash_candidates(
+    loader_with_protocol_names: MdfLoader,
+) -> None:
+    # A query with a different, unmatched prefix should not near-match the
+    # no-backslash "plain_signal" channel.
+    result = loader_with_protocol_names.find_similar_signal_by_name("plain_signal\\ETKC:1")
+    assert "plain_signal" not in [m.name for m in result]
+
+
+def test_find_similar_signal_by_name_returns_empty_for_unrelated_name(
+    loader_with_protocol_names: MdfLoader,
+) -> None:
+    assert loader_with_protocol_names.find_similar_signal_by_name("unrelated\\ETKC:1") == []
