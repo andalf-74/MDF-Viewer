@@ -105,6 +105,10 @@ All notable changes to MDF-Viewer are documented in this file.
   session restores normally).
 
 ### Fixed
+- The File menu's "Load MDF…" action (and its "Load MDF File (Ctrl+O)"
+  tooltip) named only MDF files, even though it always accepted `.mvc`
+  config files too. Renamed to "Open…" / "Open File (Ctrl+O)" (#113),
+  matching the wording the requirements doc already used for it.
 - Loading a `.mvc` config with a maximized window state, while the app was
   already maximized, left the window merely windowed instead of staying
   maximized (#107). `resize()`/`move()` on an already-maximized window can

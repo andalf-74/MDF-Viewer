@@ -397,7 +397,7 @@ def test_file_menu_exists(window: MainWindow) -> None:
 def test_file_menu_has_load_action(window: MainWindow) -> None:
     file_menu = window.menuBar().actions()[0].menu()
     texts = [a.text() for a in file_menu.actions()]
-    assert any("Load" in t for t in texts)
+    assert any("Open" in t for t in texts)
 
 
 def test_file_menu_has_exit_action(window: MainWindow) -> None:

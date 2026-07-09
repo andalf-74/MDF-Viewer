@@ -3,7 +3,7 @@
 Layout (per CLAUDE.md):
 
     +-----------------------------------------------------------------+
-    | Menu bar (File: Load MDF / Exit)                                |
+    | Menu bar (File: Open / Exit)                                    |
     | Toolbar (Load File | Zoom to Fit | Cursor Toggle)               |
     +------------+------------------------+----------+---------------+
     | Signal     |                        | Active   | Signal Info / |
@@ -265,9 +265,9 @@ class MainWindow(QMainWindow):
     def _build_actions(self) -> None:
         suffix = _icon_suffix()
 
-        self._load_action = QAction(_load_icon(f"folder{suffix}"), "Load MDF…", self)
+        self._load_action = QAction(_load_icon(f"folder{suffix}"), "Open…", self)
         self._load_action.setShortcut(QKeySequence.StandardKey.Open)
-        self._load_action.setToolTip("Load MDF File (Ctrl+O)")
+        self._load_action.setToolTip("Open File (Ctrl+O)")
         self._load_action.triggered.connect(self._on_load_file)
 
         self._new_tab_action = QAction("New Tab", self)

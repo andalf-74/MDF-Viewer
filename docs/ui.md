@@ -25,8 +25,8 @@
 ## Menu Bar
 
 - **File**
-  - Load MDF (opens file dialog)
-  - Recently opened files (up to 4; shown between Load MDF and Preferences when non-empty)
+  - Open… (opens file dialog; accepts measurement files and `.mvc` configs)
+  - Recently opened files (up to 4; shown between Open… and Preferences when non-empty)
   - Preferences… (opens Preferences dialog)
   - Exit
 - **Help**
