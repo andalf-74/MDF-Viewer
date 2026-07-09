@@ -12,7 +12,7 @@ display, without either layer importing the other.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -71,6 +71,28 @@ _COLOR_PALETTE: tuple[tuple[int, int, int], ...] = (
 )
 
 
+@dataclass
+class TabWorkspace:
+    """Everything that is independent per tab (#99).
+
+    Each tab gets its own plot area, Active Signals Table, active-signal
+    list, selection, and cursor/zoom controllers. AppController stays a
+    single instance and switches which TabWorkspace its proxy methods
+    operate on via `_active_tab_index`, rather than one AppController per
+    tab — see docs/architecture.md "Main Widget Tabs (#99)".
+    """
+    plot: PlotAreaProtocol
+    table: SignalTableProtocol
+    active: list[ActiveSignal] = field(default_factory=list)
+    selected: ActiveSignal | None = None
+    selected_signals: list[ActiveSignal] = field(default_factory=list)
+    color_index: int = 0
+    cursor_ctrl: object = None  # set by set_cursor_controller()
+    zoom_ctrl: object = None    # set by set_zoom_controller()
+    cursor_stripes_view: object = None  # set directly by app.py's _wire_tab
+    y_grid_enabled: bool = False
+
+
 class AppController:
     """Coordinates loading, active-signal management, and selection state."""
 
@@ -86,21 +108,97 @@ class AppController:
     ) -> None:
         self._loader = loader
         self._browser = signal_browser
-        self._plot = plot_area
-        self._table = active_signals_table
         self._info_box = measurement_info_box
         self._signal_info = signal_info_box
         self._settings = settings
 
-        self._active: list[ActiveSignal] = []
-        self._selected: ActiveSignal | None = None
-        self._selected_signals: list[ActiveSignal] = []
-        self._color_index: int = 0
-        self._cursor_ctrl = None  # set by set_cursor_controller()
-        self._zoom_ctrl = None    # set by set_zoom_controller()
-        self._y_grid_enabled: bool = False
+        self._workspaces: list[TabWorkspace] = [
+            TabWorkspace(plot=plot_area, table=active_signals_table)
+        ]
+        self._active_tab_index: int = 0
+
         self._current_config_path: Path | None = None
         self.events = EventBus()
+
+    @property
+    def current_workspace(self) -> TabWorkspace:
+        """The active tab's TabWorkspace bundle.
+
+        Public so app.py's tab-wiring factory can attach a freshly built
+        CursorController/ZoomController to a specific tab (including the
+        first one, created by __init__) without AppController needing to
+        import those concrete view/controller classes itself.
+        """
+        return self._workspaces[self._active_tab_index]
+
+    def create_tab(
+        self, plot_area: PlotAreaProtocol, active_signals_table: SignalTableProtocol
+    ) -> TabWorkspace:
+        """Register a new tab's view widgets and make it the active tab.
+
+        Returns the new TabWorkspace, still missing its cursor_ctrl/zoom_ctrl —
+        the caller (app.py's tab-wiring factory) builds those against this
+        specific workspace and attaches them via set_cursor_controller()/
+        set_zoom_controller(), which target current_workspace and therefore
+        this new tab as long as nothing else changes the active tab first.
+        """
+        workspace = TabWorkspace(plot=plot_area, table=active_signals_table)
+        self._workspaces.append(workspace)
+        self._active_tab_index = len(self._workspaces) - 1
+        return workspace
+
+    def switch_tab(self, index: int) -> None:
+        """Make the tab at *index* the active one.
+
+        Restores that tab's own last-selected signal in the shared
+        Info/Properties drawer (REQ-PLOT-233) — the drawer is a single
+        instance shared across tabs, so switching tabs must explicitly
+        re-push whichever signal was last selected in the tab being
+        switched to, rather than continuing to show the previous tab's.
+        """
+        if 0 <= index < len(self._workspaces):
+            self._active_tab_index = index
+            self._push_selection_to_drawer(self.current_workspace.selected)
+
+    def remove_tab(self, index: int) -> None:
+        """Remove the tab at *index*. No-op if it's the only remaining tab.
+
+        Does not change which tab is active — the view computes the tab to
+        activate next (REQ-PLOT-253: the left neighbor) before this shifts
+        list positions, then calls switch_tab() itself. The clamp here is
+        just a safety net in case switch_tab() isn't called immediately.
+        """
+        if len(self._workspaces) <= 1:
+            return
+        del self._workspaces[index]
+        if self._active_tab_index >= len(self._workspaces):
+            self._active_tab_index = len(self._workspaces) - 1
+
+    def tab_has_signals(self, index: int) -> bool:
+        """Whether the tab at *index* has any active signals (REQ-PLOT-252)."""
+        if not (0 <= index < len(self._workspaces)):
+            return False
+        return bool(self._workspaces[index].active)
+
+    @property
+    def tab_count(self) -> int:
+        return len(self._workspaces)
+
+    def reorder_tabs(self, plot_areas_in_order: list) -> None:
+        """Resync workspace order after a tab-bar drag reorder (REQ-PLOT-243).
+
+        Reordering is cosmetic only, but `_workspaces` must still track visual
+        tab order — switch_tab(index) resolves by list position, so a
+        drag-reorder that isn't mirrored here would silently point future
+        switch_tab() calls at the wrong workspace. Takes the new order as
+        plot-area identities (matched against each TabWorkspace.plot) rather
+        than raw indices, since the view rebuilds this from the tab widget's
+        settled state rather than trying to interpret individual drag events.
+        """
+        active_workspace = self.current_workspace
+        by_plot = {ws.plot: ws for ws in self._workspaces}
+        self._workspaces = [by_plot[plot_area] for plot_area in plot_areas_in_order]
+        self._active_tab_index = self._workspaces.index(active_workspace)
 
     # ------------------------------------------------------------------
     # Public API
@@ -108,15 +206,23 @@ class AppController:
 
     def set_cursor_controller(self, cursor_ctrl) -> None:
         """Wire in the CursorController after construction."""
-        self._cursor_ctrl = cursor_ctrl
-        cursor_ctrl.set_position_changed_callback(self._emit_cursor_moved)
+        workspace = self.current_workspace
+        workspace.cursor_ctrl = cursor_ctrl
+        # Bind the callback to *workspace* specifically (captured now, while
+        # it's still the current tab) rather than reading current_workspace
+        # when the callback fires later — otherwise a background tab's
+        # cursor move would get tagged with whichever tab happens to be
+        # active at that moment instead of the tab it actually came from.
+        cursor_ctrl.set_position_changed_callback(
+            lambda positions, mode: self._emit_cursor_moved(positions, mode, workspace)
+        )
 
-    def _emit_cursor_moved(self, positions: list[float], mode) -> None:
-        self.events.cursor_moved.emit(CursorMovedEvent(positions=positions, mode=mode))
+    def _emit_cursor_moved(self, positions: list[float], mode, tab) -> None:
+        self.events.cursor_moved.emit(CursorMovedEvent(positions=positions, mode=mode, tab=tab))
 
     def set_zoom_controller(self, zoom_ctrl) -> None:
         """Wire in the ZoomController after construction."""
-        self._zoom_ctrl = zoom_ctrl
+        self.current_workspace.zoom_ctrl = zoom_ctrl
 
     # ------------------------------------------------------------------
     # Cursor proxy — MainWindow calls these instead of CursorController
@@ -124,47 +230,48 @@ class AppController:
     # ------------------------------------------------------------------
 
     def toggle_cursor(self) -> None:
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.toggle()
+        if self.current_workspace.cursor_ctrl is not None:
+            self.current_workspace.cursor_ctrl.toggle()
 
     def press_cursor1(self) -> None:
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.press_cursor1()
+        if self.current_workspace.cursor_ctrl is not None:
+            self.current_workspace.cursor_ctrl.press_cursor1()
 
     def press_cursor2(self) -> None:
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.press_cursor2()
+        if self.current_workspace.cursor_ctrl is not None:
+            self.current_workspace.cursor_ctrl.press_cursor2()
 
     def zoom_to_cursors(self) -> bool:
         """Zoom X to the cursor span in TWO mode. Returns True if applied."""
-        if self._cursor_ctrl is None:
+        current = self.current_workspace
+        if current.cursor_ctrl is None:
             return False
-        span = self._cursor_ctrl.zoom_to_cursors()
+        span = current.cursor_ctrl.zoom_to_cursors()
         if span is None:
             return False
-        if self._zoom_ctrl is not None:
-            self._zoom_ctrl.before_discrete_action()
-        self._plot.zoom_to_x_range(*span)
-        if self._zoom_ctrl is not None:
-            self._zoom_ctrl.after_discrete_action()
+        if current.zoom_ctrl is not None:
+            current.zoom_ctrl.before_discrete_action()
+        current.plot.zoom_to_x_range(*span)
+        if current.zoom_ctrl is not None:
+            current.zoom_ctrl.after_discrete_action()
         return True
 
     def press_left(self) -> None:
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.press_left()
+        if self.current_workspace.cursor_ctrl is not None:
+            self.current_workspace.cursor_ctrl.press_left()
 
     def press_right(self) -> None:
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.press_right()
+        if self.current_workspace.cursor_ctrl is not None:
+            self.current_workspace.cursor_ctrl.press_right()
 
     def set_cursor_mode_callback(self, cb) -> None:
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.set_mode_changed_callback(cb)
+        if self.current_workspace.cursor_ctrl is not None:
+            self.current_workspace.cursor_ctrl.set_mode_changed_callback(cb)
 
     def refresh_cursors(self) -> None:
         """Refresh cursor display after preference changes."""
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.refresh()
+        if self.current_workspace.cursor_ctrl is not None:
+            self.current_workspace.cursor_ctrl.refresh()
 
     # ------------------------------------------------------------------
     # Zoom proxy — MainWindow calls these for all zoom actions so the
@@ -172,18 +279,20 @@ class AppController:
     # ------------------------------------------------------------------
 
     def zoom_to_fit(self) -> None:
-        if self._zoom_ctrl is not None:
-            self._zoom_ctrl.before_discrete_action()
-        self._plot.zoom_to_fit(all_stripes=self._zoom_all_stripes)
-        if self._zoom_ctrl is not None:
-            self._zoom_ctrl.after_discrete_action()
+        current = self.current_workspace
+        if current.zoom_ctrl is not None:
+            current.zoom_ctrl.before_discrete_action()
+        current.plot.zoom_to_fit(all_stripes=self._zoom_all_stripes)
+        if current.zoom_ctrl is not None:
+            current.zoom_ctrl.after_discrete_action()
 
     def zoom_y_to_view(self) -> bool:
-        if self._zoom_ctrl is not None:
-            self._zoom_ctrl.before_discrete_action()
-        result = self._plot.zoom_y_to_view(all_stripes=self._zoom_all_stripes)
-        if self._zoom_ctrl is not None:
-            self._zoom_ctrl.after_discrete_action()
+        current = self.current_workspace
+        if current.zoom_ctrl is not None:
+            current.zoom_ctrl.before_discrete_action()
+        result = current.plot.zoom_y_to_view(all_stripes=self._zoom_all_stripes)
+        if current.zoom_ctrl is not None:
+            current.zoom_ctrl.after_discrete_action()
         return result
 
     # ------------------------------------------------------------------
@@ -191,12 +300,12 @@ class AppController:
     # ------------------------------------------------------------------
 
     def undo(self) -> None:
-        if self._zoom_ctrl is not None:
-            self._zoom_ctrl.undo()
+        if self.current_workspace.zoom_ctrl is not None:
+            self.current_workspace.zoom_ctrl.undo()
 
     def redo(self) -> None:
-        if self._zoom_ctrl is not None:
-            self._zoom_ctrl.redo()
+        if self.current_workspace.zoom_ctrl is not None:
+            self.current_workspace.zoom_ctrl.redo()
 
     def load_file(self, path: str | os.PathLike) -> None:
         """Open an MDF file and populate the Signal Browser.
@@ -210,7 +319,7 @@ class AppController:
         self.remove_all()
         self._browser.clear()
         self._info_box.clear()
-        self._color_index = 0
+        self.current_workspace.color_index = 0
 
         self._loader.open(path)  # raises MdfLoadError on failure
 
@@ -218,14 +327,14 @@ class AppController:
         info = self._loader.measurement_info()
         self._browser.populate(groups)
         self._info_box.set_info(info)
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.reset()
-        if self._zoom_ctrl is not None:
-            self._zoom_ctrl.clear()
+        if self.current_workspace.cursor_ctrl is not None:
+            self.current_workspace.cursor_ctrl.reset()
+        if self.current_workspace.zoom_ctrl is not None:
+            self.current_workspace.zoom_ctrl.clear()
         if self._settings is not None:
             self._settings.add_recent(path)
         self._current_config_path = None
-        self.events.file_loaded.emit(FileLoadedEvent(path=str(path)))
+        self.events.file_loaded.emit(FileLoadedEvent(path=str(path), tab=self.current_workspace))
 
     def add_signal(self, group_index: int, channel_index: int, stripe=None) -> bool:
         """Load a channel and add it to the plot and the Active Signals Table.
@@ -233,27 +342,30 @@ class AppController:
         *stripe*, when given, is the target PlotStripe (e.g. a drag-and-drop
         onto a specific stripe); omitted/None adds to the current active stripe.
 
-        Returns True if added, False if the channel was already active.
+        Returns True if added, False if the channel was already active in
+        the current tab (the same channel may still be active in another
+        tab — see REQ-BROWSER-040).
         Raises MdfLoadError if the channel cannot be read or its samples are
         not numeric.
         """
+        current = self.current_workspace
         if any(
             s.metadata.group_index == group_index
             and s.metadata.channel_index == channel_index
-            for s in self._active
+            for s in current.active
         ):
             return False
         data, meta = self._loader.load_signal(group_index, channel_index)
-        rgb = _COLOR_PALETTE[self._color_index % len(_COLOR_PALETTE)]
-        self._color_index += 1
+        rgb = _COLOR_PALETTE[current.color_index % len(_COLOR_PALETTE)]
+        current.color_index += 1
         active = ActiveSignal(data=data, metadata=meta, color=rgb, step_mode=meta.is_integer)
-        self._active.append(active)
-        self._plot.add_signal(active, stripe=stripe)
-        self._table.add_row(active)
+        current.active.append(active)
+        current.plot.add_signal(active, stripe=stripe)
+        current.table.add_row(active)
         self.refresh_z_order()
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.refresh()
-        self.events.signal_added.emit(SignalAddedEvent(signal=active, stripe=stripe))
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.refresh()
+        self.events.signal_added.emit(SignalAddedEvent(signal=active, stripe=stripe, tab=current))
         return True
 
     # ------------------------------------------------------------------
@@ -262,7 +374,7 @@ class AppController:
 
     def create_stripe(self):
         """Create a new empty plot stripe."""
-        return self._plot.create_stripe()
+        return self.current_workspace.plot.create_stripe()
 
     def delete_stripe(self, stripe, force: bool = False) -> bool:
         """Delete *stripe*. Refuses if it's the last stripe, or non-empty without force.
@@ -271,54 +383,59 @@ class AppController:
         normal full removal pipeline (remove_signal — plot, table row, cursor
         labels, selection), not just torn down from the plot (REQ-PLOT-194).
         """
-        if len(self._plot.get_stripes()) <= 1:
+        current = self.current_workspace
+        if len(current.plot.get_stripes()) <= 1:
             return False
-        signals = self._plot.get_signals_in_stripe(stripe)
+        signals = current.plot.get_signals_in_stripe(stripe)
         if signals and not force:
             return False
         for active in list(signals):
             self.remove_signal(active)
-        return self._plot.delete_stripe(stripe)
+        return current.plot.delete_stripe(stripe)
 
     def get_stripes(self) -> list:
-        return self._plot.get_stripes()
+        return self.current_workspace.plot.get_stripes()
 
     def get_stripe_for_signal(self, active: ActiveSignal):
-        return self._plot.get_stripe_for_signal(active)
+        return self.current_workspace.plot.get_stripe_for_signal(active)
 
     def get_signals_in_stripe(self, stripe) -> list[ActiveSignal]:
-        return self._plot.get_signals_in_stripe(stripe)
+        return self.current_workspace.plot.get_signals_in_stripe(stripe)
 
     def move_signals_to_stripe(self, signals: list[ActiveSignal], stripe) -> None:
         """Move each of *signals* into *stripe* (REQ-PLOT-202/203)."""
+        current = self.current_workspace
         for active in signals:
-            self._plot.move_signal_to_stripe(active, stripe)
+            current.plot.move_signal_to_stripe(active, stripe)
         # Cursor labels are parented to the signal's ViewBox, which just
         # changed — refresh so they re-attach to the new one immediately
         # rather than waiting for the next unrelated cursor move.
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.refresh()
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.refresh()
 
     def move_signals_to_new_stripe(self, signals: list[ActiveSignal]) -> None:
         """Create a new stripe and move each of *signals* into it (REQ-PLOT-191)."""
-        stripe = self._plot.create_stripe()
+        current = self.current_workspace
+        stripe = current.plot.create_stripe()
         for active in signals:
-            self._plot.move_signal_to_stripe(active, stripe)
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.refresh()
+            current.plot.move_signal_to_stripe(active, stripe)
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.refresh()
 
     def toggle_step_mode(self, active_signal: ActiveSignal) -> None:
         """Flip the step-mode flag for a signal and update the plot."""
-        if active_signal not in self._active:
+        current = self.current_workspace
+        if active_signal not in current.active:
             return
         active_signal.step_mode = not active_signal.step_mode
-        self._plot.set_step_mode(active_signal, active_signal.step_mode)
+        current.plot.set_step_mode(active_signal, active_signal.step_mode)
 
     def recolor_signal(self, active_signal: ActiveSignal, color: QColor) -> None:
         """Update the color of an active signal's curve, axis, and cursor labels."""
-        self._plot.recolor_signal(active_signal, color)
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.recolor_signal(active_signal, color)
+        current = self.current_workspace
+        current.plot.recolor_signal(active_signal, color)
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.recolor_signal(active_signal, color)
 
     def recolor_signals(self, actives: list, color: QColor) -> None:
         """Recolor multiple signals to the same color."""
@@ -331,15 +448,16 @@ class AppController:
         No-op if any signal is already in a Synced group — a signal can't be
         both merged and synced at once (#84).
         """
-        actives = [s for s in signals if s in self._active]
+        current = self.current_workspace
+        actives = [s for s in signals if s in current.active]
         if len(actives) < 2:
             return
-        if any(self._plot.get_group_type(a) == "synced" for a in actives):
+        if any(current.plot.get_group_type(a) == "synced" for a in actives):
             return
-        self._plot.merge_signals(actives)
+        current.plot.merge_signals(actives)
         self._refresh_table_group_state()
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.refresh()
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.refresh()
 
     def on_sync_y_axis_requested(self, signals: list) -> None:
         """Sync the Y-axes of all given signals so they pan/zoom together.
@@ -347,79 +465,87 @@ class AppController:
         No-op if any signal is already in a Merged group — a signal can't be
         both merged and synced at once (#84).
         """
-        actives = [s for s in signals if s in self._active]
+        current = self.current_workspace
+        actives = [s for s in signals if s in current.active]
         if len(actives) < 2:
             return
-        if any(self._plot.get_group_type(a) == "merged" for a in actives):
+        if any(current.plot.get_group_type(a) == "merged" for a in actives):
             return
-        self._plot.sync_signals(actives)
+        current.plot.sync_signals(actives)
         self._refresh_table_group_state()
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.refresh()
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.refresh()
 
     def on_ungroup_y_axis_requested(self, signals: list) -> None:
         """Remove each given signal from its merged or synced group."""
+        current = self.current_workspace
         for active in signals:
-            if active in self._active:
-                self._plot.ungroup_signal(active)
+            if active in current.active:
+                current.plot.ungroup_signal(active)
         self._refresh_table_group_state()
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.refresh()
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.refresh()
 
     def _refresh_table_group_state(self) -> None:
         """Push current Merged/Synced group membership to the Active Signals Table."""
-        self._table.set_group_membership(
-            self._plot.get_merged_signals(), self._plot.get_synced_signals(),
+        current = self.current_workspace
+        current.table.set_group_membership(
+            current.plot.get_merged_signals(), current.plot.get_synced_signals(),
         )
 
     def remove_signals(self, actives: list) -> None:
         """Remove multiple signals from the plot and the table."""
+        current = self.current_workspace
         for active in list(actives):
-            if active not in self._active:
+            if active not in current.active:
                 continue
-            if self._cursor_ctrl is not None:
-                self._cursor_ctrl.on_signal_removed(active)
-            self._plot.remove_signal(active)
-            self._active.remove(active)
-            self._table.remove_row(active)
-            self.events.signal_removed.emit(SignalRemovedEvent(signal=active))
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.refresh()
+            if current.cursor_ctrl is not None:
+                current.cursor_ctrl.on_signal_removed(active)
+            current.plot.remove_signal(active)
+            current.active.remove(active)
+            current.table.remove_row(active)
+            self.events.signal_removed.emit(SignalRemovedEvent(signal=active, tab=current))
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.refresh()
         self._refresh_table_group_state()
 
     def set_step_modes(self, actives: list, enabled: bool) -> None:
         """Set step mode to a specific state for each signal in *actives*."""
+        current = self.current_workspace
         for active in actives:
-            if active not in self._active:
+            if active not in current.active:
                 continue
             active.step_mode = enabled
-            self._plot.set_step_mode(active, enabled)
+            current.plot.set_step_mode(active, enabled)
 
     def on_enum_table_requested(self, enabled: bool) -> None:
         """Toggle enum label display in the cursor-value table columns."""
-        for active in self._selected_signals:
-            if active not in self._active:
+        current = self.current_workspace
+        for active in current.selected_signals:
+            if active not in current.active:
                 continue
             active.enum_display_table = enabled
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.refresh()
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.refresh()
 
     def on_enum_cursor_requested(self, enabled: bool) -> None:
         """Toggle enum label display on the floating cursor plot label."""
-        for active in self._selected_signals:
-            if active not in self._active:
+        current = self.current_workspace
+        for active in current.selected_signals:
+            if active not in current.active:
                 continue
             active.enum_display_cursor = enabled
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.refresh()
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.refresh()
 
     def on_enum_yaxis_requested(self, enabled: bool) -> None:
         """Toggle enum label display on the Y-axis tick labels."""
-        for active in self._selected_signals:
-            if active not in self._active:
+        current = self.current_workspace
+        for active in current.selected_signals:
+            if active not in current.active:
                 continue
             active.enum_display_yaxis = enabled
-            self._plot.set_enum_display_yaxis(active, enabled)
+            current.plot.set_enum_display_yaxis(active, enabled)
 
     def on_multi_selection(self, multi: bool) -> None:
         """Called when the table switches between single and multi-row selection."""
@@ -428,8 +554,9 @@ class AppController:
 
     def set_multi_selected(self, actives: list) -> None:
         """Update the full multi-selection list and populate the Properties tab."""
-        self._selected_signals = list(actives)
-        self.events.selection_changed.emit(SelectionChangedEvent(selected=list(self._selected_signals)))
+        current = self.current_workspace
+        current.selected_signals = list(actives)
+        self.events.selection_changed.emit(SelectionChangedEvent(selected=list(current.selected_signals), tab=current))
         if not actives:
             return
         modes = {a.display_mode for a in actives}
@@ -440,59 +567,69 @@ class AppController:
         shape = next(iter(shapes)) if len(shapes) == 1 else None
         width = next(iter(widths)) if len(widths) == 1 else None
         style = next(iter(styles)) if len(styles) == 1 else None
-        ordered = [a for a in self._active if a in set(actives)]
-        self._plot.set_selected_signals(ordered, all_signals=self._active, top_first=self._top_first)
+        ordered = [a for a in current.active if a in set(actives)]
+        current.plot.set_selected_signals(ordered, all_signals=current.active, top_first=self._top_first)
         self._signal_info.set_properties(mode, shape, width, style)
         self._signal_info.set_enum_options(None, None, None)
         self._signal_info.enable_properties(True)
 
     def on_display_mode_requested(self, mode: str) -> None:
         """Apply a display mode change to all currently selected signals."""
-        for active in self._selected_signals:
-            if active not in self._active:
+        current = self.current_workspace
+        for active in current.selected_signals:
+            if active not in current.active:
                 continue
             active.display_mode = mode
-            self._plot.set_display_mode(active, mode, active.marker_shape)
+            current.plot.set_display_mode(active, mode, active.marker_shape)
 
     def on_marker_shape_requested(self, shape: str) -> None:
         """Apply a marker shape change to all currently selected signals."""
-        for active in self._selected_signals:
-            if active not in self._active:
+        current = self.current_workspace
+        for active in current.selected_signals:
+            if active not in current.active:
                 continue
             active.marker_shape = shape
             if active.display_mode != "line":
-                self._plot.set_display_mode(active, active.display_mode, shape)
+                current.plot.set_display_mode(active, active.display_mode, shape)
 
     def on_line_width_requested(self, width: int) -> None:
         """Apply a line width change to all currently selected signals."""
-        for active in self._selected_signals:
-            if active not in self._active:
+        current = self.current_workspace
+        for active in current.selected_signals:
+            if active not in current.active:
                 continue
-            self._plot.set_line_width(active, width)
+            current.plot.set_line_width(active, width)
 
     def on_line_style_requested(self, style: str) -> None:
         """Apply a line style change to all currently selected signals."""
-        for active in self._selected_signals:
-            if active not in self._active:
+        current = self.current_workspace
+        for active in current.selected_signals:
+            if active not in current.active:
                 continue
-            self._plot.set_line_style(active, style)
+            current.plot.set_line_style(active, style)
 
     def refresh_display_names(self) -> None:
-        """Reapply the display name formatter to the Active Signals Table."""
+        """Reapply the display name formatter to every tab's Active Signals Table.
+
+        The display-name-shortening rule is a global preference (REQ-PLOT-160),
+        so all tabs update together rather than just the currently active one.
+        """
         if self._settings is not None:
             from mdf_viewer.settings import apply_display_name_rule
             formatter = lambda n: apply_display_name_rule(n, self._settings)
         else:
             formatter = lambda n: n
-        self._table.set_name_formatter(formatter)
+        for workspace in self._workspaces:
+            workspace.table.set_name_formatter(formatter)
 
     def refresh_z_order(self) -> None:
         """Reapply Z-order, selection boost, and Y-axis visibility after a preference change."""
-        self._plot.set_selected_line_boost(self._line_boost)
-        self._plot.set_show_only_selected_y_axis(self._show_only_selected_y_axis)
-        self._plot.set_selected_signals(
-            self._selected_signals,
-            all_signals=self._active,
+        current = self.current_workspace
+        current.plot.set_selected_line_boost(self._line_boost)
+        current.plot.set_show_only_selected_y_axis(self._show_only_selected_y_axis)
+        current.plot.set_selected_signals(
+            current.selected_signals,
+            all_signals=current.active,
             top_first=self._top_first,
         )
 
@@ -525,31 +662,33 @@ class AppController:
 
         No-op if the signal is not currently active.
         """
-        if active_signal not in self._active:
+        current = self.current_workspace
+        if active_signal not in current.active:
             return
         # Cursor labels must be removed before the plot destroys the ViewBox.
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.on_signal_removed(active_signal)
-        self._plot.remove_signal(active_signal)
-        self._active.remove(active_signal)
-        self._table.remove_row(active_signal)
-        self.events.signal_removed.emit(SignalRemovedEvent(signal=active_signal))
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.refresh()
-        if self._selected is active_signal:
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.on_signal_removed(active_signal)
+        current.plot.remove_signal(active_signal)
+        current.active.remove(active_signal)
+        current.table.remove_row(active_signal)
+        self.events.signal_removed.emit(SignalRemovedEvent(signal=active_signal, tab=current))
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.refresh()
+        if current.selected is active_signal:
             self.set_selected_signal(None)
         self._refresh_table_group_state()
 
     def remove_all(self) -> None:
         """Remove all active signals from the plot and the table."""
+        current = self.current_workspace
         # Clear cursor labels before ViewBoxes are destroyed.
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.on_all_signals_cleared()
-        for sig in list(self._active):
-            self._plot.remove_signal(sig)
-            self.events.signal_removed.emit(SignalRemovedEvent(signal=sig))
-        self._active.clear()
-        self._table.clear()
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.on_all_signals_cleared()
+        for sig in list(current.active):
+            current.plot.remove_signal(sig)
+            self.events.signal_removed.emit(SignalRemovedEvent(signal=sig, tab=current))
+        current.active.clear()
+        current.table.clear()
         self.set_selected_signal(None)
         self._refresh_table_group_state()
 
@@ -558,37 +697,50 @@ class AppController:
 
         Returns True if applied, False when no signals are active.
         """
-        if self._zoom_ctrl is not None:
-            self._zoom_ctrl.before_discrete_action()
-        result = self._plot.swimlanes(self._active)
-        if self._zoom_ctrl is not None:
-            self._zoom_ctrl.after_discrete_action()
+        current = self.current_workspace
+        if current.zoom_ctrl is not None:
+            current.zoom_ctrl.before_discrete_action()
+        result = current.plot.swimlanes(current.active)
+        if current.zoom_ctrl is not None:
+            current.zoom_ctrl.after_discrete_action()
         return result
 
     def reorder_signals(self, ordered: list) -> None:
         """Update the active signal order to match the table's new row order."""
-        self._active = list(ordered)
+        current = self.current_workspace
+        current.active = list(ordered)
         self.refresh_z_order()
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.refresh()
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.refresh()
 
     def on_y_grid_toggled(self, enabled: bool) -> None:
         """Called when the user toggles Y-grid in the plot context menu."""
-        self._y_grid_enabled = enabled
-        if self._selected is not None:
-            self._plot.set_y_grid(self._selected, enabled)
+        current = self.current_workspace
+        current.y_grid_enabled = enabled
+        if current.selected is not None:
+            current.plot.set_y_grid(current.selected, enabled)
 
     def set_selected_signal(self, active_signal: ActiveSignal | None) -> None:
         """Update the selection and drive the Signal Info Box."""
-        if self._y_grid_enabled:
-            if self._selected is not None:
-                self._plot.set_y_grid(self._selected, False)
+        current = self.current_workspace
+        if current.y_grid_enabled:
+            if current.selected is not None:
+                current.plot.set_y_grid(current.selected, False)
             if active_signal is not None:
-                self._plot.set_y_grid(active_signal, True)
-        self._selected = active_signal
-        self._selected_signals = [active_signal] if active_signal is not None else []
-        self._plot.set_selected_signals(self._selected_signals, all_signals=self._active, top_first=self._top_first)
-        self.events.selection_changed.emit(SelectionChangedEvent(selected=list(self._selected_signals)))
+                current.plot.set_y_grid(active_signal, True)
+        current.selected = active_signal
+        current.selected_signals = [active_signal] if active_signal is not None else []
+        current.plot.set_selected_signals(current.selected_signals, all_signals=current.active, top_first=self._top_first)
+        self.events.selection_changed.emit(SelectionChangedEvent(selected=list(current.selected_signals), tab=current))
+        self._push_selection_to_drawer(active_signal)
+
+    def _push_selection_to_drawer(self, active_signal: ActiveSignal | None) -> None:
+        """Show *active_signal*'s info/properties in the shared drawer, or clear it.
+
+        Shared by set_selected_signal() (a real selection change) and
+        switch_tab() (restoring a tab's previous selection without changing
+        any tab's actual selection state).
+        """
         if active_signal is None:
             self._signal_info.clear()
         else:
@@ -605,9 +757,23 @@ class AppController:
             self._signal_info.enable_properties(True)
 
     def snapshot_active_signals(self) -> list[ActiveSignalSnapshot]:
-        """Capture the display state of all active signals, in table order."""
+        """Capture the display state of the active tab's active signals, in table order."""
+        return self._snapshot_signals(self.current_workspace)
+
+    def snapshot_tab_signals(self, index: int) -> list[ActiveSignalSnapshot]:
+        """Capture the display state of the tab at *index*'s active signals.
+
+        Used by MainWindow to re-resolve every tab's signals by name when a
+        new measurement file is loaded (REQ-PLOT-260), not just the active
+        tab — does not change which tab is active.
+        """
+        if not (0 <= index < len(self._workspaces)):
+            return []
+        return self._snapshot_signals(self._workspaces[index])
+
+    def _snapshot_signals(self, workspace: "TabWorkspace") -> list[ActiveSignalSnapshot]:
         snapshots = []
-        for active in self._active:
+        for active in workspace.active:
             c = active.color
             snapshots.append(ActiveSignalSnapshot(
                 name=active.metadata.name,
@@ -637,6 +803,7 @@ class AppController:
         display attributes from the snapshot are applied immediately.
         """
         from PyQt6.QtGui import QColor
+        current = self.current_workspace
         for snap, gi, ci in resolved:
             try:
                 added = self.add_signal(gi, ci)
@@ -644,42 +811,66 @@ class AppController:
                 continue
             if not added:
                 continue
-            active = self._active[-1]
+            active = current.active[-1]
             new_color = QColor(*snap.color)
             # Set color on the active signal first, then propagate to the plot.
             active.color = new_color
-            self._plot.recolor_signal(active, new_color)
-            self._table.set_row_color(active, new_color)
+            current.plot.recolor_signal(active, new_color)
+            current.table.set_row_color(active, new_color)
             # Restore other display properties.
             if snap.line_width != active.line_width:
-                self._plot.set_line_width(active, snap.line_width)
+                current.plot.set_line_width(active, snap.line_width)
                 active.line_width = snap.line_width
             if snap.line_style != active.line_style:
-                self._plot.set_line_style(active, snap.line_style)
+                current.plot.set_line_style(active, snap.line_style)
                 active.line_style = snap.line_style
             if snap.display_mode != active.display_mode or snap.marker_shape != active.marker_shape:
-                self._plot.set_display_mode(active, snap.display_mode, snap.marker_shape)
+                current.plot.set_display_mode(active, snap.display_mode, snap.marker_shape)
                 active.display_mode = snap.display_mode
                 active.marker_shape = snap.marker_shape
             if snap.step_mode != active.step_mode:
-                self._plot.set_step_mode(active, snap.step_mode)
+                current.plot.set_step_mode(active, snap.step_mode)
                 active.step_mode = snap.step_mode
             active.enum_display_table = snap.enum_display_table
             active.enum_display_cursor = snap.enum_display_cursor
             if snap.enum_display_yaxis != active.enum_display_yaxis:
-                self._plot.set_enum_display_yaxis(active, snap.enum_display_yaxis)
+                current.plot.set_enum_display_yaxis(active, snap.enum_display_yaxis)
                 active.enum_display_yaxis = snap.enum_display_yaxis
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.refresh()
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.refresh()
+
+    def restore_tab_signals(
+        self, index: int, resolved: list[tuple[ActiveSignalSnapshot, int, int]]
+    ) -> None:
+        """Restore resolved snapshots into the tab at *index* (REQ-PLOT-260).
+
+        Temporarily makes that tab current so the existing restore_signals()/
+        add_signal() logic can be reused unchanged, then restores whichever
+        tab was actually active — the caller never sees the active tab change.
+        """
+        if not (0 <= index < len(self._workspaces)):
+            return
+        saved_index = self._active_tab_index
+        self._active_tab_index = index
+        try:
+            self.restore_signals(resolved)
+        finally:
+            self._active_tab_index = saved_index
 
     def capture_config(self, config_path: Path) -> "ViewerConfig":
         """Capture the current viewer state as a ViewerConfig.
 
         *config_path* is the intended save location — needed to compute
         relative measurement paths later in ConfigManager.save().
+
+        Scoped to the active tab only — ViewerConfig is still the flat,
+        single-workspace format it was before tabs existed. Multi-tab
+        `.mvc` save/load is #106's job (it depends on #99); this is a
+        deliberate provisional scope for #99, not an oversight.
         """
         from mdf_viewer.model.viewer_config import SignalConfig, ViewerConfig
 
+        current = self.current_workspace
         snapshots = self.snapshot_active_signals()
         signal_configs = tuple(
             SignalConfig(
@@ -698,19 +889,19 @@ class AppController:
             for s in snapshots
         )
 
-        zoom = self._plot.get_zoom_state(self._active)
+        zoom = current.plot.get_zoom_state(current.active)
         x_range = tuple(zoom.x_range)  # type: ignore[arg-type]
         y_ranges: dict[str, tuple[float, float]] = {}
         for active, yr in zoom.y_ranges.items():
             y_ranges[active.metadata.name] = tuple(yr)  # type: ignore[assignment]
 
-        merged_raw, synced_raw = self._plot.get_axis_grouping()
+        merged_raw, synced_raw = current.plot.get_axis_grouping()
         merged_groups = tuple(tuple(g) for g in merged_raw)
         synced_groups = tuple(tuple(g) for g in synced_raw)
 
         cursor_snap: dict = {}
-        if self._cursor_ctrl is not None:
-            cursor_snap = self._cursor_ctrl.snapshot()
+        if current.cursor_ctrl is not None:
+            cursor_snap = current.cursor_ctrl.snapshot()
         cursor_mode = cursor_snap.get("mode", "HIDDEN")
         cursor_pos_raw = cursor_snap.get("positions", [0.0, 0.0])
         cursor_positions: tuple[float, float] = (
@@ -719,7 +910,7 @@ class AppController:
         )
 
         selected_name = (
-            self._selected.metadata.name if self._selected is not None else None
+            current.selected.metadata.name if current.selected is not None else None
         )
 
         meas_path = ""
@@ -759,37 +950,41 @@ class AppController:
 
         *resolved_signals* is a list of (snapshot, group_index, channel_index)
         tuples — the caller is responsible for resolving name → indices.
+
+        Restores into the active tab only — see capture_config()'s docstring
+        for why (provisional #99 scope, superseded by #106).
         """
         from PyQt6.QtGui import QColor
         from mdf_viewer.view_model.zoom_state import ZoomState
 
+        current = self.current_workspace
         self.restore_signals(resolved_signals)
 
         # Restore axis grouping — must happen after signals are added
         merged = [list(g) for g in config.merged_groups]
         synced = [list(g) for g in config.synced_groups]
-        self._plot.restore_axis_grouping(merged, synced, self._active)
+        current.plot.restore_axis_grouping(merged, synced, current.active)
         self._refresh_table_group_state()
 
         # Restore zoom — must happen after grouping (ViewBoxes may have changed)
         y_ranges: dict = {}
-        for active in self._active:
+        for active in current.active:
             name = active.metadata.name
             if name in config.y_ranges:
                 y_ranges[active] = config.y_ranges[name]
         zoom_state = ZoomState(x_range=config.x_range, y_ranges=y_ranges)
-        self._plot.set_zoom_state(zoom_state, self._active)
+        current.plot.set_zoom_state(zoom_state, current.active)
 
         # Restore cursor state
-        if self._cursor_ctrl is not None:
-            self._cursor_ctrl.restore({
+        if current.cursor_ctrl is not None:
+            current.cursor_ctrl.restore({
                 "mode": config.cursor_mode,
                 "positions": list(config.cursor_positions),
             })
 
         # Restore selection
         if config.selected_signal is not None:
-            for active in self._active:
+            for active in current.active:
                 if active.metadata.name == config.selected_signal:
                     self.set_selected_signal(active)
                     break
@@ -814,11 +1009,11 @@ class AppController:
 
     @property
     def active_signals(self) -> list[ActiveSignal]:
-        return list(self._active)
+        return list(self.current_workspace.active)
 
     @property
     def selected_signal(self) -> ActiveSignal | None:
-        return self._selected
+        return self.current_workspace.selected
 
     @property
     def current_config_path(self) -> Path | None:

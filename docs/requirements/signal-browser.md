@@ -47,8 +47,10 @@ least one channel is selected [REQ-BROWSER-032].
 
 ## Result of an Add-Signal Request
 
-A channel that is already active in the plot is skipped rather than
-added a second time, and the user is told how many (if any) requested
+A channel that is already active in the current tab's plot is skipped
+rather than added a second time — the same channel can be independently
+active in another tab at the same time (see "Main Widget Tabs" in
+`plotting.md`) — and the user is told how many (if any) requested
 channels were skipped for this reason [REQ-BROWSER-040]. When adding
 multiple channels at once, a failure reading one channel's samples is
 reported to the user without aborting the remaining requested channels

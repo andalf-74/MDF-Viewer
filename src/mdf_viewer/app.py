@@ -6,6 +6,102 @@ the wiring here means no layer needs to import the others' construction logic.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from mdf_viewer.controller.app_controller import AppController, TabWorkspace
+    from mdf_viewer.controller.interfaces import PlotAreaProtocol, SignalTableProtocol
+    from mdf_viewer.settings import Settings
+
+
+def _wire_tab(
+    controller: "AppController",
+    workspace: "TabWorkspace",
+    settings: "Settings",
+) -> None:
+    """Build and attach one tab's CursorStripesView + CursorController + ZoomController.
+
+    *workspace* must already be registered with *controller* and be the
+    currently active tab — for the first tab that's the workspace
+    AppController's constructor creates automatically; for every tab
+    created afterward at runtime (#99), the caller registers it first via
+    `controller.create_tab(plot_area, active_signals_table)` (which also
+    makes it active) and passes the result here. set_cursor_controller()/
+    set_zoom_controller() below both attach to controller.current_workspace,
+    so this function relies on nothing else changing the active tab in
+    between. Every get_active_signals/get_selected_signal callback binds to
+    *workspace* specifically rather than delegating through
+    controller.active_signals/selected_signal, so a background tab's
+    controller keeps reading its own tab's state even while another tab is
+    active — see docs/architecture.md "Main Widget Tabs (#99)".
+    """
+    from mdf_viewer.controller.cursor_controller import CursorController
+    from mdf_viewer.controller.zoom_controller import ZoomController
+    from mdf_viewer.view.cursors import CursorStripesView
+
+    plot_area = workspace.plot
+    active_signals_table = workspace.table
+
+    cursor_view = CursorStripesView()
+    for stripe in plot_area.get_stripes():
+        cursor_view.add_stripe(stripe)
+    plot_area.stripe_created.connect(cursor_view.add_stripe)
+    plot_area.stripe_deleted.connect(cursor_view.remove_stripe)
+    workspace.cursor_stripes_view = cursor_view
+
+    cursor_ctrl = CursorController(
+        cursor_view=cursor_view,
+        get_x_range=lambda: tuple(plot_area.plot_item.vb.viewRange()[0]),
+        active_signals_table=active_signals_table,
+        get_active_signals=lambda: workspace.active,
+        get_cursor_persistent=lambda: settings.cursor_persistent,
+        get_cursor_mode=lambda: settings.cursor_mode,
+        get_cursor_colors=lambda: (
+            settings.cursor_color_c1,
+            settings.cursor_color_c2,
+            settings.cursor_color_cl,
+            settings.cursor_color_cr,
+        ),
+        get_y_range=lambda: tuple(plot_area.get_active_stripe().plot_item.vb.viewRange()[1]),
+        get_show_delta_time=lambda: settings.show_delta_time_in_plot,
+        get_delta_time_color=lambda: settings.delta_time_color,
+        get_selected_signal=lambda: workspace.selected,
+        get_cursor_step_unit=lambda: settings.cursor_step_unit,
+        get_cursor_step_samples=lambda: settings.cursor_step_samples,
+        get_cursor_step_pixels=lambda: settings.cursor_step_pixels,
+        get_cursor_step_time_ms=lambda: settings.cursor_step_time_ms,
+        get_x_per_pixel=lambda: plot_area.get_active_stripe().plot_item.vb.viewPixelSize()[0],
+        get_active_stripe=lambda: plot_area.get_active_stripe(),
+    )
+    controller.set_cursor_controller(cursor_ctrl)
+    # Order matters: the view's own active-stripe bookkeeping must update
+    # before CursorController re-triggers update_delta_time() off of it.
+    plot_area.active_stripe_changed.connect(cursor_view.set_active_stripe)
+    plot_area.active_stripe_changed.connect(cursor_ctrl.on_active_stripe_changed)
+
+    zoom_ctrl = ZoomController(
+        plot_area=plot_area,
+        get_active_signals=lambda: workspace.active,
+        get_max_steps=lambda: settings.max_undo_steps,
+    )
+    controller.set_zoom_controller(zoom_ctrl)
+
+
+def _add_new_tab(
+    controller: "AppController",
+    plot_area: "PlotAreaProtocol",
+    active_signals_table: "SignalTableProtocol",
+    settings: "Settings",
+) -> None:
+    """Register and wire a tab created at runtime via MainWindow's "+"/New Tab (#99).
+
+    Injected into MainWindow as its tab factory (window.set_tab_factory) —
+    MainWindow builds the view widgets and calls this to do the
+    controller-side half, mirroring _wire_tab's use for the first tab.
+    """
+    workspace = controller.create_tab(plot_area, active_signals_table)
+    _wire_tab(controller, workspace, settings)
+
 
 def run(argv: list[str]) -> int:
     """Create the QApplication, build the MVC graph, and start the event loop.
@@ -21,13 +117,10 @@ def run(argv: list[str]) -> int:
 
     from mdf_viewer import __version__
     from mdf_viewer.controller.app_controller import AppController
-    from mdf_viewer.controller.cursor_controller import CursorController
-    from mdf_viewer.controller.zoom_controller import ZoomController
     from mdf_viewer.errors import MdfLoadError
     from mdf_viewer.license.license_manager import LicenseManager
     from mdf_viewer.model.mdf_loader import MdfLoader
     from mdf_viewer.settings import Settings
-    from mdf_viewer.view.cursors import CursorStripesView
     from mdf_viewer.view.main_window import MainWindow
 
     if sys.platform == "win32":
@@ -106,47 +199,10 @@ def run(argv: list[str]) -> int:
     )
     window.set_recent_files_provider(settings.get_and_prune)
 
-    cursor_view = CursorStripesView()
-    for stripe in window.plot_area.get_stripes():
-        cursor_view.add_stripe(stripe)
-    window.plot_area.stripe_created.connect(cursor_view.add_stripe)
-    window.plot_area.stripe_deleted.connect(cursor_view.remove_stripe)
-    cursor_ctrl = CursorController(
-        cursor_view=cursor_view,
-        get_x_range=lambda: tuple(window.plot_area.plot_item.vb.viewRange()[0]),
-        active_signals_table=window.active_signals_table,
-        get_active_signals=lambda: controller.active_signals,
-        get_cursor_persistent=lambda: settings.cursor_persistent,
-        get_cursor_mode=lambda: settings.cursor_mode,
-        get_cursor_colors=lambda: (
-            settings.cursor_color_c1,
-            settings.cursor_color_c2,
-            settings.cursor_color_cl,
-            settings.cursor_color_cr,
-        ),
-        get_y_range=lambda: tuple(window.plot_area.get_active_stripe().plot_item.vb.viewRange()[1]),
-        get_show_delta_time=lambda: settings.show_delta_time_in_plot,
-        get_delta_time_color=lambda: settings.delta_time_color,
-        get_selected_signal=lambda: controller.selected_signal,
-        get_cursor_step_unit=lambda: settings.cursor_step_unit,
-        get_cursor_step_samples=lambda: settings.cursor_step_samples,
-        get_cursor_step_pixels=lambda: settings.cursor_step_pixels,
-        get_cursor_step_time_ms=lambda: settings.cursor_step_time_ms,
-        get_x_per_pixel=lambda: window.plot_area.get_active_stripe().plot_item.vb.viewPixelSize()[0],
-        get_active_stripe=lambda: window.plot_area.get_active_stripe(),
+    _wire_tab(controller, controller.current_workspace, settings)
+    window.set_tab_factory(
+        lambda plot_area, table: _add_new_tab(controller, plot_area, table, settings)
     )
-    controller.set_cursor_controller(cursor_ctrl)
-    # Order matters: the view's own active-stripe bookkeeping must update
-    # before CursorController re-triggers update_delta_time() off of it.
-    window.plot_area.active_stripe_changed.connect(cursor_view.set_active_stripe)
-    window.plot_area.active_stripe_changed.connect(cursor_ctrl.on_active_stripe_changed)
-
-    zoom_ctrl = ZoomController(
-        plot_area=window.plot_area,
-        get_active_signals=lambda: controller.active_signals,
-        get_max_steps=lambda: settings.max_undo_steps,
-    )
-    controller.set_zoom_controller(zoom_ctrl)
 
     window.set_settings(settings)
     window.set_controller(controller)

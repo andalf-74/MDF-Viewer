@@ -37,10 +37,13 @@ from PyQt6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QShortcu
 from PyQt6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QLabel,
     QMainWindow,
     QMessageBox,
     QPushButton,
     QSplitter,
+    QStackedWidget,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -101,6 +104,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._controller: AppController | None = None
+        self._tab_factory: Callable[[PlotStripesArea, ActiveSignalsTable], None] | None = None
         self._recent_provider: Callable[[], list[Path]] | None = None
         self._recent_actions: list[QAction] = []
         self._recent_sep: QAction | None = None
@@ -126,21 +130,7 @@ class MainWindow(QMainWindow):
         self._controller = controller
         controller.set_cursor_mode_callback(self._on_cursor_mode_changed)
         self.signal_browser.add_signals_requested.connect(self._on_add_signals)
-        self.plot_area.signals_dropped_on_stripe.connect(self._on_add_signals_to_stripe)
-        self.plot_area.file_dropped.connect(self._on_file_dropped)
-        self.plot_area.delete_stripe_requested.connect(self._on_delete_stripe_requested)
-        self.active_signals_table.signals_dropped.connect(self._on_add_signals)
-        self.active_signals_table.remove_requested.connect(controller.remove_signals)
-        self.active_signals_table.remove_all_requested.connect(controller.remove_all)
-        self.active_signals_table.selection_changed.connect(
-            controller.set_selected_signal
-        )
-        self.active_signals_table.multi_selection_active.connect(
-            controller.on_multi_selection
-        )
-        self.active_signals_table.multi_selection_changed.connect(
-            controller.set_multi_selected
-        )
+        self._wire_tab_view(self.plot_area, self.active_signals_table)
         self.signal_info_box.display_mode_requested.connect(
             controller.on_display_mode_requested
         )
@@ -162,39 +152,78 @@ class MainWindow(QMainWindow):
         self.signal_info_box.enum_yaxis_requested.connect(
             controller.on_enum_yaxis_requested
         )
-        self.active_signals_table.color_change_requested.connect(
+
+    def _wire_tab_view(
+        self, plot_area: PlotStripesArea, active_signals_table: ActiveSignalsTable
+    ) -> None:
+        """Connect one tab's plot area + Active Signals Table to the controller.
+
+        Called once per tab: from set_controller() for the first tab, and
+        from _on_new_tab() for every tab created afterward (#99). The
+        Signal Browser and Signal Info/Properties drawer are shared, single
+        instances wired once in set_controller() instead — they aren't
+        duplicated per tab.
+        """
+        controller = self._controller
+        plot_area.signals_dropped_on_stripe.connect(self._on_add_signals_to_stripe)
+        plot_area.file_dropped.connect(self._on_file_dropped)
+        plot_area.delete_stripe_requested.connect(self._on_delete_stripe_requested)
+        active_signals_table.signals_dropped.connect(self._on_add_signals)
+        active_signals_table.remove_requested.connect(controller.remove_signals)
+        active_signals_table.remove_all_requested.connect(controller.remove_all)
+        active_signals_table.selection_changed.connect(
+            controller.set_selected_signal
+        )
+        active_signals_table.multi_selection_active.connect(
+            controller.on_multi_selection
+        )
+        active_signals_table.multi_selection_changed.connect(
+            controller.set_multi_selected
+        )
+        active_signals_table.color_change_requested.connect(
             controller.recolor_signals
         )
-        self.active_signals_table.step_mode_set_requested.connect(
+        active_signals_table.step_mode_set_requested.connect(
             controller.set_step_modes
         )
-        self.active_signals_table.order_changed.connect(controller.reorder_signals)
-        self.plot_area.y_grid_toggled.connect(controller.on_y_grid_toggled)
-        self.plot_area.signal_clicked.connect(self.active_signals_table.select_signal)
-        self.active_signals_table.configure_display_names_requested.connect(
+        active_signals_table.order_changed.connect(controller.reorder_signals)
+        plot_area.y_grid_toggled.connect(controller.on_y_grid_toggled)
+        plot_area.signal_clicked.connect(active_signals_table.select_signal)
+        active_signals_table.configure_display_names_requested.connect(
             self._on_configure_display_names
         )
-        self.active_signals_table.shorten_names_toggled.connect(
+        active_signals_table.shorten_names_toggled.connect(
             self._on_shorten_names_toggled
         )
-        self.active_signals_table.merge_y_axis_requested.connect(
+        active_signals_table.merge_y_axis_requested.connect(
             self._on_merge_y_axis_requested
         )
-        self.active_signals_table.sync_y_axis_requested.connect(
+        active_signals_table.sync_y_axis_requested.connect(
             self._on_sync_y_axis_requested
         )
-        self.active_signals_table.ungroup_y_axis_requested.connect(
+        active_signals_table.ungroup_y_axis_requested.connect(
             controller.on_ungroup_y_axis_requested
         )
-        self.active_signals_table.move_to_stripe_requested.connect(
+        active_signals_table.move_to_stripe_requested.connect(
             controller.move_signals_to_stripe
         )
-        self.active_signals_table.move_to_new_stripe_requested.connect(
+        active_signals_table.move_to_new_stripe_requested.connect(
             controller.move_signals_to_new_stripe
         )
-        self.active_signals_table.set_stripe_providers(
+        active_signals_table.set_stripe_providers(
             controller.get_stripes, controller.get_stripe_for_signal
         )
+
+    def set_tab_factory(
+        self, factory: Callable[[PlotStripesArea, ActiveSignalsTable], None]
+    ) -> None:
+        """Supply the callback that builds a new tab's controller-side stack (#99).
+
+        app.py injects this — it calls controller.create_tab() and builds
+        the tab's CursorController/ZoomController, mirroring what already
+        happens once at startup for the first tab.
+        """
+        self._tab_factory = factory
 
     def show_status(self, message: str, timeout_ms: int = 3000) -> None:
         """Show a transient status bar message."""
@@ -240,6 +269,9 @@ class MainWindow(QMainWindow):
         self._load_action.setShortcut(QKeySequence.StandardKey.Open)
         self._load_action.setToolTip("Load MDF File (Ctrl+O)")
         self._load_action.triggered.connect(self._on_load_file)
+
+        self._new_tab_action = QAction("New Tab", self)
+        self._new_tab_action.triggered.connect(self._on_new_tab)
 
         self._zoom_fit_action = QAction(
             _load_icon(f"zoom_to_fit{suffix}"), "Zoom to Fit", self
@@ -297,6 +329,13 @@ class MainWindow(QMainWindow):
         self._cursor_right_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self._cursor_right_shortcut.activated.connect(self._on_cursor_right)
 
+        self._next_tab_shortcut = QShortcut(QKeySequence("Ctrl+Tab"), self)
+        self._next_tab_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._next_tab_shortcut.activated.connect(lambda: self._cycle_tab(1))
+        self._prev_tab_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Tab"), self)
+        self._prev_tab_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
+        self._prev_tab_shortcut.activated.connect(lambda: self._cycle_tab(-1))
+
         self._undo_action = QAction("Undo", self)
         self._undo_action.setShortcut(QKeySequence("Ctrl+Z"))
         self._undo_action.triggered.connect(self._on_undo)
@@ -327,6 +366,7 @@ class MainWindow(QMainWindow):
     def _build_menu(self) -> None:
         self._file_menu = self.menuBar().addMenu("&File")
         self._file_menu.addAction(self._load_action)
+        self._file_menu.addAction(self._new_tab_action)
         self._file_menu.addAction(self._save_config_action)
         self._file_menu.addAction(self._save_config_as_action)
         self._file_menu.addSeparator()
@@ -383,7 +423,38 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self._central)
         self._central.installEventFilter(self)
 
-        # ── Content splitter (plot area | Active Signals Table | info drawer)
+        # ── Tabs (#99) — each tab page is one plot area + Active Signals
+        # Table pair; the Info/Properties drawer stays outside, shared ──
+        self._tab_counter = 1
+        self._tab_widget = QTabWidget()
+        self._tab_widget.setTabsClosable(True)
+        self._tab_widget.setMovable(True)
+        self._tab_widget.addTab(
+            self._make_tab_page(self.plot_area, self.active_signals_table), "Tab 1"
+        )
+        # A real "+" tab pinned to the end (browser-style), not a corner
+        # widget — a corner widget sits at the far edge of the tab bar with
+        # a visible gap after the last tab; this sits immediately next to
+        # it and moves as tabs are added/removed.
+        self._new_tab_placeholder_widget = QWidget()
+        placeholder_index = self._tab_widget.addTab(self._new_tab_placeholder_widget, "+")
+        tab_bar = self._tab_widget.tabBar()
+        tab_bar.setTabButton(placeholder_index, tab_bar.ButtonPosition.RightSide, None)
+        tab_bar.setTabButton(placeholder_index, tab_bar.ButtonPosition.LeftSide, None)
+        self._tab_widget.tabCloseRequested.connect(self._on_tab_close_requested)
+        self._tab_widget.currentChanged.connect(self._on_tab_changed)
+        self._tab_widget.tabBarClicked.connect(self._on_tab_bar_clicked)
+        self._tab_widget.tabBarDoubleClicked.connect(self._on_tab_bar_double_clicked)
+        tab_bar.tabMoved.connect(self._on_tab_bar_tab_moved)
+        tab_bar.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        tab_bar.customContextMenuRequested.connect(self._on_tab_context_menu)
+
+        self._empty_tabs_placeholder = self._build_empty_tabs_placeholder()
+        self._content_stack = QStackedWidget()
+        self._content_stack.addWidget(self._tab_widget)
+        self._content_stack.addWidget(self._empty_tabs_placeholder)
+
+        # ── Content splitter (tabs | info drawer) ────────────────────────
         self._info_dock = DockablePanel(
             content=self.signal_info_box,
             edge=Qt.Edge.RightEdge,
@@ -392,13 +463,11 @@ class MainWindow(QMainWindow):
             default_width=_INFO_DRAWER_W,
         )
         self._content_splitter = make_splitter(Qt.Orientation.Horizontal)
-        self._content_splitter.addWidget(self.plot_area)
-        self._content_splitter.addWidget(self.active_signals_table)
+        self._content_splitter.addWidget(self._content_stack)
         self._content_splitter.addWidget(self._info_dock)
         self._content_splitter.setStretchFactor(0, 1)
         self._content_splitter.setStretchFactor(1, 0)
-        self._content_splitter.setStretchFactor(2, 0)
-        self._content_splitter.setSizes([500, _PANEL_W, _INFO_DRAWER_W])
+        self._content_splitter.setSizes([500 + _PANEL_W, _INFO_DRAWER_W])
 
         # ── Outer splitter (pinned mode: left panel + content) ───────────
         self._left_dock = DockablePanel(
@@ -420,6 +489,182 @@ class MainWindow(QMainWindow):
         self._left_dock.show()
         self._info_dock.show()
 
+    def _make_tab_page(
+        self, plot_area: PlotStripesArea, active_signals_table: ActiveSignalsTable
+    ) -> QSplitter:
+        """Pair one tab's plot area and Active Signals Table side by side.
+
+        Kept as a splitter (not a plain layout) so the divider between them
+        stays user-draggable, matching today's single-workspace behavior.
+        """
+        page = make_splitter(Qt.Orientation.Horizontal)
+        page.addWidget(plot_area)
+        page.addWidget(active_signals_table)
+        page.setStretchFactor(0, 1)
+        page.setStretchFactor(1, 0)
+        page.setSizes([500, _PANEL_W])
+        page.plot_area = plot_area
+        page.active_signals_table = active_signals_table
+        return page
+
+    def _build_empty_tabs_placeholder(self) -> QWidget:
+        """Shown in place of the tab widget when the last tab has been closed."""
+        placeholder = QWidget()
+        layout = QVBoxLayout(placeholder)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label = QLabel("No tabs open")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        new_tab_button = QPushButton("New Tab")
+        new_tab_button.clicked.connect(self._on_new_tab)
+        layout.addWidget(label)
+        layout.addWidget(new_tab_button)
+        return placeholder
+
+    def _placeholder_index(self) -> int:
+        """Current position of the pinned "+" tab (usually last, but a drag
+        reorder can transiently move it — _on_tab_bar_tab_moved corrects that)."""
+        return self._tab_widget.indexOf(self._new_tab_placeholder_widget)
+
+    def _is_placeholder(self, index: int) -> bool:
+        return index == self._placeholder_index()
+
+    def _real_tab_count(self) -> int:
+        return self._tab_widget.count() - 1
+
+    def _all_active_signals_tables(self) -> list[ActiveSignalsTable]:
+        """Every real tab's Active Signals Table, for preferences that apply globally."""
+        placeholder_index = self._placeholder_index()
+        return [
+            self._tab_widget.widget(i).active_signals_table
+            for i in range(self._tab_widget.count())
+            if i != placeholder_index
+        ]
+
+    def _on_new_tab(self) -> None:
+        """Create a new tab: a fresh plot area + Active Signals Table pair (#99)."""
+        plot_area = PlotStripesArea()
+        active_signals_table = ActiveSignalsTable()
+        if self._tab_factory is not None:
+            self._tab_factory(plot_area, active_signals_table)
+        self._tab_counter += 1
+        page = self._make_tab_page(plot_area, active_signals_table)
+        index = self._placeholder_index()  # insert right before the "+" tab
+        self._tab_widget.insertTab(index, page, f"Tab {self._tab_counter}")
+        self._wire_tab_view(plot_area, active_signals_table)
+        self._tab_widget.setCurrentIndex(index)
+        if self._content_stack.currentWidget() is not self._tab_widget:
+            self._content_stack.setCurrentWidget(self._tab_widget)
+
+    def _on_tab_changed(self, index: int) -> None:
+        if self._controller is not None and index >= 0 and not self._is_placeholder(index):
+            self._controller.switch_tab(index)
+
+    def _on_tab_bar_clicked(self, index: int) -> None:
+        """Clicking the "+" tab creates a new tab instead of selecting it.
+
+        Uses tabBarClicked (a real mouse click) rather than currentChanged,
+        which also fires when Qt's own post-removal reindexing happens to
+        land on the "+" tab (e.g. closing the last real tab) — that must
+        NOT auto-create a replacement tab (REQ-PLOT-254).
+        """
+        if index >= 0 and self._is_placeholder(index):
+            self._on_new_tab()
+
+    def _on_tab_bar_tab_moved(self, from_index: int, to_index: int) -> None:
+        """Keep the "+" tab pinned last after a drag reorder, then resync the
+        controller's tab order (REQ-PLOT-243) once the placeholder has settled.
+
+        moveTab() below re-emits tabMoved, re-entering this handler — the
+        resync only runs once the placeholder position is already correct,
+        so it reads the final settled order rather than an intermediate one.
+        """
+        tab_bar = self._tab_widget.tabBar()
+        last = tab_bar.count() - 1
+        placeholder_index = self._placeholder_index()
+        if placeholder_index != last:
+            tab_bar.moveTab(placeholder_index, last)
+            return
+        if self._controller is not None:
+            pages = [
+                self._tab_widget.widget(i)
+                for i in range(self._tab_widget.count())
+                if i != placeholder_index
+            ]
+            self._controller.reorder_tabs([page.plot_area for page in pages])
+
+    def _on_tab_close_requested(self, index: int) -> None:
+        """Close the tab at *index* (REQ-PLOT-251/252/253).
+
+        Warns before closing a tab that still has active signals, mirroring
+        the stripe-deletion warning (_on_delete_stripe_requested,
+        REQ-PLOT-194). Activates the tab immediately to the left afterward,
+        or the next remaining tab if the closed one was first — QTabBar's
+        default post-removal current index picks the opposite neighbor
+        (SelectRightTab), so the new index is computed explicitly before
+        removal rather than relied on.
+        """
+        if self._is_placeholder(index):
+            return
+        has_signals = (
+            self._controller is not None and self._controller.tab_has_signals(index)
+        )
+        if has_signals:
+            reply = QMessageBox.question(
+                self,
+                "Close Tab",
+                "This tab still has signals in it. Close anyway?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+        new_index = max(0, index - 1)
+        self._tab_widget.removeTab(index)
+        if self._controller is not None:
+            self._controller.remove_tab(index)
+        if self._real_tab_count() == 0:
+            self._content_stack.setCurrentWidget(self._empty_tabs_placeholder)
+        else:
+            self._tab_widget.setCurrentIndex(new_index)
+
+    def _cycle_tab(self, delta: int) -> None:
+        """Move to the next/previous real tab (Ctrl+Tab / Ctrl+Shift+Tab), wrapping around."""
+        count = self._real_tab_count()
+        if count == 0:
+            return
+        placeholder_index = self._placeholder_index()
+        real_indices = [i for i in range(self._tab_widget.count()) if i != placeholder_index]
+        current = self._tab_widget.currentIndex()
+        pos = real_indices.index(current) if current in real_indices else 0
+        self._tab_widget.setCurrentIndex(real_indices[(pos + delta) % count])
+
+    def _on_tab_bar_double_clicked(self, index: int) -> None:
+        if index >= 0 and not self._is_placeholder(index):
+            self._rename_tab(index)
+
+    def _rename_tab(self, index: int) -> None:
+        from PyQt6.QtWidgets import QInputDialog
+        current_name = self._tab_widget.tabText(index)
+        name, ok = QInputDialog.getText(self, "Rename Tab", "Tab name:", text=current_name)
+        if ok and name.strip():
+            self._tab_widget.setTabText(index, name.strip())
+
+    def _on_tab_context_menu(self, pos) -> None:
+        from PyQt6.QtWidgets import QMenu
+        tab_bar = self._tab_widget.tabBar()
+        index = tab_bar.tabAt(pos)
+        if index < 0 or self._is_placeholder(index):
+            return
+        menu = QMenu(self)
+        rename_action = menu.addAction("Rename")
+        close_action = menu.addAction("Close")
+        action = menu.exec(tab_bar.mapToGlobal(pos))
+        if action is rename_action:
+            self._rename_tab(index)
+        elif action is close_action:
+            self._on_tab_close_requested(index)
+
     def _dock_left_panel(self, panel: DockablePanel) -> None:
         """Re-insert the left DockablePanel into _outer_splitter on re-pin."""
         self._outer_splitter.insertWidget(0, panel)
@@ -428,12 +673,11 @@ class MainWindow(QMainWindow):
 
     def _dock_info_panel(self, panel: DockablePanel) -> None:
         """Re-append the info DockablePanel into _content_splitter on re-pin."""
-        sizes_before = self._content_splitter.sizes()  # [plot_w, ast_w]
-        plot_w = sizes_before[0] if sizes_before else self._content_splitter.width()
-        ast_w = sizes_before[1] if len(sizes_before) > 1 else 0
+        sizes_before = self._content_splitter.sizes()  # [content_w]
+        content_w = sizes_before[0] if sizes_before else self._content_splitter.width()
         self._content_splitter.addWidget(panel)
         self._content_splitter.setSizes(
-            [max(0, plot_w - panel.width_px), ast_w, panel.width_px]
+            [max(0, content_w - panel.width_px), panel.width_px]
         )
 
     # ------------------------------------------------------------------
@@ -656,56 +900,61 @@ class MainWindow(QMainWindow):
         if load_ok and snapshots:
             self._restore_snapshots(snapshots)
 
-    def _collect_snapshots_if_keeping(self) -> list:
-        """Return snapshots of active signals if the user wants to keep them, else []."""
+    def _collect_snapshots_if_keeping(self) -> dict[int, list]:
+        """Return {tab_index: snapshots} for every tab with active signals,
+        if the user wants to keep them, else {} (REQ-PLOT-260 — all tabs,
+        not just the active one)."""
         if self._controller is None or self._settings is None:
-            return []
-        if not self._controller.active_signals:
-            return []
+            return {}
         setting = self._settings.keep_signals_on_load
         if setting == "never":
-            return []
-        if setting == "always":
-            return self._controller.snapshot_active_signals()
-        # "ask"
-        reply = QMessageBox.question(
-            self,
-            "Keep Active Signals?",
-            "Keep the currently active signals in the new measurement?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-        )
-        if reply == QMessageBox.StandardButton.Yes:
-            return self._controller.snapshot_active_signals()
-        return []
+            return {}
+        tabs_with_signals = [
+            i for i in range(self._controller.tab_count)
+            if self._controller.tab_has_signals(i)
+        ]
+        if not tabs_with_signals:
+            return {}
+        if setting == "ask":
+            reply = QMessageBox.question(
+                self,
+                "Keep Active Signals?",
+                "Keep the currently active signals in the new measurement?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return {}
+        return {i: self._controller.snapshot_tab_signals(i) for i in tabs_with_signals}
 
-    def _restore_snapshots(self, snapshots: list) -> None:
-        """Resolve each snapshot against the new file and re-add matched signals."""
+    def _restore_snapshots(self, snapshots_by_tab: dict[int, list]) -> None:
+        """Resolve each tab's snapshots against the new file and re-add matched signals."""
         from mdf_viewer.view.signal_group_picker_dialog import SignalGroupPickerDialog
         from mdf_viewer.view.signals_not_found_dialog import SignalsNotFoundDialog
 
-        resolved: list[tuple] = []
         not_found: list[str] = []
 
-        for snap in snapshots:
-            candidates = self._controller.find_signal_by_name(snap.name)
-            if not candidates:
-                not_found.append(snap.name)
-            elif len(candidates) == 1:
-                meta = candidates[0]
-                resolved.append((snap, meta.group_index, meta.channel_index))
-            else:
-                dlg = SignalGroupPickerDialog(snap.name, candidates, self)
-                if dlg.exec():
-                    meta = dlg.selected()
+        for tab_index, snapshots in snapshots_by_tab.items():
+            resolved: list[tuple] = []
+            for snap in snapshots:
+                candidates = self._controller.find_signal_by_name(snap.name)
+                if not candidates:
+                    not_found.append(snap.name)
+                elif len(candidates) == 1:
+                    meta = candidates[0]
                     resolved.append((snap, meta.group_index, meta.channel_index))
                 else:
-                    not_found.append(snap.name)
+                    dlg = SignalGroupPickerDialog(snap.name, candidates, self)
+                    if dlg.exec():
+                        meta = dlg.selected()
+                        resolved.append((snap, meta.group_index, meta.channel_index))
+                    else:
+                        not_found.append(snap.name)
 
-        if resolved:
-            self._controller.restore_signals(resolved)
+            if resolved:
+                self._controller.restore_tab_signals(tab_index, resolved)
 
         if not_found:
-            dlg = SignalsNotFoundDialog(not_found, self)
+            dlg = SignalsNotFoundDialog(sorted(set(not_found)), self)
             dlg.exec()
 
     def _on_zoom_to_fit(self) -> None:
@@ -778,9 +1027,8 @@ class MainWindow(QMainWindow):
             self._controller.refresh_cursors()
             self._controller.refresh_z_order()
             self._controller.refresh_display_names()
-            self.active_signals_table.set_shorten_names_enabled(
-                self._settings.display_name_rule_enabled
-            )
+            for table in self._all_active_signals_tables():
+                table.set_shorten_names_enabled(self._settings.display_name_rule_enabled)
 
     def _on_configure_display_names(self, preview_name: str) -> None:
         if self._settings is None or self._controller is None:
@@ -789,16 +1037,16 @@ class MainWindow(QMainWindow):
         dlg = SignalDisplayNameDialog(self._settings, preview_name, self)
         if dlg.exec():
             self._controller.refresh_display_names()
-            self.active_signals_table.set_shorten_names_enabled(
-                self._settings.display_name_rule_enabled
-            )
+            for table in self._all_active_signals_tables():
+                table.set_shorten_names_enabled(self._settings.display_name_rule_enabled)
 
     def _on_shorten_names_toggled(self, enabled: bool) -> None:
         if self._settings is None or self._controller is None:
             return
         self._settings.display_name_rule_enabled = enabled
         self._controller.refresh_display_names()
-        self.active_signals_table.set_shorten_names_enabled(enabled)
+        for table in self._all_active_signals_tables():
+            table.set_shorten_names_enabled(enabled)
 
     def _on_zoom_scope_toggled(self, checked: bool) -> None:
         if self._settings is None:

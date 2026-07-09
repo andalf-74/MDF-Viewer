@@ -745,7 +745,7 @@ def test_swimlanes_calls_plot_with_active_list(ctrl: AppController, deps: dict) 
     deps["plot"].swimlanes.return_value = True
     result = ctrl.swimlanes()
     assert result is True
-    deps["plot"].swimlanes.assert_called_once_with(ctrl._active)
+    deps["plot"].swimlanes.assert_called_once_with(ctrl.current_workspace.active)
 
 
 @pytest.mark.requirement("REQ-PLOT-055")
@@ -768,17 +768,17 @@ def test_reorder_signals_updates_active_order(ctrl: AppController, deps: dict) -
     ctrl.add_signal(0, 0)
     ctrl.add_signal(0, 1)
     ctrl.add_signal(0, 2)
-    a, b, c = ctrl._active
+    a, b, c = ctrl.current_workspace.active
     ctrl.reorder_signals([c, a, b])
-    assert ctrl._active == [c, a, b]
+    assert ctrl.current_workspace.active == [c, a, b]
 
 
 def test_reorder_signals_preserves_identity(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.return_value = (_make_signal_data(), _make_metadata())
     ctrl.add_signal(0, 0)
-    original = ctrl._active[0]
+    original = ctrl.current_workspace.active[0]
     ctrl.reorder_signals([original])
-    assert ctrl._active[0] is original
+    assert ctrl.current_workspace.active[0] is original
 
 
 @pytest.mark.requirement("REQ-PLOT-042")
@@ -800,7 +800,7 @@ def test_reorder_signals_calls_refresh_z_order(ctrl: AppController, deps: dict) 
     ]
     ctrl.add_signal(0, 0)
     ctrl.add_signal(0, 1)
-    a, b = ctrl._active
+    a, b = ctrl.current_workspace.active
     deps["plot"].reset_mock()
     ctrl.reorder_signals([b, a])
     deps["plot"].set_selected_signals.assert_called_with(
@@ -954,12 +954,12 @@ def test_set_selected_signal_updates_selected_signals_list(ctrl: AppController) 
     ctrl.add_signal(0, 1)
     sig = ctrl.active_signals[0]
     ctrl.set_selected_signal(sig)
-    assert ctrl._selected_signals == [sig]
+    assert ctrl.current_workspace.selected_signals == [sig]
 
 
 def test_set_selected_signal_none_clears_selected_signals_list(ctrl: AppController) -> None:
     ctrl.set_selected_signal(None)
-    assert ctrl._selected_signals == []
+    assert ctrl.current_workspace.selected_signals == []
 
 
 # ---------------------------------------------------------------------------
@@ -1043,7 +1043,7 @@ def test_set_multi_selected_stores_signals(ctrl: AppController, deps: dict) -> N
     ctrl.add_signal(0, 2)
     actives = ctrl.active_signals
     ctrl.set_multi_selected(actives)
-    assert ctrl._selected_signals == actives
+    assert ctrl.current_workspace.selected_signals == actives
 
 
 @pytest.mark.requirement("REQ-PLOT-140")
@@ -1118,7 +1118,7 @@ def test_on_display_mode_requested_skips_unknown(ctrl: AppController, deps: dict
         metadata=_make_metadata(),
         color=QColor(0, 0, 255),
     )
-    ctrl._selected_signals = [unknown]
+    ctrl.current_workspace.selected_signals = [unknown]
     ctrl.on_display_mode_requested("marker")  # must not raise
     deps["plot"].set_display_mode.assert_not_called()
 
@@ -2171,3 +2171,296 @@ def test_set_multi_selected_emits_selection_changed(ctrl: AppController, deps: d
     ctrl.events.selection_changed.connect(seen.append)
     ctrl.set_multi_selected(actives)
     assert seen[0].selected == actives
+
+
+# ---------------------------------------------------------------------------
+# create_tab / switch_tab / remove_tab (#99 Main Widget Tabs)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-240")
+def test_create_tab_adds_workspace_and_makes_it_active(ctrl: AppController) -> None:
+    plot2, table2 = MagicMock(), MagicMock()
+    workspace = ctrl.create_tab(plot2, table2)
+    assert len(ctrl._workspaces) == 2
+    assert ctrl.current_workspace is workspace
+    assert ctrl.current_workspace.plot is plot2
+    assert ctrl.current_workspace.table is table2
+
+
+@pytest.mark.requirement("REQ-PLOT-241")
+def test_create_tab_starts_with_no_active_signals(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    assert ctrl.active_signals != []
+    ctrl.create_tab(MagicMock(), MagicMock())
+    assert ctrl.active_signals == []
+
+
+@pytest.mark.requirement("REQ-PLOT-231")
+def test_tabs_isolate_active_signals(ctrl: AppController, deps: dict) -> None:
+    """Adding a signal in tab A must not appear in tab B, and vice versa."""
+    _two_distinct_signals(deps)
+    ctrl.add_signal(0, 1)
+    tab_a_signals = list(ctrl.active_signals)
+
+    ctrl.create_tab(MagicMock(), MagicMock())
+    ctrl.add_signal(0, 2)
+    tab_b_signals = list(ctrl.active_signals)
+
+    assert tab_a_signals != tab_b_signals
+    ctrl.switch_tab(0)
+    assert ctrl.active_signals == tab_a_signals
+    ctrl.switch_tab(1)
+    assert ctrl.active_signals == tab_b_signals
+
+
+@pytest.mark.requirement("REQ-BROWSER-040")
+def test_same_channel_can_be_active_in_two_tabs(ctrl: AppController) -> None:
+    """REQ-BROWSER-040's 'already active' check is scoped to the current tab."""
+    added_in_tab_a = ctrl.add_signal(0, 1)
+    ctrl.create_tab(MagicMock(), MagicMock())
+    added_in_tab_b = ctrl.add_signal(0, 1)
+    assert added_in_tab_a is True
+    assert added_in_tab_b is True
+
+
+def test_tabs_isolate_selection(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    sig_a = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig_a)
+
+    ctrl.create_tab(MagicMock(), MagicMock())
+    assert ctrl.selected_signal is None
+    ctrl.add_signal(0, 1)
+    sig_b = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig_b)
+
+    ctrl.switch_tab(0)
+    assert ctrl.selected_signal is sig_a
+    ctrl.switch_tab(1)
+    assert ctrl.selected_signal is sig_b
+
+
+def test_switch_tab_out_of_range_is_noop(ctrl: AppController) -> None:
+    original = ctrl.current_workspace
+    ctrl.switch_tab(5)
+    assert ctrl.current_workspace is original
+    ctrl.switch_tab(-1)
+    assert ctrl.current_workspace is original
+
+
+@pytest.mark.requirement("REQ-PLOT-254")
+def test_remove_tab_refuses_when_only_one_tab(ctrl: AppController) -> None:
+    ctrl.remove_tab(0)
+    assert len(ctrl._workspaces) == 1
+
+
+def test_remove_tab_removes_workspace(ctrl: AppController) -> None:
+    workspace_a = ctrl.current_workspace
+    ctrl.create_tab(MagicMock(), MagicMock())
+    workspace_b = ctrl.current_workspace
+    ctrl.remove_tab(1)
+    assert list(ctrl._workspaces) == [workspace_a]
+    assert ctrl.current_workspace is workspace_a
+    assert workspace_b not in ctrl._workspaces
+
+
+def test_refresh_display_names_updates_every_tab_table(ctrl: AppController, deps: dict) -> None:
+    """Display-name shortening is a global preference (REQ-PLOT-160) — every
+    tab's table gets the new formatter, not just the currently active one."""
+    table2 = MagicMock()
+    ctrl.create_tab(MagicMock(), table2)
+    ctrl.switch_tab(0)
+    ctrl.refresh_display_names()
+    deps["table"].set_name_formatter.assert_called_once()
+    table2.set_name_formatter.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-PLOT-252")
+def test_tab_has_signals_false_when_empty(ctrl: AppController) -> None:
+    assert ctrl.tab_has_signals(0) is False
+
+
+@pytest.mark.requirement("REQ-PLOT-252")
+def test_tab_has_signals_true_after_add(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    assert ctrl.tab_has_signals(0) is True
+
+
+def test_tab_has_signals_checks_specific_tab_not_current(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    ctrl.create_tab(MagicMock(), MagicMock())
+    assert ctrl.tab_has_signals(0) is True
+    assert ctrl.tab_has_signals(1) is False
+
+
+def test_tab_has_signals_out_of_range_is_false(ctrl: AppController) -> None:
+    assert ctrl.tab_has_signals(5) is False
+    assert ctrl.tab_has_signals(-1) is False
+
+
+# ---------------------------------------------------------------------------
+# EventBus tab field (#99)
+# ---------------------------------------------------------------------------
+
+def test_signal_added_event_carries_originating_tab(ctrl: AppController) -> None:
+    workspace_a = ctrl.current_workspace
+    seen = []
+    ctrl.events.signal_added.connect(seen.append)
+    ctrl.add_signal(0, 1)
+    assert seen[0].tab is workspace_a
+
+
+def test_signal_added_event_tab_follows_active_tab(ctrl: AppController, deps: dict) -> None:
+    _two_distinct_signals(deps)
+    workspace_b = ctrl.create_tab(MagicMock(), MagicMock())
+    seen = []
+    ctrl.events.signal_added.connect(seen.append)
+    ctrl.add_signal(0, 2)
+    assert seen[0].tab is workspace_b
+
+
+def test_file_loaded_event_carries_current_tab(ctrl: AppController) -> None:
+    seen = []
+    ctrl.events.file_loaded.connect(seen.append)
+    ctrl.load_file("test.mf4")
+    assert seen[0].tab is ctrl.current_workspace
+
+
+def test_selection_changed_event_carries_originating_tab(ctrl: AppController) -> None:
+    workspace_a = ctrl.current_workspace
+    ctrl.add_signal(0, 1)
+    seen = []
+    ctrl.events.selection_changed.connect(seen.append)
+    ctrl.set_selected_signal(ctrl.active_signals[0])
+    assert seen[0].tab is workspace_a
+
+
+def test_cursor_moved_event_stays_tagged_with_originating_tab_after_switch() -> None:
+    """Regression for the closure-binding trap (#99): a background tab's
+    CursorController firing set_position_changed_callback must still tag
+    the event with its OWN tab, not whichever tab is active when it fires."""
+    loader = MagicMock()
+    controller = AppController(
+        loader=loader,
+        signal_browser=MagicMock(),
+        plot_area=MagicMock(),
+        active_signals_table=MagicMock(),
+        measurement_info_box=MagicMock(),
+        signal_info_box=MagicMock(),
+    )
+    workspace_a = controller.current_workspace
+    cursor_ctrl_a = MagicMock()
+    controller.set_cursor_controller(cursor_ctrl_a)
+    callback_a = cursor_ctrl_a.set_position_changed_callback.call_args[0][0]
+
+    workspace_b = controller.create_tab(MagicMock(), MagicMock())
+    cursor_ctrl_b = MagicMock()
+    controller.set_cursor_controller(cursor_ctrl_b)
+    callback_b = cursor_ctrl_b.set_position_changed_callback.call_args[0][0]
+
+    # Tab B is now active, but tab A's own callback fires (e.g. a queued
+    # signal from before the switch) — it must still tag tab A.
+    seen = []
+    controller.events.cursor_moved.connect(seen.append)
+    callback_a([1.0, 2.0], "TWO")
+    assert seen[0].tab is workspace_a
+
+    callback_b([3.0, 4.0], "TWO")
+    assert seen[1].tab is workspace_b
+
+
+# ---------------------------------------------------------------------------
+# reorder_tabs (#99 drag-to-reorder resync, REQ-PLOT-243)
+# ---------------------------------------------------------------------------
+
+def test_reorder_tabs_resyncs_workspace_order(ctrl: AppController) -> None:
+    plot_a = ctrl.current_workspace.plot
+    workspace_b = ctrl.create_tab(MagicMock(), MagicMock())
+    plot_b = workspace_b.plot
+
+    ctrl.reorder_tabs([plot_b, plot_a])
+
+    assert ctrl._workspaces[0].plot is plot_b
+    assert ctrl._workspaces[1].plot is plot_a
+
+
+def test_reorder_tabs_keeps_active_workspace_pointed_at_same_tab(ctrl: AppController) -> None:
+    workspace_a = ctrl.current_workspace
+    plot_a = workspace_a.plot
+    workspace_b = ctrl.create_tab(MagicMock(), MagicMock())  # tab B now active
+    plot_b = workspace_b.plot
+
+    ctrl.reorder_tabs([plot_b, plot_a])
+
+    assert ctrl.current_workspace is workspace_b
+
+
+def test_reorder_tabs_active_tab_follows_its_new_position(ctrl: AppController) -> None:
+    workspace_a = ctrl.current_workspace
+    plot_a = workspace_a.plot
+    workspace_b = ctrl.create_tab(MagicMock(), MagicMock())
+    plot_b = workspace_b.plot
+    ctrl.switch_tab(0)  # tab A active again, now at index 0
+
+    ctrl.reorder_tabs([plot_b, plot_a])  # A moves to index 1
+
+    assert ctrl.current_workspace is workspace_a
+    assert ctrl._active_tab_index == 1
+
+
+# ---------------------------------------------------------------------------
+# switch_tab restores the shared drawer's per-tab selection (#99 M7, REQ-PLOT-233)
+# ---------------------------------------------------------------------------
+
+def test_switch_tab_restores_previously_selected_signal_in_drawer(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    sig_a = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig_a)
+    deps["signal_info"].reset_mock()
+
+    ctrl.create_tab(MagicMock(), MagicMock())
+    ctrl.switch_tab(0)
+
+    deps["signal_info"].set_metadata.assert_called_once_with(sig_a.metadata)
+
+
+def test_switch_tab_clears_drawer_when_tab_has_no_selection(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    ctrl.set_selected_signal(ctrl.active_signals[0])
+    ctrl.create_tab(MagicMock(), MagicMock())  # tab B: nothing selected
+    deps["signal_info"].reset_mock()
+
+    ctrl.switch_tab(1)
+
+    deps["signal_info"].clear.assert_called_once()
+    deps["signal_info"].set_metadata.assert_not_called()
+
+
+def test_switch_tab_does_not_change_either_tabs_selection(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    sig_a = ctrl.active_signals[0]
+    ctrl.set_selected_signal(sig_a)
+    ctrl.create_tab(MagicMock(), MagicMock())
+
+    ctrl.switch_tab(0)
+    ctrl.switch_tab(1)
+
+    assert ctrl._workspaces[0].selected is sig_a
+    assert ctrl._workspaces[1].selected is None
+
+
+def test_switch_tab_out_of_range_does_not_touch_drawer(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    ctrl.set_selected_signal(ctrl.active_signals[0])
+    deps["signal_info"].reset_mock()
+
+    ctrl.switch_tab(5)
+
+    deps["signal_info"].set_metadata.assert_not_called()
+    deps["signal_info"].clear.assert_not_called()

@@ -83,6 +83,287 @@ def test_has_signal_info_box(window: MainWindow) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Tabs (#99)
+# ---------------------------------------------------------------------------
+
+def test_tab_widget_starts_with_one_tab(window: MainWindow) -> None:
+    assert window._real_tab_count() == 1
+    assert window._tab_widget.tabText(0) == "Tab 1"
+
+
+def test_plus_tab_is_pinned_last(window: MainWindow) -> None:
+    last = window._tab_widget.count() - 1
+    assert window._tab_widget.tabText(last) == "+"
+    assert window._is_placeholder(last)
+
+
+def test_first_tab_page_holds_initial_plot_area_and_table(window: MainWindow) -> None:
+    page = window._tab_widget.widget(0)
+    assert page.plot_area is window.plot_area
+    assert page.active_signals_table is window.active_signals_table
+
+
+def test_content_stack_shows_tab_widget_initially(window: MainWindow) -> None:
+    assert window._content_stack.currentWidget() is window._tab_widget
+
+
+def test_new_tab_action_creates_second_tab(wired: MainWindow) -> None:
+    wired._on_new_tab()
+    assert wired._real_tab_count() == 2
+    assert wired._tab_widget.tabText(1) == "Tab 2"
+    assert wired._tab_widget.currentIndex() == 1
+
+
+def test_new_tab_has_its_own_plot_area_and_table(wired: MainWindow) -> None:
+    wired._on_new_tab()
+    page = wired._tab_widget.widget(1)
+    assert isinstance(page.plot_area, PlotStripesArea)
+    assert isinstance(page.active_signals_table, ActiveSignalsTable)
+    assert page.plot_area is not wired.plot_area
+    assert page.active_signals_table is not wired.active_signals_table
+
+
+def test_new_tab_invokes_tab_factory(wired: MainWindow) -> None:
+    factory = MagicMock()
+    wired.set_tab_factory(factory)
+    wired._on_new_tab()
+    factory.assert_called_once()
+    called_plot_area, called_table = factory.call_args[0]
+    assert called_plot_area is wired._tab_widget.widget(1).plot_area
+    assert called_table is wired._tab_widget.widget(1).active_signals_table
+
+
+def test_new_tab_wires_view_signals_to_controller(wired: MainWindow, mock_controller: MagicMock) -> None:
+    wired._on_new_tab()
+    page = wired._tab_widget.widget(1)
+    page.active_signals_table.remove_all_requested.emit()
+    mock_controller.remove_all.assert_called_once()
+
+
+def test_switching_tabs_calls_controller_switch_tab(wired: MainWindow, mock_controller: MagicMock) -> None:
+    wired._on_new_tab()
+    wired._tab_widget.setCurrentIndex(0)
+    mock_controller.switch_tab.assert_called_with(0)
+
+
+def test_closing_last_tab_shows_empty_placeholder(wired: MainWindow, mock_controller: MagicMock) -> None:
+    mock_controller.tab_has_signals.return_value = False
+    wired._on_tab_close_requested(0)
+    assert wired._real_tab_count() == 0
+    assert wired._content_stack.currentWidget() is wired._empty_tabs_placeholder
+
+
+def test_closing_last_tab_calls_controller_remove_tab(wired: MainWindow, mock_controller: MagicMock) -> None:
+    mock_controller.tab_has_signals.return_value = False
+    wired._on_tab_close_requested(0)
+    mock_controller.remove_tab.assert_called_once_with(0)
+
+
+def test_new_tab_button_in_empty_placeholder_recreates_tab(wired: MainWindow, mock_controller: MagicMock) -> None:
+    mock_controller.tab_has_signals.return_value = False
+    wired._on_tab_close_requested(0)
+    wired._on_new_tab()
+    assert wired._real_tab_count() == 1
+    assert wired._content_stack.currentWidget() is wired._tab_widget
+
+
+# ---------------------------------------------------------------------------
+# Tab close warning + left-neighbor focus (#99 M6)
+# ---------------------------------------------------------------------------
+
+def test_close_empty_tab_no_warning(wired: MainWindow, mock_controller: MagicMock) -> None:
+    mock_controller.tab_has_signals.return_value = False
+    with patch("PyQt6.QtWidgets.QMessageBox.question") as mock_question:
+        wired._on_tab_close_requested(0)
+    mock_question.assert_not_called()
+    assert wired._real_tab_count() == 0
+
+
+def test_close_tab_with_signals_warns(wired: MainWindow, mock_controller: MagicMock) -> None:
+    mock_controller.tab_has_signals.return_value = True
+    with patch(
+        "PyQt6.QtWidgets.QMessageBox.question",
+        return_value=QMessageBox.StandardButton.Cancel,
+    ) as mock_question:
+        wired._on_tab_close_requested(0)
+    mock_question.assert_called_once()
+    # Cancelled: tab must still be open.
+    assert wired._real_tab_count() == 1
+
+
+def test_close_tab_with_signals_confirmed_closes(wired: MainWindow, mock_controller: MagicMock) -> None:
+    mock_controller.tab_has_signals.return_value = True
+    with patch(
+        "PyQt6.QtWidgets.QMessageBox.question",
+        return_value=QMessageBox.StandardButton.Yes,
+    ):
+        wired._on_tab_close_requested(0)
+    assert wired._real_tab_count() == 0
+    mock_controller.remove_tab.assert_called_once_with(0)
+
+
+def test_closing_first_tab_activates_next_remaining(wired: MainWindow, mock_controller: MagicMock) -> None:
+    mock_controller.tab_has_signals.return_value = False
+    wired._on_new_tab()
+    wired._on_new_tab()
+    wired._tab_widget.setCurrentIndex(0)
+    wired._on_tab_close_requested(0)
+    assert wired._tab_widget.currentIndex() == 0
+    assert wired._tab_widget.tabText(0) == "Tab 2"
+
+
+def test_closing_middle_tab_activates_left_neighbor(wired: MainWindow, mock_controller: MagicMock) -> None:
+    mock_controller.tab_has_signals.return_value = False
+    wired._on_new_tab()
+    wired._on_new_tab()
+    wired._on_tab_close_requested(1)
+    assert wired._tab_widget.currentIndex() == 0
+    assert wired._tab_widget.tabText(0) == "Tab 1"
+    assert wired._tab_widget.tabText(1) == "Tab 3"
+
+
+def test_closing_last_of_three_activates_left_neighbor(wired: MainWindow, mock_controller: MagicMock) -> None:
+    mock_controller.tab_has_signals.return_value = False
+    wired._on_new_tab()
+    wired._on_new_tab()
+    wired._on_tab_close_requested(2)
+    assert wired._tab_widget.currentIndex() == 1
+    assert wired._tab_widget.tabText(1) == "Tab 2"
+
+
+def test_new_tab_menu_action_exists(window: MainWindow) -> None:
+    file_menu = window.menuBar().actions()[0].menu()
+    texts = [a.text() for a in file_menu.actions()]
+    assert any("New Tab" in t for t in texts)
+
+
+# ---------------------------------------------------------------------------
+# "+" tab pinning and drag-reorder resync (#99)
+# ---------------------------------------------------------------------------
+
+def test_clicking_plus_tab_creates_new_tab_instead_of_selecting_it(wired: MainWindow) -> None:
+    placeholder_index = wired._placeholder_index()
+    wired._on_tab_bar_clicked(placeholder_index)
+    assert wired._real_tab_count() == 2
+    assert wired._tab_widget.tabText(wired._tab_widget.currentIndex()) == "Tab 2"
+
+
+def test_plus_tab_stays_last_after_new_tabs(wired: MainWindow) -> None:
+    wired._on_new_tab()
+    wired._on_new_tab()
+    last = wired._tab_widget.count() - 1
+    assert wired._tab_widget.tabText(last) == "+"
+
+
+def test_dragging_plus_tab_self_corrects_to_last(wired: MainWindow) -> None:
+    wired._on_new_tab()  # now [Tab 1, Tab 2, +]
+    tab_bar = wired._tab_widget.tabBar()
+    tab_bar.moveTab(2, 0)  # simulate dragging "+" to the front
+    last = wired._tab_widget.count() - 1
+    assert wired._tab_widget.tabText(last) == "+"
+    assert wired._tab_widget.tabText(0) == "Tab 1"
+    assert wired._tab_widget.tabText(1) == "Tab 2"
+
+
+def test_dragging_real_tab_resyncs_controller_order(wired: MainWindow, mock_controller: MagicMock) -> None:
+    wired._on_new_tab()  # now [Tab 1, Tab 2, +]
+    tab_bar = wired._tab_widget.tabBar()
+    tab_bar.moveTab(0, 1)  # swap Tab 1 and Tab 2
+    assert wired._tab_widget.tabText(0) == "Tab 2"
+    assert wired._tab_widget.tabText(1) == "Tab 1"
+    called_order = mock_controller.reorder_tabs.call_args[0][0]
+    assert called_order == [
+        wired._tab_widget.widget(0).plot_area,
+        wired._tab_widget.widget(1).plot_area,
+    ]
+
+
+def test_cycle_tab_forward_wraps_around(wired: MainWindow) -> None:
+    wired._on_new_tab()
+    wired._on_new_tab()
+    wired._tab_widget.setCurrentIndex(2)
+    wired._cycle_tab(1)
+    assert wired._tab_widget.currentIndex() == 0
+
+
+def test_cycle_tab_backward_wraps_around(wired: MainWindow) -> None:
+    wired._on_new_tab()
+    wired._tab_widget.setCurrentIndex(0)
+    wired._cycle_tab(-1)
+    assert wired._tab_widget.currentIndex() == 1
+
+
+def test_cycle_tab_noop_with_zero_tabs(window: MainWindow) -> None:
+    window._on_tab_close_requested(0)
+    window._cycle_tab(1)  # must not raise
+
+
+def test_double_click_renames_tab(window: MainWindow) -> None:
+    with patch(
+        "PyQt6.QtWidgets.QInputDialog.getText", return_value=("Engine Data", True)
+    ):
+        window._on_tab_bar_double_clicked(0)
+    assert window._tab_widget.tabText(0) == "Engine Data"
+
+
+def test_rename_cancelled_keeps_old_name(window: MainWindow) -> None:
+    with patch(
+        "PyQt6.QtWidgets.QInputDialog.getText", return_value=("Engine Data", False)
+    ):
+        window._on_tab_bar_double_clicked(0)
+    assert window._tab_widget.tabText(0) == "Tab 1"
+
+
+def test_rename_blank_name_keeps_old_name(window: MainWindow) -> None:
+    with patch("PyQt6.QtWidgets.QInputDialog.getText", return_value=("   ", True)):
+        window._on_tab_bar_double_clicked(0)
+    assert window._tab_widget.tabText(0) == "Tab 1"
+
+
+def _select_menu_action_by_text(target_text: str):
+    """Patch QMenu so exec() returns whichever added action has *target_text*."""
+    from PyQt6.QtWidgets import QMenu
+    added: dict[str, object] = {}
+    orig_add_action = QMenu.addAction
+
+    def _tracking_add_action(self, text):
+        action = orig_add_action(self, text)
+        added[text] = action
+        return action
+
+    return (
+        patch.object(QMenu, "addAction", _tracking_add_action),
+        patch.object(QMenu, "exec", lambda self, *a, **k: added.get(target_text)),
+    )
+
+
+def test_tab_context_menu_rename_action(window: MainWindow) -> None:
+    tab_bar = window._tab_widget.tabBar()
+    pos = tab_bar.tabRect(0).center()
+    patch_add, patch_exec = _select_menu_action_by_text("Rename")
+    with patch_add, patch_exec, \
+         patch("PyQt6.QtWidgets.QInputDialog.getText", return_value=("Renamed", True)):
+        window._on_tab_context_menu(pos)
+    assert window._tab_widget.tabText(0) == "Renamed"
+
+
+def test_tab_context_menu_close_action(window: MainWindow) -> None:
+    tab_bar = window._tab_widget.tabBar()
+    pos = tab_bar.tabRect(0).center()
+    patch_add, patch_exec = _select_menu_action_by_text("Close")
+    with patch_add, patch_exec:
+        window._on_tab_context_menu(pos)
+    assert window._real_tab_count() == 0
+
+
+def test_tab_context_menu_outside_any_tab_is_noop(window: MainWindow) -> None:
+    from PyQt6.QtCore import QPoint
+    with patch("PyQt6.QtWidgets.QMenu.exec") as mock_exec:
+        window._on_tab_context_menu(QPoint(-10, -10))
+        mock_exec.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Menu bar
 # ---------------------------------------------------------------------------
 
@@ -888,6 +1169,103 @@ def test_on_open_recent_routes_mdf(
     with patch.object(window, "_load_file") as mock_lf:
         window._on_open_recent(mdf)
         mock_lf.assert_called_once_with(mdf)
+
+
+# ---------------------------------------------------------------------------
+# Multi-tab "keep signals on reload" (#99 M8, REQ-PLOT-260)
+# ---------------------------------------------------------------------------
+
+def test_collect_snapshots_empty_when_setting_never(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    window._settings = MagicMock(keep_signals_on_load="never")
+    mock_controller.tab_count = 2
+    mock_controller.tab_has_signals.return_value = True
+
+    assert window._collect_snapshots_if_keeping() == {}
+    mock_controller.snapshot_tab_signals.assert_not_called()
+
+
+def test_collect_snapshots_covers_every_tab_with_signals(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    window._settings = MagicMock(keep_signals_on_load="always")
+    mock_controller.tab_count = 3
+    mock_controller.tab_has_signals.side_effect = lambda i: i in (0, 2)
+    mock_controller.snapshot_tab_signals.side_effect = lambda i: [f"snap{i}"]
+
+    result = window._collect_snapshots_if_keeping()
+
+    assert result == {0: ["snap0"], 2: ["snap2"]}
+
+
+def test_collect_snapshots_ask_prompts_once_not_per_tab(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    window._settings = MagicMock(keep_signals_on_load="ask")
+    mock_controller.tab_count = 2
+    mock_controller.tab_has_signals.return_value = True
+    mock_controller.snapshot_tab_signals.side_effect = lambda i: [f"snap{i}"]
+
+    with patch(
+        "PyQt6.QtWidgets.QMessageBox.question",
+        return_value=QMessageBox.StandardButton.Yes,
+    ) as mock_question:
+        result = window._collect_snapshots_if_keeping()
+
+    mock_question.assert_called_once()
+    assert result == {0: ["snap0"], 1: ["snap1"]}
+
+
+def test_collect_snapshots_ask_declined_returns_empty(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    window._settings = MagicMock(keep_signals_on_load="ask")
+    mock_controller.tab_count = 1
+    mock_controller.tab_has_signals.return_value = True
+
+    with patch(
+        "PyQt6.QtWidgets.QMessageBox.question",
+        return_value=QMessageBox.StandardButton.No,
+    ):
+        assert window._collect_snapshots_if_keeping() == {}
+
+
+def test_collect_snapshots_skips_prompt_when_no_tab_has_signals(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    window._settings = MagicMock(keep_signals_on_load="ask")
+    mock_controller.tab_count = 2
+    mock_controller.tab_has_signals.return_value = False
+
+    with patch("PyQt6.QtWidgets.QMessageBox.question") as mock_question:
+        assert window._collect_snapshots_if_keeping() == {}
+    mock_question.assert_not_called()
+
+
+def test_restore_snapshots_restores_into_each_tab(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    snap_a, snap_b = MagicMock(name="a"), MagicMock(name="b")
+    mock_controller.find_signal_by_name.side_effect = lambda name: [MagicMock(group_index=0, channel_index=1)]
+
+    window._restore_snapshots({0: [snap_a], 2: [snap_b]})
+
+    calls = mock_controller.restore_tab_signals.call_args_list
+    restored_tabs = {c.args[0] for c in calls}
+    assert restored_tabs == {0, 2}
 
 
 # ---------------------------------------------------------------------------

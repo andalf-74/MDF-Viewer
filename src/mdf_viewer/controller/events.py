@@ -25,28 +25,33 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class FileLoadedEvent:
     path: str
+    tab: object | None = None
 
 
 @dataclass(frozen=True)
 class SignalAddedEvent:
     signal: ActiveSignal
     stripe: object | None = None
+    tab: object | None = None
 
 
 @dataclass(frozen=True)
 class SignalRemovedEvent:
     signal: ActiveSignal
+    tab: object | None = None
 
 
 @dataclass(frozen=True)
 class SelectionChangedEvent:
     selected: list[ActiveSignal] = field(default_factory=list)
+    tab: object | None = None
 
 
 @dataclass(frozen=True)
 class CursorMovedEvent:
     positions: list[float]
     mode: "CursorMode"
+    tab: object | None = None
 
 
 class EventBus(QObject):

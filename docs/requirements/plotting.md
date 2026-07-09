@@ -391,3 +391,61 @@ The active stripe is indicated by a small colored marker on its left
 edge [REQ-PLOT-210]. Clicking anywhere inside a stripe makes it the
 active stripe [REQ-PLOT-211]. Loading a file with no saved workspace
 makes the top stripe active by default [REQ-PLOT-212].
+
+## Main Widget Tabs
+
+Introduced to let the user build independent workspaces on the same
+measurement (#17/#99). The entire plot area — every stripe and its
+per-stripe Active Signal Table — lives within a tab; multiple tabs hold
+different signal selections and stripe layouts side by side
+[REQ-PLOT-230]. Everything scoped to the plot area is independent per
+tab: signal selection and the active-signal set, stripe layout and
+sizes, the active stripe, cursor state and positions, the current
+zoom/pan view, the zoom undo/redo history (REQ-PLOT-060–066), and the
+All Stripes/Active Stripe zoom-scope toggle (REQ-PLOT-057)
+[REQ-PLOT-231]. The Signal Browser, Measurement Info Box, and the
+Info/Properties drawer (REQ-PLOT-220) remain single shared instances
+outside the plot area, identical regardless of which tab is active
+[REQ-PLOT-232]. The Info/Properties drawer shows each tab's own
+most-recently-selected signal, restoring that tab's last selection when
+the user switches back to it, rather than showing whichever tab most
+recently had a selection anywhere in the app [REQ-PLOT-233]. A channel
+can be independently active in more than one tab at the same time; see
+REQ-BROWSER-040 for the resulting add-signal behavior [REQ-PLOT-234].
+
+### Tab Lifecycle
+
+A new tab can be created via a "+" control at the end of the tab bar or
+a File-menu action; a newly created tab always starts as a plot-stripe
+workspace [REQ-PLOT-240]. A newly created tab starts with a single
+default stripe and no active signals, the same starting state as
+loading a file with no saved workspace [REQ-PLOT-241]. New tabs are
+auto-named "Tab 1", "Tab 2", etc. in creation order; a tab can be
+renamed by double-clicking its label or via a context-menu "Rename"
+action [REQ-PLOT-242]. Tabs can be reordered by dragging a tab to a new
+position in the tab bar; order is cosmetic only and has no functional
+effect [REQ-PLOT-243]. Ctrl+Tab and Ctrl+Shift+Tab cycle to the next
+and previous tab respectively [REQ-PLOT-244].
+
+### Closing Tabs
+
+Each tab shows a close ("×") control, in addition to a context-menu
+"Close" action [REQ-PLOT-250]. Closing a tab with no active signals in
+any of its stripes closes immediately with no confirmation
+[REQ-PLOT-251]. Closing a tab that has at least one active signal in any
+of its stripes shows a warning offering "Close anyway" or "Cancel",
+mirroring the stripe-deletion warning (REQ-PLOT-194) [REQ-PLOT-252].
+Closing a tab activates the tab immediately to its left, or the next
+remaining tab if the closed tab was the first [REQ-PLOT-253]. There is
+no maximum number of tabs, and closing the last remaining tab is
+permitted; the app then shows an empty-state placeholder with a "New
+Tab" action rather than auto-creating a replacement tab [REQ-PLOT-254].
+
+### Loading a New Measurement File
+
+Loading a new measurement file preserves the existing tab structure —
+tabs, their names, and their stripe layouts; within each tab, signals
+are re-resolved by name against the new file the same way single-tab
+signal restore already works today, and each tab's zoom, cursor, and
+undo/redo state resets independently the same way it already does for a
+single plot area [REQ-PLOT-260].

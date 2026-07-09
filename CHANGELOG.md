@@ -48,6 +48,29 @@ All notable changes to MDF-Viewer are documented in this file.
     propagating their unwrapped width as a hard minimum.
   - `docs/requirements/plotting.md` gained a new "Info/Properties Drawer"
     section (REQ-PLOT-220 through 229).
+- Main Widget Tabs (#99): the plot area now lives in a tab bar, so multiple
+  independent workspaces on the same measurement — different signal
+  selections, different stripe layouts — can be built side by side.
+  - Each tab keeps its own signal selection, stripe layout, cursors,
+    zoom/pan view, and zoom undo/redo history; the same channel can be
+    active in more than one tab at once. The Signal Browser, Measurement
+    Info Box, and the Info/Properties drawer stay shared across all tabs —
+    the drawer restores whichever signal was last selected in a tab when
+    switching back to it.
+  - New tabs via a "+" control pinned at the end of the tab bar or File →
+    New Tab; auto-named "Tab 1", "Tab 2", … and renamable via double-click
+    or the tab's right-click menu. Tabs can be dragged to reorder.
+    Ctrl+Tab / Ctrl+Shift+Tab cycles between them.
+  - Closing an empty tab needs no confirmation; closing one with active
+    signals asks "Close anyway?" first. Closing a tab activates the one to
+    its left (or the next remaining tab if it was first); closing the last
+    tab shows a "No tabs open" placeholder with its own "New Tab" action.
+  - Loading a new measurement file preserves every tab's stripe layout and
+    re-resolves each tab's signals by name against the new file
+    independently, the same way single-tab "keep signals" restore already
+    worked.
+  - `docs/requirements/plotting.md` gained a new "Main Widget Tabs" section
+    (REQ-PLOT-230 through 260).
 
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the
