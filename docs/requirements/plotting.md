@@ -372,7 +372,9 @@ immediately without confirmation [REQ-PLOT-193]. Deleting a stripe that
 still contains signals shows a warning offering "Delete anyway" — which
 removes every signal the stripe contains, then the stripe itself — or
 "Cancel" [REQ-PLOT-194]. There is no maximum number of stripes
-[REQ-PLOT-195].
+[REQ-PLOT-195]. A new stripe can also be created via a "New Stripe" action
+in the File menu, added to the currently active tab regardless of which
+plot-area context menu was last used (#112) [REQ-PLOT-196].
 
 ### Signal Assignment to Stripes
 

@@ -81,6 +81,10 @@ All notable changes to MDF-Viewer are documented in this file.
   default); declined or unmatched signals still end up in the existing
   "signals not found" summary.
   - `docs/requirements/file-handling.md` gained REQ-FILE-032 through 036.
+- "New Stripe" File-menu action (#112): a new plot stripe can now be
+  created from the File menu, in addition to the existing plot-area
+  right-click menu and "Move to new Stripe" — adds to whichever tab is
+  currently active.
 
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the

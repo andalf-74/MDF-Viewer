@@ -273,6 +273,9 @@ class MainWindow(QMainWindow):
         self._new_tab_action = QAction("New Tab", self)
         self._new_tab_action.triggered.connect(self._on_new_tab)
 
+        self._new_stripe_action = QAction("New Stripe", self)
+        self._new_stripe_action.triggered.connect(self._on_new_stripe)
+
         self._zoom_fit_action = QAction(
             _load_icon(f"zoom_to_fit{suffix}"), "Zoom to Fit", self
         )
@@ -367,6 +370,7 @@ class MainWindow(QMainWindow):
         self._file_menu = self.menuBar().addMenu("&File")
         self._file_menu.addAction(self._load_action)
         self._file_menu.addAction(self._new_tab_action)
+        self._file_menu.addAction(self._new_stripe_action)
         self._file_menu.addAction(self._save_config_action)
         self._file_menu.addAction(self._save_config_as_action)
         self._file_menu.addSeparator()
@@ -554,6 +558,11 @@ class MainWindow(QMainWindow):
         self._tab_widget.setCurrentIndex(index)
         if self._content_stack.currentWidget() is not self._tab_widget:
             self._content_stack.setCurrentWidget(self._tab_widget)
+
+    def _on_new_stripe(self) -> None:
+        """Create a new empty stripe in the currently active tab (REQ-PLOT-196, #112)."""
+        if self._controller is not None:
+            self._controller.create_stripe()
 
     def _on_tab_changed(self, index: int) -> None:
         if self._controller is not None and index >= 0 and not self._is_placeholder(index):

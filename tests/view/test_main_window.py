@@ -238,6 +238,27 @@ def test_new_tab_menu_action_exists(window: MainWindow) -> None:
 
 
 # ---------------------------------------------------------------------------
+# New Stripe menu action (#112, REQ-PLOT-196)
+# ---------------------------------------------------------------------------
+
+def test_new_stripe_menu_action_exists(window: MainWindow) -> None:
+    file_menu = window.menuBar().actions()[0].menu()
+    texts = [a.text() for a in file_menu.actions()]
+    assert any("New Stripe" in t for t in texts)
+
+
+def test_on_new_stripe_calls_controller_create_stripe(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired._on_new_stripe()
+    mock_controller.create_stripe.assert_called_once()
+
+
+def test_on_new_stripe_noop_without_controller(window: MainWindow) -> None:
+    window._on_new_stripe()  # must not raise
+
+
+# ---------------------------------------------------------------------------
 # "+" tab pinning and drag-reorder resync (#99)
 # ---------------------------------------------------------------------------
 
