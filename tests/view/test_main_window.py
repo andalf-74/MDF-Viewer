@@ -160,6 +160,20 @@ def test_closing_last_tab_calls_controller_remove_tab(wired: MainWindow, mock_co
     mock_controller.remove_tab.assert_called_once_with(0)
 
 
+def test_closing_tab_deletes_the_page_widget(wired: MainWindow, mock_controller: MagicMock) -> None:
+    """removeTab() alone doesn't delete the page widget (Qt's own docs say so
+    explicitly) — without an explicit deleteLater(), the closed tab's whole
+    PlotStripesArea (every stripe/curve/ViewBox/axis) and ActiveSignalsTable
+    would leak for the rest of the app session (found while scanning for
+    the same leak class as the stripe/signal-lifecycle bugs in
+    plot_stripe.py, #120)."""
+    mock_controller.tab_has_signals.return_value = False
+    page = wired._tab_widget.widget(0)
+    with patch.object(page, "deleteLater") as mock_delete_later:
+        wired._on_tab_close_requested(0)
+    mock_delete_later.assert_called_once()
+
+
 def test_new_tab_button_in_empty_placeholder_recreates_tab(wired: MainWindow, mock_controller: MagicMock) -> None:
     mock_controller.tab_has_signals.return_value = False
     wired._on_tab_close_requested(0)

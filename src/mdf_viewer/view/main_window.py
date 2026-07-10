@@ -656,7 +656,14 @@ class MainWindow(QMainWindow):
                 return
 
         new_index = max(0, index - 1)
+        # removeTab() only detaches the page from the tab bar — it does not
+        # delete the widget (Qt's own docs say so explicitly). Without an
+        # explicit deleteLater() here, the closed tab's whole PlotStripesArea
+        # (every stripe, curve, ViewBox, axis) and ActiveSignalsTable leak for
+        # the rest of the app session, never destroyed (#120).
+        page = self._tab_widget.widget(index)
         self._tab_widget.removeTab(index)
+        page.deleteLater()
         if self._controller is not None:
             self._controller.remove_tab(index)
         if self._real_tab_count() == 0:

@@ -438,8 +438,18 @@ class PlotStripe(QWidget):
         stripe and tab.
         """
         for axis in self._measurement_axes:
+            # Same leak as _destroy_vb_and_axis (#120): removeItem()+hide()
+            # only detach from layout/visibility, never destroying the axis —
+            # it stays alive, still linked to self._pi.vb, whose X range is
+            # kept in sync across every stripe (sync_x_range), so it keeps
+            # reacting to range changes indefinitely. Every time a new stripe
+            # becomes the bottom one, the previous bottom stripe's axis was
+            # leaked this way; deleteLater() actually frees it.
             self._pi.layout.removeItem(axis)
             axis.hide()
+            if axis.scene() is not None:
+                axis.scene().removeItem(axis)
+            axis.deleteLater()
         self._measurement_axes = []
 
         for i, measurement in enumerate(measurements):
@@ -494,7 +504,17 @@ class PlotStripe(QWidget):
         px = max(0, round(px))
         if px <= 0:
             if self._axis_spacer is not None:
-                self._pi.layout.removeItem(self._axis_spacer)
+                # Same leak as _destroy_vb_and_axis/set_measurement_axes
+                # (#120): removeItem() alone detaches from layout but never
+                # destroys the spacer — it stays alive, orphaned. This branch
+                # only runs the first time this stripe's needed padding drops
+                # to exactly 0, which is what made it easy to miss.
+                spacer = self._axis_spacer
+                self._pi.layout.removeItem(spacer)
+                spacer.hide()
+                if spacer.scene() is not None:
+                    spacer.scene().removeItem(spacer)
+                spacer.deleteLater()
                 self._axis_spacer = None
             return
         if self._axis_spacer is None:
@@ -585,8 +605,14 @@ class PlotStripe(QWidget):
         spd = self._data.pop(active)
         self._z_by_signal.pop(active, None)
 
-        # Always remove the curve from its ViewBox.
-        spd.view_box.removeItem(spd.curve)
+        # Always remove the curve from its ViewBox, then destroy it — not via
+        # ViewBox.removeItem() (see _reparent_curve's docstring for the crash
+        # that leaves: PyQtGraph's getViewBox() wrongly caches the enclosing
+        # QGraphicsView once parentItem is None, which later crashes on
+        # viewRangeChanged()). The curve was never destroyed here at all, just
+        # detached — deleteLater() is what actually frees it instead of
+        # leaving a poisoned zombie curve.
+        self._destroy_curve(spd.curve, spd.view_box)
         active.curve = None
         active.view_box = None
 
@@ -1284,8 +1310,32 @@ class PlotStripe(QWidget):
             new_vb._itemBoundsCache.clear()
         curve.setParentItem(new_vb.childGroup)
 
+    @staticmethod
+    def _destroy_curve(curve, vb) -> None:
+        """Remove *curve* from *vb*'s bookkeeping and destroy it (#120).
+
+        Deliberately skips ViewBox.removeItem() (see _reparent_curve's
+        docstring above for the exact crash that leaves) — curve is being
+        destroyed, not reparented, so instead of ever leaving it in the
+        None-parent state, deleteLater() detaches it from the scene as part
+        of normal Qt destruction, atomically.
+        """
+        if curve in vb.addedItems:
+            vb.addedItems.remove(curve)
+        if hasattr(vb, '_itemBoundsCache'):
+            vb._itemBoundsCache.clear()
+        curve.deleteLater()
+
     def _destroy_vb_and_axis(self, vb, axis) -> None:
-        """Disconnect and destroy a ViewBox and its associated AxisItem."""
+        """Disconnect and destroy a ViewBox and its associated AxisItem.
+
+        Both are QGraphicsWidgets scoped to this stripe's own scene.
+        layout.removeItem()/hide() only detach the axis from grid
+        positioning and visibility — the underlying Qt objects stay alive,
+        still linked to each other, as orphaned scene members. Left that
+        way, every signal moved out of a stripe (#120) leaks a live
+        ViewBox+AxisItem pair; deleteLater() is what actually frees them.
+        """
         # Unlink X first — removing an X-linked VB from the scene fires a range-change
         # signal that can cascade into curves' _updateView and crash if the curve has
         # already been relocated to a different ViewBox.
@@ -1310,7 +1360,11 @@ class PlotStripe(QWidget):
             pass
         self._pi.layout.removeItem(axis)
         axis.hide()
+        if axis.scene() is not None:
+            axis.scene().removeItem(axis)
+        axis.deleteLater()
         self._pi.scene().removeItem(vb)
+        vb.deleteLater()
 
     def _transfer_ownership(self, vb, axis, new_owner: ActiveSignal) -> None:
         """Give new_owner owns_axis=True for the merged ViewBox+axis."""

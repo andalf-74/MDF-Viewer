@@ -160,6 +160,21 @@ All notable changes to MDF-Viewer are documented in this file.
   session restores normally).
 
 ### Fixed
+- Using Swimlanes after splitting signals across multiple stripes could
+  crash the whole application with a native segfault, no Python traceback
+  (#120). Root cause: three separate places in `plot_stripe.py`
+  (`_destroy_vb_and_axis`, `set_measurement_axes`, `set_axis_padding`'s
+  alignment spacer) tore down a `ViewBox`/`AxisItem` via `removeItem()`/
+  `hide()` alone, which only detaches it from layout/scene/visibility —
+  never destroying the underlying Qt object. The orphaned-but-alive item
+  stayed wired into cross-stripe X-range-sync signals and eventually
+  crashed when something else touched it. All three now `deleteLater()`
+  properly. While scanning for the same leak class elsewhere, also found
+  and fixed: closing a tab never destroyed its widgets or ran its
+  still-active signals through the normal removal pipeline first,
+  silently leaking the whole tab's plot and Active Signals Table.
+  `docs/architecture.md`'s "PyQtGraph/Qt Teardown Pitfall" decision-log
+  entry has the full technical detail.
 - Dragging a signal row in the Active Signals Table between two stripes'
   segments moved the table row but left the signal's curve behind in its
   old stripe's plot; dragging a row onto a stripe's plot area directly

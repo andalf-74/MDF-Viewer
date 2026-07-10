@@ -220,6 +220,14 @@ class AppController:
     def remove_tab(self, index: int) -> None:
         """Remove the tab at *index*. No-op if it's the only remaining tab.
 
+        Runs every one of that tab's active signals through the normal
+        remove_signal pipeline first — closing a tab that still has signals
+        in it (the view allows this after a confirmation prompt) used to
+        just drop the TabWorkspace reference, leaking every curve/ViewBox/
+        axis in it (same leak class as the stripe/signal-lifecycle bugs
+        fixed in plot_stripe.py, #120, just in the tab-lifecycle path
+        instead).
+
         Does not change which tab is active — the view computes the tab to
         activate next (REQ-PLOT-253: the left neighbor) before this shifts
         list positions, then calls switch_tab() itself. The clamp here is
@@ -227,6 +235,14 @@ class AppController:
         """
         if len(self._workspaces) <= 1:
             return
+        workspace = self._workspaces[index]
+        if workspace.cursor_ctrl is not None:
+            workspace.cursor_ctrl.on_all_signals_cleared()
+        for sig in list(workspace.active):
+            workspace.plot.remove_signal(sig)
+            self.events.signal_removed.emit(SignalRemovedEvent(signal=sig, tab=workspace))
+        workspace.active.clear()
+        workspace.table.clear()
         del self._workspaces[index]
         if self._active_tab_index >= len(self._workspaces):
             self._active_tab_index = len(self._workspaces) - 1

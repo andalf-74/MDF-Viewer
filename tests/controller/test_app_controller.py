@@ -2764,6 +2764,24 @@ def test_remove_tab_removes_workspace(ctrl: AppController) -> None:
     assert workspace_b not in ctrl._workspaces
 
 
+def test_remove_tab_removes_signals_still_active_in_it(ctrl: AppController) -> None:
+    """Closing a tab that still has signals in it (the view allows this after
+    a confirmation prompt) must run each one through the normal remove_signal
+    pipeline, not just drop the TabWorkspace — otherwise every curve/ViewBox/
+    axis in that tab's plot leaks silently (found while scanning for the same
+    leak class as the stripe/signal-lifecycle bugs in plot_stripe.py, #120)."""
+    plot_b, table_b = MagicMock(), MagicMock()
+    ctrl.create_tab(plot_b, table_b)
+    workspace_b = ctrl.current_workspace
+    sig = ActiveSignal(data=_make_signal_data(), metadata=_make_metadata(), color=QColor(255, 0, 0))
+    workspace_b.active.append(sig)
+
+    ctrl.remove_tab(1)
+
+    plot_b.remove_signal.assert_called_once_with(sig)
+    table_b.clear.assert_called_once()
+
+
 def test_refresh_display_names_updates_every_tab_table(ctrl: AppController, deps: dict) -> None:
     """Display-name shortening is a global preference (REQ-PLOT-160) — every
     tab's table gets the new formatter, not just the currently active one."""
