@@ -573,3 +573,36 @@ measurement [REQ-PLOT-308]. Merged and Synced Y-axis groups
 (REQ-PLOT-031–038) can include signals from different measurements,
 since group membership is governed only by the stripe-sharing rule
 (REQ-PLOT-038), not by measurement [REQ-PLOT-309].
+
+### Measurement Synchronization
+
+Once two or more measurements are loaded, a "Synchronize" action
+collapses every measurement's own X-axis row (REQ-PLOT-300) into a
+single shared ruler [REQ-PLOT-310]. Synchronizing changes only how the
+axis rows are displayed — it does not change any measurement's offset
+(REQ-PLOT-304), a signal's `display_timestamps`, or how a cursor's value
+is looked up (REQ-PLOT-305); every measurement's curves stay exactly
+where their own offset already placed them [REQ-PLOT-311]. The merged
+ruler shows the real recorded time of one reference measurement, always
+the first-loaded one, under that measurement's own existing label
+[REQ-PLOT-312]. Synchronizing applies to every loaded measurement at
+once — there is no state where only some measurements are merged into
+the ruler while others keep their own separate row [REQ-PLOT-313]. An
+"Un-sync" action reverses this, re-expanding the merged ruler back into
+one row per measurement; since offsets were never changed by
+Synchronize, un-syncing restores each row to exactly the offset it had
+before [REQ-PLOT-314]. Loading an additional measurement while already
+synchronized adds it to the merged ruler at offset zero rather than
+breaking the existing synchronization [REQ-PLOT-315]. Synchronize/Un-sync
+is available both as a button floating in a corner of the
+measurement-axis area and as an Edit menu item, and is disabled
+whenever fewer than two measurements are loaded [REQ-PLOT-316].
+
+Synchronization state and every measurement's offset are not saved to a
+`.mvc` config file — reloading a saved workspace restores every
+measurement to its default (unsynchronized, zero offset) state,
+deferred to the broader workspace/config format extension (#106).
+Aligning measurements by matching a signal's value between them (rather
+than by manually dragging) is out of scope here — split into its own
+follow-up issue, since it depends on the signal-value-search mechanism
+being built for #110.
