@@ -264,8 +264,9 @@ signals is available whenever at least one is selected, via an explicit
 action or a keyboard shortcut, and removes every currently selected
 signal [REQ-PLOT-141]. Reordering signals in the table (by dragging a
 row) changes their Z-order accordingly [REQ-PLOT-142]. Dragging channels
-from the Signal Browser onto the table adds them the same way as the
-browser's own add actions [REQ-PLOT-143].
+from the Signal Browser onto the Active Signals Table adds them the same
+way as the browser's own add actions, targeting whichever stripe's
+segment received the drop (REQ-PLOT-277) [REQ-PLOT-143].
 
 ## Signal Info Box
 
@@ -393,6 +394,53 @@ The active stripe is indicated by a small colored marker on its left
 edge [REQ-PLOT-210]. Clicking anywhere inside a stripe makes it the
 active stripe [REQ-PLOT-211]. Loading a file with no saved workspace
 makes the top stripe active by default [REQ-PLOT-212].
+
+### Per-Stripe Active Signals Table
+
+The Active Signals Table is divided into one segment per stripe, each
+positioned directly beside its stripe and showing only that stripe's
+active signals [REQ-PLOT-270]. Every segment shares the same column
+structure and column widths, so resizing a column applies to every
+segment at once [REQ-PLOT-271]. A single header row above all segments
+stays fixed at the top of the Active Signals Table area, regardless of
+stripe count or sizing [REQ-PLOT-272]. Segments are stacked top-to-bottom
+in the same order as their stripes, with a divider between adjacent
+segments aligned to the boundary between those stripes in the plot
+[REQ-PLOT-273]. A segment's height always matches its stripe's height:
+dragging the divider between two stripes in the plot resizes their two
+segments in lockstep, and dragging the corresponding divider in the
+Active Signals Table resizes the two stripes in lockstep [REQ-PLOT-274].
+When a segment holds more rows than fit in its current height, that
+segment scrolls independently within its own boundary, leaving the
+header and every other segment unaffected [REQ-PLOT-275]. A multi-row
+selection can span more than one segment [REQ-PLOT-276]. Dropping
+signals from the Signal Browser onto a specific segment adds them to
+that segment's stripe, the same way dropping directly onto the stripe in
+the plot area does (REQ-PLOT-200) [REQ-PLOT-277]. Clicking anywhere
+inside a segment makes its stripe the active stripe, the same as
+clicking inside the stripe itself (REQ-PLOT-211) [REQ-PLOT-278].
+Dragging a row from one segment into another moves that signal to the
+target segment's stripe, inserted at the row position nearest the drop
+location, in addition to the existing "Move to Stripe" and "Move to new
+Stripe" context-menu actions (REQ-PLOT-202) [REQ-PLOT-279]. The Remove
+Signal and Remove All controls remain a single set beneath the whole
+Active Signals Table area rather than one pair per segment; Remove All
+removes every active signal across every stripe in the tab
+[REQ-PLOT-280].
+
+### Stripe Naming
+
+Each stripe has a name, shown as a label on its Active Signals Table
+segment [REQ-PLOT-290]. A newly created stripe is auto-named "Stripe N",
+where N is a creation-order counter scoped to that stripe's tab, never
+reused or renumbered when stripes are reordered or deleted
+[REQ-PLOT-291]. A stripe can be renamed by double-clicking its label in
+the Active Signals Table segment, the same interaction used to rename a
+tab (REQ-PLOT-242) [REQ-PLOT-292]. The "Move to Stripe" context-menu
+submenu (REQ-PLOT-202) lists each stripe by its current name rather than
+its position [REQ-PLOT-293]. Stripe names are not saved to or restored
+from `.mvc` session files; a reloaded session's stripes revert to their
+default creation-order names [REQ-PLOT-294].
 
 ## Main Widget Tabs
 

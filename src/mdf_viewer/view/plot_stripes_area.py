@@ -55,12 +55,20 @@ class PlotStripesArea(QWidget):
     # "Delete this Stripe" was chosen from a stripe's context menu — bubbled up
     # unhandled since a non-empty stripe needs a confirmation dialog (MainWindow's job).
     delete_stripe_requested = pyqtSignal(object)
+    # list[int] — the stripe splitter's sizes after an interactive drag, so
+    # MainWindow can mirror them onto the Active Signals Table's own segment
+    # splitter (REQ-PLOT-274).
+    stripe_sizes_changed = pyqtSignal(list)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
         self._splitter = make_splitter(Qt.Orientation.Vertical)
         self._stripes: list[PlotStripe] = []
+        # Creation-order counter for default stripe names (REQ-PLOT-291),
+        # scoped to this tab's PlotStripesArea — mirrors MainWindow's own
+        # _tab_counter, never reused or renumbered as stripes are deleted.
+        self._stripe_counter = 0
         self._active_stripe: PlotStripe | None = None
         self._signal_stripe: dict[ActiveSignal, PlotStripe] = {}
         # The stripe whose last signal_clicked hit is the current selection —
@@ -72,10 +80,16 @@ class PlotStripesArea(QWidget):
         # Coalesces repeated axis-alignment recompute requests within the same
         # event-loop tick into a single deferred pass (see _schedule_realign).
         self._realign_pending = False
+        # Guards against re-entrant stripe_sizes_changed emission from
+        # set_stripe_sizes() — belt-and-suspenders, since QSplitter.setSizes()
+        # does not itself re-emit splitterMoved (only an interactive drag
+        # does), matching the _syncing_x/_syncing_y pattern used elsewhere.
+        self._syncing_sizes = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._splitter)
+        self._splitter.splitterMoved.connect(self._on_splitter_moved)
 
         # Re-checks axis-width alignment shortly after panning/zooming settles,
         # since tick-label digit count (and therefore axis width) can change
@@ -95,6 +109,8 @@ class PlotStripesArea(QWidget):
     def create_stripe(self) -> PlotStripe:
         """Create a new stripe, redistributing height equally (REQ-PLOT-190/192)."""
         stripe = PlotStripe()
+        self._stripe_counter += 1
+        stripe.name = f"Stripe {self._stripe_counter}"
         self._wire_stripe(stripe)
         self._stripes.append(stripe)
         self._splitter.addWidget(stripe)
@@ -108,6 +124,14 @@ class PlotStripesArea(QWidget):
             stripe.sync_x_range(x_min, x_max)
         self._schedule_realign()
         self.stripe_created.emit(stripe)
+        # Push the post-equalization sizes so the new AST segment (just
+        # created by stripe_created's connected slot, synchronously, above)
+        # starts matching its stripe immediately — without this, a freshly
+        # created segment keeps whatever arbitrary initial size Qt's
+        # QSplitter.addWidget() gave it until a drag happens to touch that
+        # specific divider (#100 postmortem: this, not rounding, was the
+        # real source of the "outer segments drift" symptom).
+        self.stripe_sizes_changed.emit(self._splitter.sizes())
         return stripe
 
     def delete_stripe(self, stripe: PlotStripe) -> bool:
@@ -135,6 +159,10 @@ class PlotStripesArea(QWidget):
         self._update_x_axis_tick_visibility()
         self._schedule_realign()
         self.stripe_deleted.emit(stripe)
+        # Push post-removal sizes for the same reason create_stripe() does —
+        # Qt auto-redistributes the removed stripe's space on its own, and
+        # the AST's segment splitter needs to match that redistribution.
+        self.stripe_sizes_changed.emit(self._splitter.sizes())
         return True
 
     def set_active_stripe(self, stripe: PlotStripe) -> None:
@@ -150,6 +178,30 @@ class PlotStripesArea(QWidget):
 
     def get_stripes(self) -> list[PlotStripe]:
         return list(self._stripes)
+
+    def get_stripe_sizes(self) -> list[int]:
+        """Current absolute stripe heights, for MainWindow to push into a
+        freshly bootstrapped Active Signals Table (REQ-PLOT-274) — the tab's
+        first stripe (and its stripe_sizes_changed emission) already existed
+        before any wiring could connect to it."""
+        return self._splitter.sizes()
+
+    def set_stripe_sizes(self, sizes: list[int]) -> None:
+        """Apply stripe heights (absolute pixels) from the Active Signals
+        Table's own segment splitter (REQ-PLOT-274) — each stripe's height
+        matches its segment's height 1:1, which is what makes the divider
+        between two stripes land at the same screen position as the divider
+        between the corresponding two AST segments."""
+        self._syncing_sizes = True
+        try:
+            self._splitter.setSizes(sizes)
+        finally:
+            self._syncing_sizes = False
+
+    def _on_splitter_moved(self, pos: int, index: int) -> None:
+        if self._syncing_sizes:
+            return
+        self.stripe_sizes_changed.emit(self._splitter.sizes())
 
     def get_signals_in_stripe(self, stripe: PlotStripe) -> list[ActiveSignal]:
         return [a for a, s in self._signal_stripe.items() if s is stripe]

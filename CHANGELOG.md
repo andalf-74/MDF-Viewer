@@ -85,6 +85,28 @@ All notable changes to MDF-Viewer are documented in this file.
   created from the File menu, in addition to the existing plot-area
   right-click menu and "Move to new Stripe" — adds to whichever tab is
   currently active.
+- Per-Stripe Active Signals Table (#100): the Active Signals Table is now
+  split into one segment per plot stripe, each positioned directly beside
+  its stripe, sharing one fixed column header at the top of the whole
+  table area.
+  - Every segment's divider tracks its stripe's divider exactly — dragging
+    either one resizes both in lockstep, and a segment with more signals
+    than fit in its height scrolls independently without disturbing the
+    header or other segments.
+  - A multi-row selection can span more than one segment (Ctrl-click to
+    build it); dragging a row moves it within its segment or onto a
+    different segment's stripe — including dragging a whole cross-segment
+    selection together. Dropping a signal from the Signal Browser directly
+    onto a segment adds it to that segment's stripe. Clicking anywhere in
+    a segment makes its stripe the active one.
+  - Each stripe now has a name, shown as a label on its segment
+    (auto-named "Stripe 1", "Stripe 2", … by creation order, never reused
+    or renumbered) and renamable by double-clicking the label; the
+    existing "Move to Stripe" context-menu submenu lists stripes by this
+    name instead of position.
+  - `docs/requirements/plotting.md` gained a new "Per-Stripe Active
+    Signals Table" section (REQ-PLOT-270 through 280) and a "Stripe
+    Naming" section (REQ-PLOT-290 through 294).
 
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the

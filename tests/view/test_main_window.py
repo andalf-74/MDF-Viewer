@@ -628,12 +628,141 @@ def test_signals_dropped_on_stripe_calls_add_signal_with_stripe(
     mock_controller.add_signal.assert_called_once_with(2, 5, stripe=stripe)
 
 
+@pytest.mark.requirement("REQ-PLOT-277")
+def test_ast_segment_drop_calls_add_signal_with_that_segments_stripe(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    stripe2 = wired.plot_area.create_stripe()
+    wired.active_signals_table.signals_dropped_on_stripe.emit([(2, 5)], stripe2)
+    mock_controller.add_signal.assert_called_once_with(2, 5, stripe=stripe2)
+
+
 def test_set_controller_wires_stripe_providers(
     window: MainWindow, mock_controller: MagicMock
 ) -> None:
     window.set_controller(mock_controller)
     assert window.active_signals_table._get_stripes is mock_controller.get_stripes
     assert window.active_signals_table._get_stripe_for_signal is mock_controller.get_stripe_for_signal
+
+
+@pytest.mark.requirement("REQ-PLOT-270")
+def test_wiring_bootstraps_segment_for_first_stripe(wired: MainWindow) -> None:
+    """PlotStripesArea.__init__ creates (and fires stripe_created for) its
+    first stripe before _wire_tab_view can connect anything — the bootstrap
+    loop there must pick it up anyway."""
+    stripes = wired.plot_area.get_stripes()
+    assert len(stripes) == 1
+    assert wired.active_signals_table._segments == [
+        wired.active_signals_table._segment_for_stripe[stripes[0]]
+    ]
+
+
+@pytest.mark.requirement("REQ-PLOT-270")
+def test_creating_a_stripe_creates_its_segment(wired: MainWindow) -> None:
+    wired.plot_area.create_stripe()
+    assert len(wired.active_signals_table._segments) == 2
+
+
+@pytest.mark.requirement("REQ-PLOT-270")
+def test_deleting_a_stripe_removes_its_segment(wired: MainWindow) -> None:
+    stripe2 = wired.plot_area.create_stripe()
+    wired.plot_area.delete_stripe(stripe2)
+    assert len(wired.active_signals_table._segments) == 1
+
+
+@pytest.mark.requirement("REQ-PLOT-274")
+def test_bootstrapped_segment_size_matches_its_stripe(
+    wired: MainWindow, qtbot: QtBot
+) -> None:
+    # A single segment absorbs both the header and button-row chrome (only
+    # entry in the list, so both offsets apply to it) — it's shorter than
+    # its stripe by that known, fixed amount, not equal to it. See
+    # ActiveSignalsTable._build_ui's offset comment.
+    wired.resize(1000, 700)
+    wired.show()
+    qtbot.waitExposed(wired)
+    ast = wired.active_signals_table
+    expected = wired.plot_area.get_stripe_sizes()[0] - ast._top_size_offset - ast._bottom_size_offset
+    assert ast._segments_splitter.sizes()[0] == pytest.approx(expected, abs=2)
+
+
+@pytest.mark.requirement("REQ-PLOT-274")
+def test_new_segment_size_matches_its_stripe_immediately(
+    wired: MainWindow, qtbot: QtBot
+) -> None:
+    # Not just eventually-consistent after a drag (#100 postmortem) — must
+    # already match right after creation. Interior dividers (everything but
+    # the very first/last segment) must match exactly; with exactly 2
+    # stripes here, both segments are "first or last" and each absorbs one
+    # of the two offsets, so allow a couple pixels of Qt rounding rather
+    # than asserting exact equality.
+    wired.resize(1000, 700)
+    wired.show()
+    qtbot.waitExposed(wired)
+    wired.plot_area.create_stripe()
+    ast = wired.active_signals_table
+    stripe_sizes = wired.plot_area.get_stripe_sizes()
+    expected = [
+        stripe_sizes[0] - ast._top_size_offset,
+        stripe_sizes[1] - ast._bottom_size_offset,
+    ]
+    assert ast._segments_splitter.sizes() == pytest.approx(expected, abs=2)
+
+
+@pytest.mark.requirement("REQ-PLOT-274")
+def test_interior_segment_matches_its_stripe_exactly(
+    wired: MainWindow, qtbot: QtBot
+) -> None:
+    # The actual guarantee this sync mechanism exists for: with 3+ stripes,
+    # every *interior* segment (not first, not last) is unaffected by the
+    # header/button offset entirely and must match its stripe's height
+    # exactly, with no rounding tolerance needed at all (#100 postmortem —
+    # this is what a plain 1:1 pixel copy could never achieve, since the two
+    # splitters' totals are never equal).
+    wired.resize(1000, 700)
+    wired.show()
+    qtbot.waitExposed(wired)
+    wired.plot_area.create_stripe()
+    wired.plot_area.create_stripe()
+    ast = wired.active_signals_table
+    stripe_sizes = wired.plot_area.get_stripe_sizes()
+    segment_sizes = ast._segments_splitter.sizes()
+    assert segment_sizes[1] == stripe_sizes[1]
+
+
+@pytest.mark.requirement("REQ-PLOT-278")
+def test_segment_activated_makes_its_stripe_active(wired: MainWindow) -> None:
+    stripe2 = wired.plot_area.create_stripe()
+    wired.active_signals_table.segment_activated.emit(stripe2)
+    assert wired.plot_area.get_active_stripe() is stripe2
+
+
+@pytest.mark.requirement("REQ-PLOT-274")
+def test_dragging_stripe_splitter_resizes_ast_segments(
+    wired: MainWindow, qtbot: QtBot
+) -> None:
+    wired.plot_area.create_stripe()
+    wired.resize(1000, 700)
+    wired.show()
+    qtbot.waitExposed(wired)
+    before = list(wired.active_signals_table._segments_splitter.sizes())
+    wired.plot_area.set_stripe_sizes([100, 500])  # simulate an interactive drag
+    wired.plot_area._on_splitter_moved(0, 0)
+    assert wired.active_signals_table._segments_splitter.sizes() != before
+
+
+@pytest.mark.requirement("REQ-PLOT-274")
+def test_dragging_ast_splitter_resizes_stripes(
+    wired: MainWindow, qtbot: QtBot
+) -> None:
+    wired.plot_area.create_stripe()
+    wired.resize(1000, 700)
+    wired.show()
+    qtbot.waitExposed(wired)
+    before = list(wired.plot_area._splitter.sizes())
+    wired.active_signals_table.set_segment_sizes([100, 500])  # simulate a drag
+    wired.active_signals_table._on_segment_splitter_moved(0, 0)
+    assert wired.plot_area._splitter.sizes() != before
 
 
 @pytest.mark.requirement("REQ-PLOT-202")
@@ -1024,7 +1153,7 @@ def test_plot_signal_clicked_none_clears_table_selection(
         color=QColor(255, 0, 0),
     )
     wired.active_signals_table.add_row(active)
-    wired.active_signals_table._table.selectRow(0)
+    wired.active_signals_table.select_signal(active)
 
     received = []
     wired.active_signals_table.selection_changed.connect(received.append)

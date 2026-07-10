@@ -168,7 +168,7 @@ class MainWindow(QMainWindow):
         plot_area.signals_dropped_on_stripe.connect(self._on_add_signals_to_stripe)
         plot_area.file_dropped.connect(self._on_file_dropped)
         plot_area.delete_stripe_requested.connect(self._on_delete_stripe_requested)
-        active_signals_table.signals_dropped.connect(self._on_add_signals)
+        active_signals_table.signals_dropped_on_stripe.connect(self._on_add_signals_to_stripe)
         active_signals_table.remove_requested.connect(controller.remove_signals)
         active_signals_table.remove_all_requested.connect(controller.remove_all)
         active_signals_table.selection_changed.connect(
@@ -213,6 +213,29 @@ class MainWindow(QMainWindow):
         active_signals_table.set_stripe_providers(
             controller.get_stripes, controller.get_stripe_for_signal
         )
+
+        # Per-stripe Active Signals Table segments (#100): react to stripe
+        # lifecycle, plus a bootstrap for the stripe(s) PlotStripesArea.
+        # __init__ already created — and already fired stripe_created for —
+        # before this connection existed.
+        plot_area.stripe_created.connect(active_signals_table.add_stripe_segment)
+        plot_area.stripe_deleted.connect(active_signals_table.remove_stripe_segment)
+        for stripe in plot_area.get_stripes():
+            active_signals_table.add_stripe_segment(stripe)
+        # The bootstrapped segment(s) above start with whatever arbitrary
+        # size Qt's QSplitter.addWidget() gave them — push the stripe(s)'
+        # real sizes now so they match immediately (REQ-PLOT-274), the same
+        # way stripe_sizes_changed keeps later-created segments matching.
+        active_signals_table.set_segment_sizes(plot_area.get_stripe_sizes())
+
+        # Bidirectional stripe/segment divider sync (REQ-PLOT-274): dragging
+        # either splitter's handle resizes the other in lockstep.
+        plot_area.stripe_sizes_changed.connect(active_signals_table.set_segment_sizes)
+        active_signals_table.segment_sizes_changed.connect(plot_area.set_stripe_sizes)
+
+        # Clicking inside a segment activates its stripe (REQ-PLOT-278),
+        # mirroring PlotStripe's own "click anywhere inside it" rule.
+        active_signals_table.segment_activated.connect(plot_area.set_active_stripe)
 
     def set_tab_factory(
         self, factory: Callable[[PlotStripesArea, ActiveSignalsTable], None]

@@ -8,6 +8,8 @@ behavior is covered by test_plot_stripe.py.
 
 from __future__ import annotations
 
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 from PyQt6.QtGui import QColor
@@ -52,6 +54,89 @@ def test_initial_stripe_is_active(area: PlotStripesArea) -> None:
 
 def test_plot_item_passthrough(area: PlotStripesArea) -> None:
     assert area.plot_item is area._stripes[0].plot_item
+
+
+# ---------------------------------------------------------------------------
+# Stripe naming
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-291")
+def test_initial_stripe_named_stripe_1(area: PlotStripesArea) -> None:
+    assert area._stripes[0].name == "Stripe 1"
+
+
+@pytest.mark.requirement("REQ-PLOT-291")
+def test_created_stripes_named_by_creation_order(area: PlotStripesArea) -> None:
+    s2 = area.create_stripe()
+    s3 = area.create_stripe()
+    assert s2.name == "Stripe 2"
+    assert s3.name == "Stripe 3"
+
+
+# ---------------------------------------------------------------------------
+# Stripe size sync (#100)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-274")
+def test_set_stripe_sizes_applies_to_splitter(area: PlotStripesArea) -> None:
+    area.create_stripe()
+    with patch.object(area._splitter, "setSizes") as mock_set_sizes:
+        area.set_stripe_sizes([10, 90])
+    mock_set_sizes.assert_called_once_with([10, 90])
+
+
+@pytest.mark.requirement("REQ-PLOT-274")
+def test_set_stripe_sizes_does_not_emit_stripe_sizes_changed(
+    area: PlotStripesArea, qtbot: QtBot
+) -> None:
+    area.create_stripe()
+    with qtbot.assertNotEmitted(area.stripe_sizes_changed):
+        area.set_stripe_sizes([10, 90])
+
+
+@pytest.mark.requirement("REQ-PLOT-274")
+def test_splitter_moved_emits_stripe_sizes_changed(
+    area: PlotStripesArea, qtbot: QtBot
+) -> None:
+    area.create_stripe()
+    with qtbot.waitSignal(area.stripe_sizes_changed) as blocker:
+        area._on_splitter_moved(0, 0)
+    assert blocker.args[0] == area._splitter.sizes()
+
+
+@pytest.mark.requirement("REQ-PLOT-274")
+def test_create_stripe_emits_stripe_sizes_changed(
+    area: PlotStripesArea, qtbot: QtBot
+) -> None:
+    # A freshly created stripe's segment must be sized immediately, not left
+    # at whatever arbitrary size Qt gave it until a drag happens to touch
+    # that divider (#100 postmortem).
+    with qtbot.waitSignal(area.stripe_sizes_changed) as blocker:
+        area.create_stripe()
+    assert blocker.args[0] == area._splitter.sizes()
+
+
+@pytest.mark.requirement("REQ-PLOT-274")
+def test_delete_stripe_emits_stripe_sizes_changed(
+    area: PlotStripesArea, qtbot: QtBot
+) -> None:
+    s2 = area.create_stripe()
+    with qtbot.waitSignal(area.stripe_sizes_changed) as blocker:
+        area.delete_stripe(s2)
+    assert blocker.args[0] == area._splitter.sizes()
+
+
+def test_get_stripe_sizes_returns_splitter_sizes(area: PlotStripesArea) -> None:
+    assert area.get_stripe_sizes() == area._splitter.sizes()
+
+
+@pytest.mark.requirement("REQ-PLOT-291")
+def test_stripe_names_not_reused_or_renumbered_after_deletion(area: PlotStripesArea) -> None:
+    s2 = area.create_stripe()
+    area.create_stripe()
+    area.delete_stripe(s2)
+    s4 = area.create_stripe()
+    assert s4.name == "Stripe 4"
 
 
 # ---------------------------------------------------------------------------

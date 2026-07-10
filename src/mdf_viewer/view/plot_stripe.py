@@ -251,6 +251,11 @@ class PlotStripe(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
+        # Display name (REQ-PLOT-290/291); PlotStripesArea assigns the
+        # default "Stripe N" right after construction, since a stripe has no
+        # way to know its own creation index on its own.
+        self.name: str = ""
+
         self._pw = pg.PlotWidget(viewBox=self._new_view_box())
         self._pi: pg.PlotItem = self._pw.getPlotItem()
 

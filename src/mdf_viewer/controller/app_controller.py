@@ -361,7 +361,7 @@ class AppController:
         active = ActiveSignal(data=data, metadata=meta, color=rgb, step_mode=meta.is_integer)
         current.active.append(active)
         current.plot.add_signal(active, stripe=stripe)
-        current.table.add_row(active)
+        current.table.add_row(active, current.plot.get_stripe_for_signal(active))
         self.refresh_z_order()
         if current.cursor_ctrl is not None:
             current.cursor_ctrl.refresh()
@@ -407,6 +407,7 @@ class AppController:
         current = self.current_workspace
         for active in signals:
             current.plot.move_signal_to_stripe(active, stripe)
+        current.table.move_to_stripe(signals, stripe)
         # Cursor labels are parented to the signal's ViewBox, which just
         # changed — refresh so they re-attach to the new one immediately
         # rather than waiting for the next unrelated cursor move.
@@ -419,6 +420,7 @@ class AppController:
         stripe = current.plot.create_stripe()
         for active in signals:
             current.plot.move_signal_to_stripe(active, stripe)
+        current.table.move_to_stripe(signals, stripe)
         if current.cursor_ctrl is not None:
             current.cursor_ctrl.refresh()
 

@@ -1937,6 +1937,10 @@ def test_get_stripe_for_signal_delegates_to_plot(ctrl: AppController, deps: dict
     ctrl.add_signal(0, 1)
     active = ctrl.active_signals[0]
     deps["plot"].get_stripe_for_signal.return_value = "s0"
+    # add_signal() itself already calls get_stripe_for_signal (to resolve
+    # which segment the new row belongs to) — reset before exercising the
+    # method under test so the assertion below is only about this call.
+    deps["plot"].get_stripe_for_signal.reset_mock()
     assert ctrl.get_stripe_for_signal(active) == "s0"
     deps["plot"].get_stripe_for_signal.assert_called_once_with(active)
 
@@ -1959,6 +1963,17 @@ def test_move_signals_to_stripe_calls_plot_per_signal(ctrl: AppController, deps:
         deps["plot"].move_signal_to_stripe.assert_any_call(active, stripe)
 
 
+@pytest.mark.requirement("REQ-PLOT-202")
+def test_move_signals_to_stripe_updates_table_too(ctrl: AppController, deps: dict) -> None:
+    # #100 postmortem: moving a signal must also update the AST's own
+    # stripe-membership tracking, not just the plot's — otherwise deleting
+    # the signal's old (now plot-side-empty) stripe orphans its AST row.
+    ctrl.add_signal(0, 1)
+    stripe = MagicMock()
+    ctrl.move_signals_to_stripe(ctrl.active_signals, stripe)
+    deps["table"].move_to_stripe.assert_called_once_with(ctrl.active_signals, stripe)
+
+
 def test_move_signals_to_stripe_refreshes_cursor_labels(
     ctrl: AppController, deps: dict
 ) -> None:
@@ -1978,6 +1993,15 @@ def test_move_signals_to_new_stripe_creates_then_moves(ctrl: AppController, deps
     ctrl.move_signals_to_new_stripe(ctrl.active_signals)
     deps["plot"].create_stripe.assert_called_once()
     deps["plot"].move_signal_to_stripe.assert_called_once_with(ctrl.active_signals[0], new_stripe)
+
+
+@pytest.mark.requirement("REQ-PLOT-191")
+def test_move_signals_to_new_stripe_updates_table_too(ctrl: AppController, deps: dict) -> None:
+    new_stripe = MagicMock()
+    deps["plot"].create_stripe.return_value = new_stripe
+    ctrl.add_signal(0, 1)
+    ctrl.move_signals_to_new_stripe(ctrl.active_signals)
+    deps["table"].move_to_stripe.assert_called_once_with(ctrl.active_signals, new_stripe)
 
 
 def test_move_signals_to_new_stripe_refreshes_cursor_labels(
