@@ -22,12 +22,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import pyqtgraph as pg
 from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QPen
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QWidget
+from PyQt6.QtWidgets import QFrame, QHBoxLayout, QPushButton, QWidget
 
 from mdf_viewer.view._mime import (
     ROW_MIME_TYPE,
@@ -231,13 +231,19 @@ class _MeasurementAxisItem(pg.AxisItem):
     this axis mutates measurement.offset_s directly instead, which is the
     "zoom stays global, only pan is per-measurement" split REQ-PLOT-303
     requires.
+
+    draggable=False (#102) disables the drag entirely — used for the single
+    collapsed row shown while measurements are synchronized, since there is
+    no way to tell which measurement a drag on that shared row would even
+    apply to; re-adjusting requires un-synchronizing first (REQ-PLOT-314).
     """
 
-    def __init__(self, measurement, on_offset_changed=None, *args, **kwargs) -> None:
+    def __init__(self, measurement, on_offset_changed=None, draggable: bool = True, *args, **kwargs) -> None:
         kwargs.setdefault('orientation', 'bottom')
         super().__init__(*args, **kwargs)
         self._measurement = measurement
         self._on_offset_changed = on_offset_changed
+        self._draggable = draggable
         self._drag_start_offset = 0.0
 
     def tickStrings(self, values, scale, spacing):
@@ -245,6 +251,9 @@ class _MeasurementAxisItem(pg.AxisItem):
         return [f"{(v * scale) - offset:.6g}" for v in values]
 
     def mouseDragEvent(self, event):
+        if not self._draggable:
+            event.ignore()
+            return
         if event.button() != Qt.MouseButton.LeftButton:
             event.ignore()
             return
@@ -373,6 +382,18 @@ class PlotStripe(QWidget):
         self._pw.viewport().installEventFilter(self)
         self._drag_hover_active = False
 
+        # Synchronize/Un-sync measurements button (#102) — parented directly
+        # to self._pw (the PlotWidget/QGraphicsView) rather than added to the
+        # QHBoxLayout below, since it needs to float *on top of* the plot
+        # near the measurement axis rows, not sit *beside* the plot the way
+        # _active_marker does. Only ever shown on the bottom-most stripe of a
+        # PlotStripesArea, and only with 2+ measurements loaded — see
+        # set_measurement_sync_control().
+        self._sync_button = QPushButton(self._pw)
+        self._sync_button.hide()
+        self._sync_button.clicked.connect(self._on_sync_button_clicked)
+        self._sync_toggle_cb: Callable[[], None] | None = None
+
         # Left-edge active-stripe marker (REQ-PLOT-210).
         self._active_marker = QFrame(self)
         self._active_marker.setFixedWidth(3)
@@ -422,7 +443,9 @@ class PlotStripe(QWidget):
     _MEASUREMENT_AXIS_BASE_ROW = 4
     _MEASUREMENT_AXIS_COLUMN = 1
 
-    def set_measurement_axes(self, measurements: list, on_offset_changed=None) -> None:
+    def set_measurement_axes(
+        self, measurements: list, on_offset_changed=None, draggable: bool = True,
+    ) -> None:
         """Build/tear down one bottom axis row per loaded measurement (#101).
 
         Only the bottom-most stripe in a PlotStripesArea should ever be
@@ -436,6 +459,10 @@ class PlotStripe(QWidget):
         the user drags one of these rows, so the caller (PlotStripesArea /
         AppController) can refresh that measurement's curves across every
         stripe and tab.
+
+        *draggable* (#102) applies to every row built by this call — passed
+        False for the single collapsed row shown while measurements are
+        synchronized (REQ-PLOT-314).
         """
         for axis in self._measurement_axes:
             # Same leak as _destroy_vb_and_axis (#120): removeItem()+hide()
@@ -456,6 +483,7 @@ class PlotStripe(QWidget):
             axis = _MeasurementAxisItem(
                 measurement=measurement,
                 on_offset_changed=on_offset_changed,
+                draggable=draggable,
                 linkView=self._pi.vb,
                 pen=pg.mkPen(color=_NEUTRAL_AXIS_COLOR),
                 textPen=pg.mkPen(color=_NEUTRAL_AXIS_COLOR),
@@ -468,6 +496,37 @@ class PlotStripe(QWidget):
             self._pi.layout.setRowStretchFactor(row, 1)
             self._pi.layout.addItem(axis, row, self._MEASUREMENT_AXIS_COLUMN)
             self._measurement_axes.append(axis)
+
+    def set_measurement_sync_control(
+        self, visible: bool, synchronized: bool, on_toggle: Callable[[], None] | None = None,
+    ) -> None:
+        """Show/hide/relabel this stripe's Synchronize/Un-sync button (#102).
+
+        Only ever called with visible=True on the bottom-most stripe of a
+        PlotStripesArea, and only once 2+ measurements are loaded
+        (REQ-PLOT-316) — every other stripe (and a bottom stripe with fewer
+        than 2 measurements) gets visible=False, hiding it entirely rather
+        than showing it disabled.
+        """
+        self._sync_toggle_cb = on_toggle
+        self._sync_button.setVisible(visible)
+        if visible:
+            self._sync_button.setText("Un-Sync" if synchronized else "Sync")
+            self._reposition_sync_button()
+
+    def _on_sync_button_clicked(self) -> None:
+        if self._sync_toggle_cb is not None:
+            self._sync_toggle_cb()
+
+    def _reposition_sync_button(self) -> None:
+        """Pin the sync button to a corner of the plot viewport."""
+        margin = 6
+        self._sync_button.adjustSize()
+        viewport_rect = self._pw.viewport().rect()
+        x = viewport_rect.right() - self._sync_button.width() - margin
+        y = viewport_rect.bottom() - self._sync_button.height() - margin
+        self._sync_button.move(max(0, x), max(0, y))
+        self._sync_button.raise_()
 
     def content_axis_width(self) -> float:
         """Sum of the pixel widths of this stripe's own visible Y-axes.
@@ -1513,6 +1572,12 @@ class PlotStripe(QWidget):
     def eventFilter(self, watched, event):
         if watched is self._pw.viewport():
             t = event.type()
+            if t == QEvent.Type.Resize and self._sync_button.isVisible():
+                self._reposition_sync_button()
+                # Falls through (not returning True) — this is a genuine
+                # resize the viewport itself must still process normally,
+                # unlike every other branch below which claims/consumes
+                # its event.
             if t == QEvent.Type.MouseButtonPress:
                 self.activated.emit(self)
             if t == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
@@ -1664,3 +1729,13 @@ class PlotStripe(QWidget):
             seen.add(vb_id)
             spd.view_box.setGeometry(rect)
             spd.view_box.linkedViewChanged(self._pi.vb, spd.view_box.XAxis)
+        # The sync button (#102) is a QWidget parented directly to self._pw,
+        # not a scene item — adding/removing a signal changes the axis
+        # layout (and therefore the plotted content's on-screen bounds)
+        # without necessarily firing a Resize event on the viewport, which
+        # was the only other place it got re-raised/repositioned. Qt's own
+        # QGraphicsView appears to re-raise its viewport internally on scene
+        # changes, burying any sibling widget behind it again — found live
+        # (button went invisible after adding a signal), not by inspection.
+        if not self._sync_button.isHidden():
+            self._reposition_sync_button()

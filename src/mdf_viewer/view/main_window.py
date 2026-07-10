@@ -172,6 +172,7 @@ class MainWindow(QMainWindow):
         )
         plot_area.file_dropped.connect(self._on_file_dropped)
         plot_area.delete_stripe_requested.connect(self._on_delete_stripe_requested)
+        plot_area.synchronize_toggled.connect(self._on_sync_button_clicked)
         active_signals_table.signals_dropped_on_stripe.connect(self._on_add_signals_to_stripe)
         active_signals_table.remove_requested.connect(controller.remove_signals)
         active_signals_table.remove_all_requested.connect(controller.remove_all)
@@ -374,6 +375,14 @@ class MainWindow(QMainWindow):
         self._redo_action.setShortcut(QKeySequence("Ctrl+Shift+Z"))
         self._redo_action.triggered.connect(self._on_redo)
 
+        self._sync_measurements_action = QAction("Sync Measurements", self)
+        self._sync_measurements_action.setCheckable(True)
+        self._sync_measurements_action.setEnabled(False)
+        self._sync_measurements_action.setToolTip(
+            "Collapse every loaded measurement's own time axis into one shared ruler"
+        )
+        self._sync_measurements_action.toggled.connect(self._on_sync_action_toggled)
+
         self._save_config_action = QAction("Save Config", self)
         self._save_config_action.setShortcut(QKeySequence("Ctrl+S"))
         self._save_config_action.triggered.connect(self._on_save_config)
@@ -412,6 +421,8 @@ class MainWindow(QMainWindow):
         self._edit_menu = self.menuBar().addMenu("&Edit")
         self._edit_menu.addAction(self._undo_action)
         self._edit_menu.addAction(self._redo_action)
+        self._edit_menu.addSeparator()
+        self._edit_menu.addAction(self._sync_measurements_action)
 
         self._help_menu = self.menuBar().addMenu("&Help")
         self._help_menu.addAction(self._check_update_action)
@@ -907,6 +918,29 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.StandardButton.Yes:
             self._controller.delete_stripe(stripe, force=True)
 
+    def _on_sync_button_clicked(self) -> None:
+        """A bottom stripe's Synchronize/Un-sync button was clicked (#102),
+        in any tab. Flips the controller's global synchronized flag and
+        pushes the new state into the Edit-menu checkbox, which mirrors it
+        (blocked from re-triggering the controller by
+        _on_sync_action_toggled's own equality guard below)."""
+        if self._controller is None:
+            return
+        self._controller.toggle_measurements_synchronized()
+        self._sync_measurements_action.setChecked(self._controller.is_measurements_synchronized)
+
+    def _on_sync_action_toggled(self, checked: bool) -> None:
+        """The Edit-menu action's checked state changed — either a real user
+        click, or _on_sync_button_clicked mirroring the button's own click
+        back into this checkbox. Only the former should ask the controller
+        to toggle; the latter already reflects the controller's current
+        state, so re-toggling would immediately revert it."""
+        if self._controller is None:
+            return
+        if checked == self._controller.is_measurements_synchronized:
+            return
+        self._controller.toggle_measurements_synchronized()
+
     def _on_file_dropped(self, path) -> None:
         if self._controller is None:
             return
@@ -990,6 +1024,8 @@ class MainWindow(QMainWindow):
         finally:
             QApplication.restoreOverrideCursor()
             self.statusBar().clearMessage()
+
+        self._sync_measurements_action.setEnabled(self._controller.measurement_count >= 2)
 
         if result.failed:
             lines = "\n".join(f"{Path(p).name}: {err}" for p, err in result.failed)

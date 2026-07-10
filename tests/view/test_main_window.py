@@ -508,6 +508,100 @@ def test_set_zoom_all_stripes_updates_checked_state(window: MainWindow) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Measurement Synchronization (#102)
+# ---------------------------------------------------------------------------
+
+def test_edit_menu_has_sync_measurements_action(window: MainWindow) -> None:
+    assert window._sync_measurements_action in window._edit_menu.actions()
+
+
+def test_sync_measurements_action_disabled_by_default(window: MainWindow) -> None:
+    assert not window._sync_measurements_action.isEnabled()
+
+
+def test_sync_measurements_action_checkable_and_unchecked_by_default(
+    window: MainWindow,
+) -> None:
+    assert window._sync_measurements_action.isCheckable()
+    assert not window._sync_measurements_action.isChecked()
+
+
+def test_load_files_enables_sync_action_with_two_measurements(
+    wired: MainWindow, mock_controller: MagicMock,
+) -> None:
+    # measurement_count is read both before _load_files (to decide the
+    # Replace/Add prompt) and after (to enable/disable the sync action) —
+    # set it to 0 so the prompt is skipped, then bump it once
+    # replace_measurements "returns" via a side effect, simulating the
+    # count actually changing as a result of the load.
+    mock_controller.measurement_count = 0
+
+    def _replace(paths):
+        mock_controller.measurement_count = 2
+        return LoadResult(succeeded=[MagicMock()])
+
+    mock_controller.replace_measurements.side_effect = _replace
+    wired._load_files(["a.mf4", "b.mf4"])
+    assert wired._sync_measurements_action.isEnabled()
+
+
+def test_load_files_disables_sync_action_with_one_measurement(
+    wired: MainWindow, mock_controller: MagicMock,
+) -> None:
+    mock_controller.measurement_count = 0
+
+    def _replace(paths):
+        mock_controller.measurement_count = 1
+        return LoadResult(succeeded=[MagicMock()])
+
+    mock_controller.replace_measurements.side_effect = _replace
+    wired._load_files(["a.mf4"])
+    assert not wired._sync_measurements_action.isEnabled()
+
+
+@pytest.mark.requirement("REQ-PLOT-310")
+def test_sync_action_toggled_calls_controller_when_state_differs(
+    wired: MainWindow, mock_controller: MagicMock,
+) -> None:
+    mock_controller.is_measurements_synchronized = False
+    wired._sync_measurements_action.setChecked(True)
+    mock_controller.toggle_measurements_synchronized.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-PLOT-310")
+def test_sync_action_toggled_noop_when_state_already_matches(
+    wired: MainWindow, mock_controller: MagicMock,
+) -> None:
+    """Regression for the two-control feedback-loop guard: pushing the
+    button's new state into the menu checkbox must not re-toggle the
+    controller a second time and revert it."""
+    mock_controller.is_measurements_synchronized = True
+    wired._sync_measurements_action.setChecked(True)
+    mock_controller.toggle_measurements_synchronized.assert_not_called()
+
+
+def test_sync_button_click_toggles_controller_and_updates_menu_checkbox(
+    wired: MainWindow, mock_controller: MagicMock,
+) -> None:
+    mock_controller.is_measurements_synchronized = True
+    wired._on_sync_button_clicked()
+    mock_controller.toggle_measurements_synchronized.assert_called_once()
+    assert wired._sync_measurements_action.isChecked() is True
+
+
+def test_sync_action_toggled_without_controller_does_not_crash(
+    window: MainWindow,
+) -> None:
+    window._sync_measurements_action.setChecked(True)  # must not raise
+
+
+def test_sync_button_click_without_controller_does_not_crash(
+    window: MainWindow,
+) -> None:
+    window._on_sync_button_clicked()  # must not raise
+
+
+# ---------------------------------------------------------------------------
 # Help menu / About
 # ---------------------------------------------------------------------------
 

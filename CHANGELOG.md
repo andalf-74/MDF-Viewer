@@ -140,6 +140,17 @@ All notable changes to MDF-Viewer are documented in this file.
     (REQ-FILE-010 through 028, REQ-PLOT-300 through 309) and
     `docs/requirements/signal-browser.md` gained REQ-BROWSER-050 through
     052.
+- Measurement Synchronization (#102): once two or more measurements are
+  loaded and manually panned into visual alignment, a "Sync" button
+  (bottom-right corner of the plot, next to the measurement axis rows) or
+  the Edit menu's "Sync Measurements" collapses every measurement's own
+  time axis into a single shared ruler, showing the first-loaded
+  measurement's real time. "Un-Sync" restores the separate rows at
+  whatever offsets they already had — synchronizing never changes any
+  measurement's offset, only how the rows are displayed. Not saved to
+  `.mvc` yet (multi-measurement session support is #106).
+  - `docs/requirements/plotting.md` gained a "Measurement Synchronization"
+    section (REQ-PLOT-310 through 316).
 
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the

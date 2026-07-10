@@ -68,6 +68,10 @@ class PlotStripesArea(QWidget):
     # the bottom-most stripe's per-measurement axis rows (#101) — AppController
     # listens to refresh that measurement's curves across every tab/stripe.
     measurement_offset_changed = pyqtSignal(object)
+    # The bottom-most stripe's Synchronize/Un-sync button was clicked (#102)
+    # — AppController owns the actual synchronized flag, so this just asks
+    # it to flip and push the new state back down to every tab.
+    synchronize_toggled = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -79,6 +83,11 @@ class PlotStripesArea(QWidget):
         # currently bottom-most (REQ-PLOT-301); re-applied whenever the
         # bottom-most stripe changes (create/delete).
         self._measurements: list = []
+        # Whether the measurement pool's per-measurement axis rows are
+        # collapsed into one shared ruler (#102) — pushed here alongside
+        # self._measurements by refresh_measurement_axes(); same lifetime
+        # and re-apply-on-bottom-stripe-change rules as the pool itself.
+        self._synchronized: bool = False
         # Creation-order counter for default stripe names (REQ-PLOT-291),
         # scoped to this tab's PlotStripesArea — mirrors MainWindow's own
         # _tab_counter, never reused or renumbered as stripes are deleted.
@@ -242,27 +251,46 @@ class PlotStripesArea(QWidget):
         REQ-PLOT-301), never both. Once at least one measurement is loaded,
         the per-measurement row(s) replace the plain 'Time' axis rather than
         stacking alongside it, since they cover the same information (the
-        shared display-time ruler) plus each measurement's own offset."""
+        shared display-time ruler) plus each measurement's own offset.
+
+        When synchronized (#102), the bottom stripe shows exactly one row —
+        the reference measurement's (always self._measurements[0], the
+        first-loaded one) — instead of one row per measurement, and that
+        row is not draggable (REQ-PLOT-311/312/314). set_show_x_axis_ticks
+        still gates on the full pool, not the collapsed row list: row count
+        changes, but per-measurement rows never fall back to the plain
+        'Time' axis just because they collapsed to one.
+        """
         for i, stripe in enumerate(self._stripes):
             is_bottom = i == len(self._stripes) - 1
             measurements_for_stripe = self._measurements if is_bottom else []
+            synchronized_here = is_bottom and self._synchronized and self._measurements
+            axes_to_show = [self._measurements[0]] if synchronized_here else measurements_for_stripe
             stripe.set_show_x_axis_ticks(is_bottom and not measurements_for_stripe)
             stripe.set_measurement_axes(
-                measurements_for_stripe,
+                axes_to_show,
                 on_offset_changed=self.measurement_offset_changed.emit,
+                draggable=not synchronized_here,
+            )
+            stripe.set_measurement_sync_control(
+                visible=is_bottom and len(self._measurements) >= 2,
+                synchronized=self._synchronized,
+                on_toggle=self.synchronize_toggled.emit,
             )
 
-    def refresh_measurement_axes(self, measurements: list) -> None:
-        """Push the current measurement pool (#101) to the bottom-most stripe.
+    def refresh_measurement_axes(self, measurements: list, synchronized: bool = False) -> None:
+        """Push the current measurement pool (#101) and sync state (#102) to
+        the bottom-most stripe.
 
-        Called by AppController whenever the pool changes (replace/add/
-        close); _update_x_axis_tick_visibility() re-applies self._measurements
-        on its own whenever the bottom-most stripe itself changes (stripe
-        create/delete), so the axis rows always follow whichever stripe
+        Called by AppController whenever the pool or synchronized flag
+        changes; _update_x_axis_tick_visibility() re-applies both on its own
+        whenever the bottom-most stripe itself changes (stripe create/
+        delete), so the axis rows always follow whichever stripe
         REQ-PLOT-301 currently designates without this needing to be called
         again for that case.
         """
         self._measurements = measurements
+        self._synchronized = synchronized
         self._update_x_axis_tick_visibility()
 
     def _schedule_realign(self) -> None:

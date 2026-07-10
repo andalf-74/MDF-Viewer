@@ -132,6 +132,10 @@ class AppController:
         self._loader = loader
         self._loader_factory: Callable[[], MdfLoader] = loader_factory or MdfLoader
         self._measurements: list[LoadedMeasurement] = []
+        # Whether the measurement pool's per-measurement axis rows are
+        # collapsed into one shared ruler (#102) — global, not per-tab,
+        # matching the measurement pool's own global-across-tabs scope.
+        self._measurements_synchronized: bool = False
         self._browser = signal_browser
         self._info_box = measurement_info_box
         self._signal_info = signal_info_box
@@ -402,6 +406,7 @@ class AppController:
         self._browser.clear()
         self._info_box.clear()
         self.current_workspace.color_index = 0
+        self._measurements_synchronized = False
 
         self._loader.open(path)  # raises MdfLoadError on failure
 
@@ -437,6 +442,7 @@ class AppController:
         self._browser.clear()
         self._info_box.clear()
         self.current_workspace.color_index = 0
+        self._measurements_synchronized = False
 
         result = LoadResult()
         new_measurements: list[LoadedMeasurement] = []
@@ -539,14 +545,28 @@ class AppController:
         self.refresh_display_names()
 
     def _refresh_measurement_axes(self) -> None:
-        """Push the current measurement pool to every tab's plot area (#101).
+        """Push the current measurement pool and sync state to every tab's
+        plot area (#101, #102).
 
-        Measurements are a single global pool shared across tabs, so every
-        tab's bottom-most-stripe axis rows (REQ-PLOT-301) must reflect it,
-        not just the currently active tab.
+        Measurements (and whether they're synchronized) are a single global
+        state shared across tabs, so every tab's bottom-most-stripe axis
+        rows (REQ-PLOT-301/313) must reflect it, not just the currently
+        active tab.
         """
         for workspace in self._workspaces:
-            workspace.plot.refresh_measurement_axes(self._measurements)
+            workspace.plot.refresh_measurement_axes(
+                self._measurements, self._measurements_synchronized,
+            )
+
+    @property
+    def is_measurements_synchronized(self) -> bool:
+        return self._measurements_synchronized
+
+    def toggle_measurements_synchronized(self) -> None:
+        """Flip whether the measurement axis rows are collapsed into one
+        shared ruler (#102) and push the new state to every tab."""
+        self._measurements_synchronized = not self._measurements_synchronized
+        self._refresh_measurement_axes()
 
     def on_measurement_offset_changed(self, measurement: LoadedMeasurement) -> None:
         """Refresh every active signal belonging to *measurement*, in every

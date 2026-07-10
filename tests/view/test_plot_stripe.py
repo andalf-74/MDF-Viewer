@@ -951,10 +951,11 @@ def test_refresh_signal_data_noop_when_signal_not_present(plot: PlotStripe) -> N
 # Per-measurement X-axis rows + drag-to-offset (#101)
 # ---------------------------------------------------------------------------
 
-def _make_measurement_axis(measurement, on_offset_changed=None, vb=None):
+def _make_measurement_axis(measurement, on_offset_changed=None, vb=None, draggable=True):
     from mdf_viewer.view.plot_stripe import _MeasurementAxisItem
     return _MeasurementAxisItem(
-        measurement=measurement, on_offset_changed=on_offset_changed, linkView=vb or MagicMock(),
+        measurement=measurement, on_offset_changed=on_offset_changed,
+        draggable=draggable, linkView=vb or MagicMock(),
     )
 
 
@@ -1057,7 +1058,99 @@ def test_measurement_axis_drag_ignores_non_left_button() -> None:
     assert m1.offset_s == 0.0
 
 
+@pytest.mark.requirement("REQ-PLOT-314")
+def test_measurement_axis_drag_noop_when_not_draggable() -> None:
+    m1 = _make_measurement(offset_s=0.0)
+    vb = MagicMock()
+    received = []
+    axis = _make_measurement_axis(m1, on_offset_changed=received.append, vb=vb, draggable=False)
+    event = MagicMock()
+    event.button.return_value = Qt.MouseButton.LeftButton
+    axis.mouseDragEvent(event)
+    event.ignore.assert_called_once()
+    event.accept.assert_not_called()
+    assert m1.offset_s == 0.0
+    assert received == []
+
+
+@pytest.mark.requirement("REQ-PLOT-314")
+def test_set_measurement_axes_default_draggable_true(plot: PlotStripe) -> None:
+    m1 = _make_measurement(offset_s=0.0)
+    plot.set_measurement_axes([m1])
+    axis = plot._measurement_axes[0]
+    event = MagicMock()
+    event.button.return_value = Qt.MouseButton.LeftButton
+    event.isStart.return_value = True
+    event.buttonDownScenePos.return_value = QPoint(0, 0)
+    event.scenePos.return_value = QPoint(30, 0)
+    axis.mouseDragEvent(event)
+    event.accept.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-PLOT-314")
+def test_set_measurement_axes_draggable_false_propagates_to_rows(plot: PlotStripe) -> None:
+    m1 = _make_measurement(offset_s=0.0)
+    plot.set_measurement_axes([m1], draggable=False)
+    axis = plot._measurement_axes[0]
+    event = MagicMock()
+    event.button.return_value = Qt.MouseButton.LeftButton
+    axis.mouseDragEvent(event)
+    event.ignore.assert_called_once()
+    assert m1.offset_s == 0.0
+
+
 # ---------------------------------------------------------------------------
+# Synchronize/Un-sync button (#102)
+# ---------------------------------------------------------------------------
+
+def test_sync_button_hidden_by_default(plot: PlotStripe) -> None:
+    # isHidden() (not isVisible()) — the widget's own explicit shown/hidden
+    # state, independent of whether the top-level window itself is shown,
+    # which this test fixture never does.
+    assert plot._sync_button.isHidden() is True
+
+
+@pytest.mark.requirement("REQ-PLOT-310")
+def test_set_measurement_sync_control_visible_shows_button_with_label(plot: PlotStripe) -> None:
+    plot.set_measurement_sync_control(visible=True, synchronized=False)
+    assert plot._sync_button.isHidden() is False
+    assert plot._sync_button.text() == "Sync"
+
+    plot.set_measurement_sync_control(visible=True, synchronized=True)
+    assert plot._sync_button.text() == "Un-Sync"
+
+
+@pytest.mark.requirement("REQ-PLOT-316")
+def test_set_measurement_sync_control_invisible_hides_button(plot: PlotStripe) -> None:
+    plot.set_measurement_sync_control(visible=True, synchronized=False)
+    assert plot._sync_button.isHidden() is False
+    plot.set_measurement_sync_control(visible=False, synchronized=True)
+    assert plot._sync_button.isHidden() is True
+
+
+def test_sync_button_click_calls_on_toggle_callback(plot: PlotStripe) -> None:
+    cb = MagicMock()
+    plot.set_measurement_sync_control(visible=True, synchronized=False, on_toggle=cb)
+    plot._sync_button.click()
+    cb.assert_called_once()
+
+
+def test_sync_button_click_noop_when_no_callback(plot: PlotStripe) -> None:
+    plot.set_measurement_sync_control(visible=True, synchronized=False, on_toggle=None)
+    plot._sync_button.click()  # must not raise
+
+
+def test_sync_button_reraised_after_adding_a_signal(plot: PlotStripe) -> None:
+    """Found live: adding a signal changes the axis layout without firing a
+    Resize event on the viewport, and Qt's QGraphicsView appears to
+    re-raise its own viewport on scene changes — burying the sync button
+    (a sibling widget) behind it again unless it's explicitly re-raised
+    too. _update_view_geometries (called at the end of add_signal) is the
+    fix; this regression-tests that hook, not just the resize path."""
+    plot.set_measurement_sync_control(visible=True, synchronized=False)
+    with patch.object(plot, "_reposition_sync_button") as mock_reposition:
+        plot.add_signal(_make_active())
+    mock_reposition.assert_called()
 # _ViewBox wheel event — axis routing (bug #34)
 # ---------------------------------------------------------------------------
 

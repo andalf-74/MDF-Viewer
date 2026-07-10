@@ -1784,8 +1784,8 @@ def test_replace_measurements_refreshes_axes_on_every_tab(deps: dict) -> None:
 
     ctrl2.replace_measurements(["a.mf4"])
 
-    deps["plot"].refresh_measurement_axes.assert_called_with(ctrl2.measurements)
-    plot2.refresh_measurement_axes.assert_called_with(ctrl2.measurements)
+    deps["plot"].refresh_measurement_axes.assert_called_with(ctrl2.measurements, False)
+    plot2.refresh_measurement_axes.assert_called_with(ctrl2.measurements, False)
 
 
 @pytest.mark.requirement("REQ-PLOT-301")
@@ -1799,8 +1799,8 @@ def test_add_measurements_refreshes_axes_on_every_tab(deps: dict) -> None:
 
     ctrl2.add_measurements(["b.mf4"])
 
-    deps["plot"].refresh_measurement_axes.assert_called_with(ctrl2.measurements)
-    plot2.refresh_measurement_axes.assert_called_with(ctrl2.measurements)
+    deps["plot"].refresh_measurement_axes.assert_called_with(ctrl2.measurements, False)
+    plot2.refresh_measurement_axes.assert_called_with(ctrl2.measurements, False)
 
 
 @pytest.mark.requirement("REQ-PLOT-301")
@@ -1815,8 +1815,60 @@ def test_close_measurement_refreshes_axes_on_every_tab(deps: dict) -> None:
 
     ctrl2.close_measurement(m1)
 
-    deps["plot"].refresh_measurement_axes.assert_called_with([])
-    plot2.refresh_measurement_axes.assert_called_with([])
+    deps["plot"].refresh_measurement_axes.assert_called_with([], False)
+    plot2.refresh_measurement_axes.assert_called_with([], False)
+
+
+# ---------------------------------------------------------------------------
+# Measurement Synchronization (#102)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-310")
+def test_toggle_measurements_synchronized_flips_state(ctrl: AppController) -> None:
+    assert ctrl.is_measurements_synchronized is False
+    ctrl.toggle_measurements_synchronized()
+    assert ctrl.is_measurements_synchronized is True
+    ctrl.toggle_measurements_synchronized()
+    assert ctrl.is_measurements_synchronized is False
+
+
+@pytest.mark.requirement("REQ-PLOT-313")
+def test_toggle_measurements_synchronized_reaches_every_tab(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    plot2, table2 = MagicMock(), MagicMock()
+    ctrl2.create_tab(plot2, table2)
+    ctrl2.replace_measurements(["a.mf4", "b.mf4"])
+    deps["plot"].refresh_measurement_axes.reset_mock()
+    plot2.refresh_measurement_axes.reset_mock()
+
+    ctrl2.toggle_measurements_synchronized()
+
+    deps["plot"].refresh_measurement_axes.assert_called_with(ctrl2.measurements, True)
+    plot2.refresh_measurement_axes.assert_called_with(ctrl2.measurements, True)
+
+
+@pytest.mark.requirement("REQ-PLOT-310")
+def test_replace_measurements_resets_synchronized_state(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.toggle_measurements_synchronized()
+    assert ctrl2.is_measurements_synchronized is True
+
+    ctrl2.replace_measurements(["b.mf4"])
+
+    assert ctrl2.is_measurements_synchronized is False
+
+
+@pytest.mark.requirement("REQ-PLOT-315")
+def test_add_measurements_does_not_reset_synchronized_state(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.toggle_measurements_synchronized()
+    assert ctrl2.is_measurements_synchronized is True
+
+    ctrl2.add_measurements(["b.mf4"])
+
+    assert ctrl2.is_measurements_synchronized is True
 
 
 @pytest.mark.requirement("REQ-FILE-031")

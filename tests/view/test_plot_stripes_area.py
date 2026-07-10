@@ -8,10 +8,11 @@ behavior is covered by test_plot_stripe.py.
 
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pytest
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import QSplitter
 from pytestqt.qtbot import QtBot
@@ -337,6 +338,136 @@ def test_measurement_offset_changed_reemitted(area: PlotStripesArea, qtbot: QtBo
     with qtbot.waitSignal(area.measurement_offset_changed) as blocker:
         bottom._measurement_axes[0]._on_offset_changed(m1)
     assert blocker.args == [m1]
+
+
+# ---------------------------------------------------------------------------
+# Measurement Synchronization (#102)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-310")
+def test_refresh_measurement_axes_synchronized_collapses_to_one_row(area: PlotStripesArea) -> None:
+    m1, m2 = _make_measurement(), _make_measurement()
+    area.refresh_measurement_axes([m1, m2], synchronized=True)
+    bottom = area._stripes[-1]
+    assert len(bottom._measurement_axes) == 1
+    assert bottom._measurement_axes[0]._measurement is m1
+
+
+@pytest.mark.requirement("REQ-PLOT-312")
+def test_refresh_measurement_axes_synchronized_shows_reference_label(area: PlotStripesArea) -> None:
+    m1, m2 = _make_measurement(), _make_measurement()
+    m1.label = "reference_run"
+    area.refresh_measurement_axes([m1, m2], synchronized=True)
+    bottom = area._stripes[-1]
+    assert bottom._measurement_axes[0]._measurement.label == "reference_run"
+
+
+@pytest.mark.requirement("REQ-PLOT-314")
+def test_synchronized_row_is_not_draggable(area: PlotStripesArea) -> None:
+    m1, m2 = _make_measurement(offset_s=0.0), _make_measurement()
+    area.refresh_measurement_axes([m1, m2], synchronized=True)
+    bottom = area._stripes[-1]
+    axis = bottom._measurement_axes[0]
+    event = MagicMock()
+    event.button.return_value = Qt.MouseButton.LeftButton
+    axis.mouseDragEvent(event)
+    event.ignore.assert_called_once()
+    assert m1.offset_s == 0.0
+
+
+@pytest.mark.requirement("REQ-PLOT-310")
+def test_synchronized_with_single_measurement_still_shows_one_row(area: PlotStripesArea) -> None:
+    m1 = _make_measurement()
+    area.refresh_measurement_axes([m1], synchronized=True)
+    bottom = area._stripes[-1]
+    assert len(bottom._measurement_axes) == 1
+
+
+@pytest.mark.requirement("REQ-PLOT-310")
+def test_synchronized_survives_new_bottom_stripe(area: PlotStripesArea) -> None:
+    m1, m2 = _make_measurement(), _make_measurement()
+    area.refresh_measurement_axes([m1, m2], synchronized=True)
+    first = area._stripes[0]
+    assert len(first._measurement_axes) == 1
+
+    s2 = area.create_stripe()
+    assert first._measurement_axes == []
+    assert len(s2._measurement_axes) == 1
+    assert s2._measurement_axes[0]._measurement is m1
+
+
+@pytest.mark.requirement("REQ-PLOT-310")
+def test_synchronized_survives_bottom_stripe_deletion(area: PlotStripesArea) -> None:
+    m1, m2 = _make_measurement(), _make_measurement()
+    area.refresh_measurement_axes([m1, m2], synchronized=True)
+    first = area._stripes[0]
+    s2 = area.create_stripe()
+    area.delete_stripe(s2)
+    assert len(first._measurement_axes) == 1
+    assert first._measurement_axes[0]._measurement is m1
+
+
+@pytest.mark.requirement("REQ-PLOT-316")
+def test_sync_control_hidden_below_two_measurements(area: PlotStripesArea) -> None:
+    m1 = _make_measurement()
+    area.refresh_measurement_axes([m1])
+    bottom = area._stripes[-1]
+    assert bottom._sync_button.isHidden() is True
+
+
+@pytest.mark.requirement("REQ-PLOT-316")
+def test_sync_control_shown_with_two_or_more_measurements(area: PlotStripesArea) -> None:
+    m1, m2 = _make_measurement(), _make_measurement()
+    area.refresh_measurement_axes([m1, m2])
+    bottom = area._stripes[-1]
+    assert bottom._sync_button.isHidden() is False
+
+
+def test_sync_control_only_on_bottom_stripe(area: PlotStripesArea) -> None:
+    s2 = area.create_stripe()
+    first = area._stripes[0]
+    m1, m2 = _make_measurement(), _make_measurement()
+    area.refresh_measurement_axes([m1, m2])
+    assert first._sync_button.isHidden() is True
+    assert s2._sync_button.isHidden() is False
+
+
+def test_sync_control_relabels_on_synchronized_flag(area: PlotStripesArea) -> None:
+    m1, m2 = _make_measurement(), _make_measurement()
+    area.refresh_measurement_axes([m1, m2], synchronized=False)
+    bottom = area._stripes[-1]
+    assert bottom._sync_button.text() == "Sync"
+
+    area.refresh_measurement_axes([m1, m2], synchronized=True)
+    assert bottom._sync_button.text() == "Un-Sync"
+
+
+def test_sync_button_click_emits_synchronize_toggled(area: PlotStripesArea, qtbot: QtBot) -> None:
+    m1, m2 = _make_measurement(), _make_measurement()
+    area.refresh_measurement_axes([m1, m2])
+    bottom = area._stripes[-1]
+    with qtbot.waitSignal(area.synchronize_toggled, timeout=1000):
+        bottom._sync_button.click()
+
+
+def test_sync_control_moves_to_new_bottom_stripe_on_create(area: PlotStripesArea) -> None:
+    m1, m2 = _make_measurement(), _make_measurement()
+    area.refresh_measurement_axes([m1, m2])
+    first = area._stripes[0]
+    assert first._sync_button.isHidden() is False
+
+    s2 = area.create_stripe()
+    assert first._sync_button.isHidden() is True
+    assert s2._sync_button.isHidden() is False
+
+
+def test_sync_control_hidden_on_old_bottom_after_delete(area: PlotStripesArea) -> None:
+    m1, m2 = _make_measurement(), _make_measurement()
+    area.refresh_measurement_axes([m1, m2])
+    first = area._stripes[0]
+    s2 = area.create_stripe()
+    area.delete_stripe(s2)
+    assert first._sync_button.isHidden() is False
 
 
 @pytest.mark.requirement("REQ-PLOT-304")
