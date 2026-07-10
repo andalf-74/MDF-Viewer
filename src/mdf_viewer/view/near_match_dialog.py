@@ -27,7 +27,7 @@ class NearMatchDialog(QDialog):
 
     def __init__(
         self,
-        pending: list[tuple[str, SignalMetadata]],
+        pending: "list[tuple[str, SignalMetadata]] | list[tuple[str, tuple[object, SignalMetadata]]]",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -50,7 +50,16 @@ class NearMatchDialog(QDialog):
 
         self._list = QListWidget()
         for original_name, candidate in self._pending:
-            item = QListWidgetItem(f"{original_name}  →  {candidate.name}")
+            # candidate is either plain SignalMetadata (.mvc restore, #106)
+            # or a (LoadedMeasurement, SignalMetadata) tuple (multi-file
+            # Replace carry-over, #101) — see SignalGroupPickerDialog for
+            # the same shape-detection pattern.
+            if isinstance(candidate, tuple):
+                measurement, meta = candidate
+                label = f"{original_name}  →  [{measurement.label}] {meta.name}"
+            else:
+                label = f"{original_name}  →  {candidate.name}"
+            item = QListWidgetItem(label)
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(Qt.CheckState.Checked)
             item.setData(Qt.ItemDataRole.UserRole, (original_name, candidate))

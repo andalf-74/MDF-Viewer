@@ -14,6 +14,7 @@ from pytestqt.qtbot import QtBot
 
 from PyQt6.QtWidgets import QMessageBox
 
+from mdf_viewer.controller.app_controller import LoadResult
 from mdf_viewer.errors import MdfLoadError
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.main_window import MainWindow
@@ -605,7 +606,9 @@ def test_add_signal_connects_after_set_controller(
     wired: MainWindow, mock_controller: MagicMock, qtbot: QtBot
 ) -> None:
     wired.signal_browser.add_signals_requested.emit([(2, 5)])
-    mock_controller.add_signal.assert_called_once_with(2, 5)
+    mock_controller.add_signal.assert_called_once_with(
+        2, 5, measurement=mock_controller.measurement_at.return_value
+    )
 
 
 def test_add_signal_not_called_before_set_controller(
@@ -613,6 +616,25 @@ def test_add_signal_not_called_before_set_controller(
 ) -> None:
     # Emit before set_controller — must not crash
     window.signal_browser.add_signals_requested.emit([(0, 1)])
+
+
+@pytest.mark.requirement("REQ-BROWSER-051")
+def test_measurement_selected_repopulates_browser(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    groups = [MagicMock()]
+    mock_controller.channel_tree_for_measurement.return_value = groups
+    with patch.object(wired.signal_browser, "populate") as mock_populate:
+        wired.signal_browser.measurement_selected.emit(1)
+    mock_controller.channel_tree_for_measurement.assert_called_once_with(1)
+    mock_populate.assert_called_once_with(groups)
+
+
+def test_measurement_selected_not_called_before_set_controller(
+    window: MainWindow, qtbot: QtBot
+) -> None:
+    # Emit before set_controller — must not crash
+    window.signal_browser.measurement_selected.emit(0)
 
 
 # ---------------------------------------------------------------------------
@@ -624,8 +646,10 @@ def test_signals_dropped_on_stripe_calls_add_signal_with_stripe(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
     stripe = MagicMock()
-    wired.plot_area.signals_dropped_on_stripe.emit([(2, 5)], stripe)
-    mock_controller.add_signal.assert_called_once_with(2, 5, stripe=stripe)
+    wired.plot_area.signals_dropped_on_stripe.emit([(2, 5)], stripe, 0)
+    mock_controller.add_signal.assert_called_once_with(
+        2, 5, stripe=stripe, measurement=mock_controller.measurement_at.return_value
+    )
 
 
 @pytest.mark.requirement("REQ-PLOT-277")
@@ -633,8 +657,19 @@ def test_ast_segment_drop_calls_add_signal_with_that_segments_stripe(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
     stripe2 = wired.plot_area.create_stripe()
-    wired.active_signals_table.signals_dropped_on_stripe.emit([(2, 5)], stripe2)
-    mock_controller.add_signal.assert_called_once_with(2, 5, stripe=stripe2)
+    wired.active_signals_table.signals_dropped_on_stripe.emit([(2, 5)], stripe2, 0)
+    mock_controller.add_signal.assert_called_once_with(
+        2, 5, stripe=stripe2, measurement=mock_controller.measurement_at.return_value
+    )
+
+
+@pytest.mark.requirement("REQ-FILE-031")
+def test_signals_dropped_on_stripe_resolves_measurement_index(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    stripe = MagicMock()
+    wired.plot_area.signals_dropped_on_stripe.emit([(2, 5)], stripe, 3)
+    mock_controller.measurement_at.assert_called_once_with(3)
 
 
 def test_set_controller_wires_stripe_providers(
@@ -820,12 +855,14 @@ def test_delete_stripe_requested_nonempty_confirmed_forces_delete(
 def test_load_file_calls_controller(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
+    mock_controller.measurement_count = 0
+    mock_controller.replace_measurements.return_value = LoadResult(succeeded=[MagicMock()])
     with patch(
-        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
-        return_value=("/fake/file.mf4", "MDF Files"),
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileNames",
+        return_value=(["/fake/file.mf4"], "MDF Files"),
     ):
         wired._load_action.trigger()
-    mock_controller.load_file.assert_called_once_with("/fake/file.mf4")
+    mock_controller.replace_measurements.assert_called_once_with(["/fake/file.mf4"])
 
 
 @pytest.mark.requirement("REQ-FILE-011")
@@ -833,11 +870,12 @@ def test_load_file_cancelled_does_not_call_controller(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
     with patch(
-        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
-        return_value=("", ""),
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileNames",
+        return_value=([], ""),
     ):
         wired._load_action.trigger()
-    mock_controller.load_file.assert_not_called()
+    mock_controller.replace_measurements.assert_not_called()
+    mock_controller.add_measurements.assert_not_called()
 
 
 @pytest.mark.requirement("REQ-FILE-041")
@@ -846,15 +884,32 @@ def test_load_file_cancelled_does_not_call_controller(
 def test_load_error_shows_message_box(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
-    mock_controller.load_file.side_effect = MdfLoadError("corrupted file")
+    mock_controller.measurement_count = 0
+    mock_controller.replace_measurements.return_value = LoadResult(
+        failed=[("/bad/file.mf4", MdfLoadError("corrupted file"))]
+    )
     with patch(
-        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
-        return_value=("/bad/file.mf4", "MDF Files"),
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileNames",
+        return_value=(["/bad/file.mf4"], "MDF Files"),
     ):
         with patch("mdf_viewer.view.main_window.QMessageBox.critical") as mock_crit:
             wired._load_action.trigger()
     mock_crit.assert_called_once()
     assert "corrupted file" in mock_crit.call_args[0][2]
+
+
+@pytest.mark.requirement("REQ-FILE-011")
+def test_load_files_multi_select_calls_controller(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.measurement_count = 0
+    mock_controller.replace_measurements.return_value = LoadResult(succeeded=[MagicMock()])
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileNames",
+        return_value=(["/fake/a.mf4", "/fake/b.mf4"], "MDF Files"),
+    ):
+        wired._load_action.trigger()
+    mock_controller.replace_measurements.assert_called_once_with(["/fake/a.mf4", "/fake/b.mf4"])
 
 
 @pytest.mark.requirement("REQ-BROWSER-041")
@@ -918,12 +973,14 @@ def test_recent_files_rebuilt_on_each_show(
 def test_open_recent_calls_controller(
     wired: MainWindow, mock_controller: MagicMock, tmp_path, qtbot: QtBot
 ) -> None:
+    mock_controller.measurement_count = 0
+    mock_controller.replace_measurements.return_value = LoadResult(succeeded=[MagicMock()])
     p = tmp_path / "recent.mf4"
     p.touch()
     wired.set_recent_files_provider(lambda: [p])
     wired._file_menu.aboutToShow.emit()
     wired._recent_actions[0].trigger()
-    mock_controller.load_file.assert_called_once_with(p)
+    mock_controller.replace_measurements.assert_called_once_with([p])
 
 
 @pytest.mark.requirement("REQ-FILE-041")
@@ -931,9 +988,12 @@ def test_open_recent_calls_controller(
 def test_open_recent_error_shows_message_box(
     wired: MainWindow, mock_controller: MagicMock, tmp_path, qtbot: QtBot
 ) -> None:
+    mock_controller.measurement_count = 0
     p = tmp_path / "bad.mf4"
     p.touch()
-    mock_controller.load_file.side_effect = MdfLoadError("bad file")
+    mock_controller.replace_measurements.return_value = LoadResult(
+        failed=[(str(p), MdfLoadError("bad file"))]
+    )
     wired.set_recent_files_provider(lambda: [p])
     wired._file_menu.aboutToShow.emit()
     with patch("mdf_viewer.view.main_window.QMessageBox.critical") as mock_crit:
@@ -965,8 +1025,9 @@ def test_on_add_signals_calls_add_signal_for_each(
     mock_controller.add_signal.return_value = True
     wired._on_add_signals([(0, 1), (1, 2)])
     assert mock_controller.add_signal.call_count == 2
-    mock_controller.add_signal.assert_any_call(0, 1)
-    mock_controller.add_signal.assert_any_call(1, 2)
+    measurement = mock_controller.measurement_at.return_value
+    mock_controller.add_signal.assert_any_call(0, 1, measurement=measurement)
+    mock_controller.add_signal.assert_any_call(1, 2, measurement=measurement)
 
 
 @pytest.mark.requirement("REQ-BROWSER-040")
@@ -1007,9 +1068,11 @@ def test_file_dropped_loads_when_no_file_loaded(
     wired: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
     mock_controller.is_file_loaded = False
+    mock_controller.measurement_count = 0
+    mock_controller.replace_measurements.return_value = LoadResult(succeeded=[MagicMock()])
     path = tmp_path / "test.mf4"
     wired._on_file_dropped(path)
-    mock_controller.load_file.assert_called_once_with(path)
+    mock_controller.replace_measurements.assert_called_once_with([path])
 
 
 @pytest.mark.requirement("REQ-FILE-020")
@@ -1017,27 +1080,41 @@ def test_file_dropped_asks_confirmation_when_file_loaded(
     wired: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
     mock_controller.is_file_loaded = True
+    mock_controller.measurement_count = 1
     path = tmp_path / "test.mf4"
-    with patch(
-        "mdf_viewer.view.main_window.QMessageBox.question",
-        return_value=QMessageBox.StandardButton.No,
-    ):
+    with patch.object(wired, "_ask_replace_or_add", return_value=None) as mock_ask:
         wired._on_file_dropped(path)
-    mock_controller.load_file.assert_not_called()
+    mock_ask.assert_called_once()
+    mock_controller.replace_measurements.assert_not_called()
+    mock_controller.add_measurements.assert_not_called()
 
 
 @pytest.mark.requirement("REQ-FILE-020")
-def test_file_dropped_loads_when_confirmed(
+def test_file_dropped_replaces_when_replace_chosen(
     wired: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
     mock_controller.is_file_loaded = True
+    mock_controller.measurement_count = 1
+    mock_controller.replace_measurements.return_value = LoadResult(succeeded=[MagicMock()])
     path = tmp_path / "test.mf4"
-    with patch(
-        "mdf_viewer.view.main_window.QMessageBox.question",
-        return_value=QMessageBox.StandardButton.Yes,
-    ):
+    with patch.object(wired, "_ask_replace_or_add", return_value="replace"):
         wired._on_file_dropped(path)
-    mock_controller.load_file.assert_called_once_with(path)
+    mock_controller.replace_measurements.assert_called_once_with([path])
+    mock_controller.add_measurements.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-FILE-020")
+def test_file_dropped_adds_when_add_chosen(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mock_controller.is_file_loaded = True
+    mock_controller.measurement_count = 1
+    mock_controller.add_measurements.return_value = LoadResult(succeeded=[MagicMock()])
+    path = tmp_path / "test.mf4"
+    with patch.object(wired, "_ask_replace_or_add", return_value="add"):
+        wired._on_file_dropped(path)
+    mock_controller.add_measurements.assert_called_once_with([path])
+    mock_controller.replace_measurements.assert_not_called()
 
 
 @pytest.mark.requirement("REQ-FILE-041")
@@ -1046,8 +1123,11 @@ def test_file_dropped_error_shows_message_box(
     wired: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
     mock_controller.is_file_loaded = False
-    mock_controller.load_file.side_effect = MdfLoadError("corrupt")
+    mock_controller.measurement_count = 0
     path = tmp_path / "bad.mf4"
+    mock_controller.replace_measurements.return_value = LoadResult(
+        failed=[(str(path), MdfLoadError("corrupt"))]
+    )
     with patch("mdf_viewer.view.main_window.QMessageBox.critical") as mock_crit:
         wired._on_file_dropped(path)
     mock_crit.assert_called_once()
@@ -1273,24 +1353,43 @@ def test_on_load_file_routes_mvc_to_load_config(
     window._settings = MagicMock()
     window._settings.prompt_save_config_on_close = False
 
-    with patch("PyQt6.QtWidgets.QFileDialog.getOpenFileName", return_value=(str(mvc), "")):
+    with patch("PyQt6.QtWidgets.QFileDialog.getOpenFileNames", return_value=([str(mvc)], "")):
         with patch.object(window, "_load_config") as mock_load_config:
             window._on_load_file()
             mock_load_config.assert_called_once_with(mvc)
 
 
 @pytest.mark.requirement("REQ-FILE-013")
-def test_on_load_file_routes_mdf_to_load_file(
+def test_on_load_file_routes_mdf_to_load_files(
     window: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:
     mdf = tmp_path / "data.mf4"
     mdf.touch()
     window._controller = mock_controller
 
-    with patch("PyQt6.QtWidgets.QFileDialog.getOpenFileName", return_value=(str(mdf), "")):
-        with patch.object(window, "_load_file") as mock_load_file:
+    with patch("PyQt6.QtWidgets.QFileDialog.getOpenFileNames", return_value=([str(mdf)], "")):
+        with patch.object(window, "_load_files") as mock_load_files:
             window._on_load_file()
-            mock_load_file.assert_called_once_with(str(mdf))
+            mock_load_files.assert_called_once_with([str(mdf)])
+
+
+@pytest.mark.requirement("REQ-FILE-011")
+def test_on_load_file_multi_select_routes_to_load_files(
+    window: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    a = tmp_path / "a.mf4"
+    b = tmp_path / "b.mf4"
+    a.touch()
+    b.touch()
+    window._controller = mock_controller
+
+    with patch(
+        "PyQt6.QtWidgets.QFileDialog.getOpenFileNames",
+        return_value=([str(a), str(b)], ""),
+    ):
+        with patch.object(window, "_load_files") as mock_load_files:
+            window._on_load_file()
+            mock_load_files.assert_called_once_with([str(a), str(b)])
 
 
 @pytest.mark.requirement("REQ-FILE-013")
@@ -1409,7 +1508,10 @@ def test_restore_snapshots_restores_into_each_tab(
     window._controller = mock_controller
     mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
     snap_a, snap_b = MagicMock(name="a"), MagicMock(name="b")
-    mock_controller.find_signal_by_name.side_effect = lambda name: [MagicMock(group_index=0, channel_index=1)]
+    measurement = MagicMock(label="m")
+    mock_controller.find_signal_locations_by_name.side_effect = (
+        lambda name: [(measurement, MagicMock(group_index=0, channel_index=1))]
+    )
 
     window._restore_snapshots({0: [snap_a], 2: [snap_b]})
 
@@ -1465,13 +1567,16 @@ def test_restore_snapshots_near_single_resolves_when_accepted(
     mock_controller.active_signals = []
     snap = _snap("a\\XCP:1")
     candidate = _near_candidate("a\\ETKC:1")
+    measurement = MagicMock(label="m")
 
-    with patch.object(window, "_classify_signal_name", return_value=("near_single", [candidate])):
+    with patch.object(
+        window, "_classify_signal_name", return_value=("near_single", [(measurement, candidate)]),
+    ):
         window._restore_snapshots({0: [snap]})
 
     assert len(fake_near_match_dialog.instances) == 1
     mock_controller.restore_tab_signals.assert_called_once_with(
-        0, [(snap, candidate.group_index, candidate.channel_index)]
+        0, [(snap, candidate.group_index, candidate.channel_index, measurement)]
     )
 
 
@@ -1522,10 +1627,11 @@ def test_restore_snapshots_one_near_match_dialog_spans_all_tabs(
     mock_controller.active_signals = []
     snap_a = _snap("a\\XCP:1")
     snap_b = _snap("b\\XCP:1")
-    candidate_a = _near_candidate("a\\ETKC:1")
-    candidate_b = _near_candidate("b\\ETKC:1")
+    measurement = MagicMock(label="m")
+    candidate_a = (measurement, _near_candidate("a\\ETKC:1"))
+    candidate_b = (measurement, _near_candidate("b\\ETKC:1"))
 
-    def classify(name, group_name=""):
+    def classify(name, group_name="", measurement_aware=False):
         return ("near_single", [candidate_a if name == "a\\XCP:1" else candidate_b])
 
     captured = {}
@@ -1549,8 +1655,9 @@ def test_restore_snapshots_near_multiple_uses_picker_then_near_match_dialog(
     window._controller = mock_controller
     mock_controller.active_signals = []
     snap = _snap("a\\XCP:1")
-    candidate_1 = _near_candidate("a\\ETKC:1", ci=1)
-    candidate_2 = _near_candidate("a\\ETKC:2", ci=2)
+    measurement = MagicMock(label="m")
+    candidate_1 = (measurement, _near_candidate("a\\ETKC:1", ci=1))
+    candidate_2 = (measurement, _near_candidate("a\\ETKC:2", ci=2))
     dlg = _FakeNearMatchDialog([("a\\XCP:1", candidate_2)])
 
     with patch.object(window, "_classify_signal_name", return_value=("near_multiple", [candidate_1, candidate_2])), \
@@ -1560,8 +1667,9 @@ def test_restore_snapshots_near_multiple_uses_picker_then_near_match_dialog(
         mock_picker_cls.return_value.selected.return_value = candidate_2
         window._restore_snapshots({0: [snap]})
 
+    meta_2 = candidate_2[1]
     mock_controller.restore_tab_signals.assert_called_once_with(
-        0, [(snap, candidate_2.group_index, candidate_2.channel_index)]
+        0, [(snap, meta_2.group_index, meta_2.channel_index, measurement)]
     )
 
 

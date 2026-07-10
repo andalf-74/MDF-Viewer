@@ -20,7 +20,6 @@ linked to pi.vb, so panning or zooming X anywhere propagates to all signals.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -30,7 +29,7 @@ from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QPen
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QWidget
 
-from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
+from mdf_viewer.view._mime import SIGNAL_MIME_TYPE, decode_signal_payload
 from mdf_viewer.view_model.active_signal import ActiveSignal
 from mdf_viewer.view_model.zoom_state import ZoomState
 
@@ -209,6 +208,60 @@ class _SignalAxisItem(pg.AxisItem):
         return [f"{v * scale:.6g}" for v in values]
 
 
+class _MeasurementAxisItem(pg.AxisItem):
+    """Bottom-orientation axis row showing one measurement's own recorded
+    time under the shared X ruler (#101).
+
+    Linked to the SAME shared ViewBox as every other axis in this stripe —
+    not a separate one — so its tick *positions* always track the shared
+    X-zoom/range for free (REQ-PLOT-302). Only tickStrings() differs per
+    row: it subtracts this row's own measurement.offset_s, so the row
+    reads as "this measurement's real recorded time" regardless of how far
+    its curves have been panned relative to the others.
+
+    mouseDragEvent is fully overridden and never forwards to the linked
+    view's own pan (unlike PyQtGraph's default AxisItem.mouseDragEvent,
+    which always calls linkedView().mouseDragEvent — see the #101
+    architecture note for why that default can't be reused here). Dragging
+    this axis mutates measurement.offset_s directly instead, which is the
+    "zoom stays global, only pan is per-measurement" split REQ-PLOT-303
+    requires.
+    """
+
+    def __init__(self, measurement, on_offset_changed=None, *args, **kwargs) -> None:
+        kwargs.setdefault('orientation', 'bottom')
+        super().__init__(*args, **kwargs)
+        self._measurement = measurement
+        self._on_offset_changed = on_offset_changed
+        self._drag_start_offset = 0.0
+
+    def tickStrings(self, values, scale, spacing):
+        offset = self._measurement.offset_s
+        return [f"{(v * scale) - offset:.6g}" for v in values]
+
+    def mouseDragEvent(self, event):
+        if event.button() != Qt.MouseButton.LeftButton:
+            event.ignore()
+            return
+        lv = self.linkedView()
+        if lv is None:
+            event.ignore()
+            return
+        if event.isStart():
+            self._drag_start_offset = self._measurement.offset_s
+        dx_px = event.scenePos().x() - event.buttonDownScenePos().x()
+        px_size_x = lv.viewPixelSize()[0]
+        self._measurement.offset_s = self._drag_start_offset + dx_px * px_size_x
+        if self._on_offset_changed is not None:
+            self._on_offset_changed(self._measurement)
+        # Tick positions are unchanged (the shared ViewBox range never
+        # moves), but the labels must repaint to reflect the new offset —
+        # same forced-repaint pattern as _SignalAxisItem.set_enum_display.
+        self.picture = None
+        self.update()
+        event.accept()
+
+
 @dataclass
 class _SignalPlotData:
     """Internal per-signal rendering objects."""
@@ -231,8 +284,10 @@ class PlotStripe(QWidget):
     y_grid_toggled = pyqtSignal(bool)
     # Emitted when an MDF file is dropped onto the plot.
     file_dropped = pyqtSignal(object)  # Path
-    # Emitted when signals are dragged from the Signal Browser and dropped.
-    signals_dropped = pyqtSignal(list)  # list of (group_index, channel_index)
+    # Emitted when signals are dragged from the Signal Browser and dropped:
+    # list of (group_index, channel_index), and which loaded measurement
+    # (#101) they belong to (index into AppController.measurements).
+    signals_dropped = pyqtSignal(list, int)
     # Emitted whenever the X or any signal Y range changes (for zoom undo/redo).
     range_changed = pyqtSignal()
     # Emitted on a left-click in the plot: the topmost hit ActiveSignal, or None on a miss.
@@ -292,6 +347,12 @@ class PlotStripe(QWidget):
         # content_axis_width/set_axis_padding).
         self._axis_spacer: pg.AxisItem | None = None
 
+        # Per-measurement X-axis rows (#101); only ever non-empty on the
+        # bottom-most stripe of a PlotStripesArea (REQ-PLOT-301), stacked
+        # below PlotItem's own rows 0-3 (title/top-axis/vb/bottom-axis) —
+        # see set_measurement_axes().
+        self._measurement_axes: list["_MeasurementAxisItem"] = []
+
         self._pi.vb.sigResized.connect(self._update_view_geometries)
         self._pi.ctrl.yGridCheck.toggled.connect(self._on_y_grid_toggled)
         self._pi.vb.zoom_rect_finished.connect(self._on_zoom_rect_finished)
@@ -339,6 +400,53 @@ class PlotStripe(QWidget):
         """
         self._pi.getAxis('bottom').setStyle(showValues=enabled)
         self._pi.showLabel('bottom', enabled)
+
+    # PlotItem's own rows are fixed by PyQtGraph: 0=title, 1=top axis
+    # (unused here), 2=ViewBox, 3=bottom 'Time' axis (confirmed by
+    # inspecting a real PlotItem's layout — see docs/architecture.md
+    # "Multiple Measurements (#101)"). New measurement rows stack below
+    # that, starting at row 4, all in column 1 (the same column as the
+    # ViewBox and the 'Time' axis, so they align to the plot's own width
+    # rather than spanning the extra right-side Y-axis columns).
+    _MEASUREMENT_AXIS_BASE_ROW = 4
+    _MEASUREMENT_AXIS_COLUMN = 1
+
+    def set_measurement_axes(self, measurements: list, on_offset_changed=None) -> None:
+        """Build/tear down one bottom axis row per loaded measurement (#101).
+
+        Only the bottom-most stripe in a PlotStripesArea should ever be
+        given a non-empty *measurements* (REQ-PLOT-301); every other
+        stripe is called with an empty list to clear its rows. Rows are
+        linked to this stripe's shared ViewBox (self._pi.vb) — the same
+        one every signal's X and the 'Time' axis already track — so their
+        tick positions stay correct for free; see _MeasurementAxisItem.
+
+        *on_offset_changed* is called with the LoadedMeasurement whenever
+        the user drags one of these rows, so the caller (PlotStripesArea /
+        AppController) can refresh that measurement's curves across every
+        stripe and tab.
+        """
+        for axis in self._measurement_axes:
+            self._pi.layout.removeItem(axis)
+            axis.hide()
+        self._measurement_axes = []
+
+        for i, measurement in enumerate(measurements):
+            axis = _MeasurementAxisItem(
+                measurement=measurement,
+                on_offset_changed=on_offset_changed,
+                linkView=self._pi.vb,
+                pen=pg.mkPen(color=_NEUTRAL_AXIS_COLOR),
+                textPen=pg.mkPen(color=_NEUTRAL_AXIS_COLOR),
+            )
+            axis.setLabel(measurement.label)
+            row = self._MEASUREMENT_AXIS_BASE_ROW + i
+            self._pi.layout.setRowPreferredHeight(row, 0)
+            self._pi.layout.setRowMinimumHeight(row, 0)
+            self._pi.layout.setRowSpacing(row, 0)
+            self._pi.layout.setRowStretchFactor(row, 1)
+            self._pi.layout.addItem(axis, row, self._MEASUREMENT_AXIS_COLUMN)
+            self._measurement_axes.append(axis)
 
     def content_axis_width(self) -> float:
         """Sum of the pixel widths of this stripe's own visible Y-axes.
@@ -446,7 +554,7 @@ class PlotStripe(QWidget):
         curve.setClipToView(True)
         curve.setDownsampling(auto=True, method="peak")
         vb.addItem(curve)
-        curve.setData(active.data.timestamps, active.data.samples)
+        curve.setData(active.display_timestamps, active.data.samples)
 
         active.curve = curve
         active.view_box = vb
@@ -643,16 +751,27 @@ class PlotStripe(QWidget):
             return
         spd = self._data[active]
         spd.curve.opts["stepMode"] = "right" if enabled else False
-        spd.curve.setData(active.data.timestamps, active.data.samples)
+        spd.curve.setData(active.display_timestamps, active.data.samples)
+
+    def refresh_signal_data(self, active: ActiveSignal) -> None:
+        """Re-apply curve data after active.display_timestamps changes (#101).
+
+        Used when a measurement's X-axis offset is dragged — Y data and
+        every other display property (color, width, step mode, ...) are
+        untouched. No-op if not present.
+        """
+        if active not in self._data:
+            return
+        self._data[active].curve.setData(active.display_timestamps, active.data.samples)
 
     def zoom_to_fit(self) -> None:
         """Reset viewport: full X range across all signals, auto Y per signal."""
         if not self._data:
             return
 
-        # Compute full X range from all active signal timestamps.
-        t_min = min(float(a.data.timestamps[0]) for a in self._data if len(a.data.timestamps))
-        t_max = max(float(a.data.timestamps[-1]) for a in self._data if len(a.data.timestamps))
+        # Compute full X range from all active signals' display timestamps.
+        t_min = min(float(a.display_timestamps[0]) for a in self._data if len(a.data.timestamps))
+        t_max = max(float(a.display_timestamps[-1]) for a in self._data if len(a.data.timestamps))
         self._pi.vb.setXRange(t_min, t_max, padding=0.02)
         self.autorange_y()
 
@@ -710,7 +829,7 @@ class PlotStripe(QWidget):
         for i, (vb, unit_signals, _is_synced) in enumerate(units):
             ys_all: list[float] = []
             for active in unit_signals:
-                ts = active.data.timestamps
+                ts = active.display_timestamps
                 ys = active.data.samples
                 mask = (ts >= x_min) & (ts <= x_max)
                 visible = ys[mask]
@@ -756,7 +875,7 @@ class PlotStripe(QWidget):
         for vb, signals, _is_synced in self._display_units():
             ys_all: list[float] = []
             for active in signals:
-                ts = active.data.timestamps
+                ts = active.display_timestamps
                 ys = active.data.samples
                 mask = (ts >= x_min) & (ts <= x_max)
                 visible = ys[mask]
@@ -1397,8 +1516,8 @@ class PlotStripe(QWidget):
         mime = event.mimeData()
         if mime.hasFormat(SIGNAL_MIME_TYPE):
             data = bytes(mime.data(SIGNAL_MIME_TYPE))
-            locs = [tuple(item) for item in json.loads(data)]
-            self.signals_dropped.emit(locs)
+            measurement_index, locs = decode_signal_payload(data)
+            self.signals_dropped.emit(locs, measurement_index)
             event.acceptProposedAction()
         elif mime.hasUrls():
             for url in mime.urls():

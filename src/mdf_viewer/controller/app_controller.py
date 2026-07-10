@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 from mdf_viewer.controller.events import (
     CursorMovedEvent,
@@ -24,8 +24,22 @@ from mdf_viewer.controller.events import (
     SignalAddedEvent,
     SignalRemovedEvent,
 )
+from mdf_viewer.errors import MdfLoadError
+from mdf_viewer.model.loaded_measurement import LoadedMeasurement, make_label
 from mdf_viewer.model.mdf_loader import MdfLoader
 from mdf_viewer.view_model.active_signal import ActiveSignal
+
+
+@dataclass
+class LoadResult:
+    """Per-file outcome of replace_measurements()/add_measurements() (#101).
+
+    Files that fail to open are collected here rather than aborting the
+    whole operation (REQ-FILE-023) — the caller (MainWindow) builds one
+    error dialog naming every failed file from *failed*.
+    """
+    succeeded: list[LoadedMeasurement] = field(default_factory=list)
+    failed: list[tuple[str, MdfLoadError]] = field(default_factory=list)
 
 
 @dataclass
@@ -105,8 +119,19 @@ class AppController:
         measurement_info_box: MeasurementInfoProtocol,
         signal_info_box: SignalInfoProtocol,
         settings: Settings | None = None,
+        loader_factory: Callable[[], MdfLoader] | None = None,
     ) -> None:
+        # *loader* is the single-file legacy entry point's loader (load_file()
+        # keeps driving this exact instance, matching pre-#101 behavior) and
+        # the fallback used by add_signal()/find_signal_by_name()/etc. when
+        # the multi-measurement pool below is empty. *loader_factory*
+        # constructs a fresh MdfLoader for each measurement added via
+        # replace_measurements()/add_measurements() — defaults to MdfLoader
+        # itself (the real app's path); tests can override it to control
+        # what each newly "opened" measurement looks like.
         self._loader = loader
+        self._loader_factory: Callable[[], MdfLoader] = loader_factory or MdfLoader
+        self._measurements: list[LoadedMeasurement] = []
         self._browser = signal_browser
         self._info_box = measurement_info_box
         self._signal_info = signal_info_box
@@ -119,6 +144,38 @@ class AppController:
 
         self._current_config_path: Path | None = None
         self.events = EventBus()
+
+    def _default_measurement(self) -> LoadedMeasurement | None:
+        """Resolve an implicit measurement when the pool has exactly one entry.
+
+        Lets single-measurement call sites (including every pre-#101 test)
+        keep calling add_signal(gi, ci) without naming a measurement.
+        Returns None when the pool is empty (falls back to the legacy
+        self._loader) or ambiguous (>=2 measurements — the caller must
+        specify one explicitly; MainWindow does so from M3 onward).
+        """
+        if len(self._measurements) == 1:
+            return self._measurements[0]
+        return None
+
+    @property
+    def measurement_count(self) -> int:
+        return len(self._measurements)
+
+    @property
+    def measurements(self) -> list[LoadedMeasurement]:
+        return list(self._measurements)
+
+    def measurement_at(self, index: int) -> LoadedMeasurement | None:
+        """The pool entry at *index* (Signal Browser selector position), or None if out of range."""
+        if 0 <= index < len(self._measurements):
+            return self._measurements[index]
+        return None
+
+    def channel_tree_for_measurement(self, index: int) -> list:
+        """The channel_tree() for the measurement at *index* (REQ-BROWSER-051), or [] if out of range."""
+        measurement = self.measurement_at(index)
+        return measurement.loader.channel_tree() if measurement is not None else []
 
     @property
     def current_workspace(self) -> TabWorkspace:
@@ -310,6 +367,15 @@ class AppController:
     def load_file(self, path: str | os.PathLike) -> None:
         """Open an MDF file and populate the Signal Browser.
 
+        Back-compat single-file entry point, kept for existing callers and
+        tests — new code should prefer replace_measurements()/
+        add_measurements() (#101). Drives the loader injected at
+        construction (self._loader) rather than loader_factory, matching
+        pre-#101 behavior of reusing one fixed loader across repeated
+        calls; also registers the loaded file as the sole entry in the
+        multi-measurement pool so downstream #101 code (axis rows, name
+        prefixing, etc.) sees it uniformly.
+
         Clears all existing active signals and resets the color counter.
         Raises MdfLoadError if the file cannot be opened or read — the
         caller is responsible for showing an error dialog.
@@ -325,6 +391,9 @@ class AppController:
 
         groups = self._loader.channel_tree()
         info = self._loader.measurement_info()
+        self._measurements = [
+            LoadedMeasurement(loader=self._loader, info=info, label=make_label(path, []))
+        ]
         self._browser.populate(groups)
         self._info_box.set_info(info)
         if self.current_workspace.cursor_ctrl is not None:
@@ -336,29 +405,187 @@ class AppController:
         self._current_config_path = None
         self.events.file_loaded.emit(FileLoadedEvent(path=str(path), tab=self.current_workspace))
 
-    def add_signal(self, group_index: int, channel_index: int, stripe=None) -> bool:
+    def replace_measurements(self, paths: list[str | os.PathLike]) -> LoadResult:
+        """Replace every currently loaded measurement with newly opened file(s) (REQ-FILE-021).
+
+        Clears the active tab's signals, the Signal Browser, and the
+        Measurement Info Box, then opens every path in *paths* as a fresh
+        measurement (each via its own loader_factory()-built MdfLoader).
+        Files that fail to open are collected into the returned LoadResult
+        rather than aborting the whole operation (REQ-FILE-023); the
+        Signal Browser/Info Box are populated from the first successfully
+        opened measurement, with the rest reachable via the browser's own
+        measurement selector (REQ-BROWSER-050).
+        """
+        self.remove_all()
+        self._browser.clear()
+        self._info_box.clear()
+        self.current_workspace.color_index = 0
+
+        result = LoadResult()
+        new_measurements: list[LoadedMeasurement] = []
+        labels: list[str] = []
+        for path in paths:
+            loader = self._loader_factory()
+            try:
+                loader.open(path)
+            except MdfLoadError as exc:
+                result.failed.append((str(path), exc))
+                continue
+            info = loader.measurement_info()
+            label = make_label(path, labels)
+            labels.append(label)
+            measurement = LoadedMeasurement(loader=loader, info=info, label=label)
+            new_measurements.append(measurement)
+            result.succeeded.append(measurement)
+            if self._settings is not None:
+                self._settings.add_recent(path)
+
+        self._measurements = new_measurements
+        self._browser.set_measurements([m.label for m in new_measurements])
+        self._refresh_measurement_axes()
+        self.refresh_display_names()
+
+        if new_measurements:
+            first = new_measurements[0]
+            self._browser.populate(first.loader.channel_tree())
+            self._info_box.set_info(first.info)
+        if self.current_workspace.cursor_ctrl is not None:
+            self.current_workspace.cursor_ctrl.reset()
+        if self.current_workspace.zoom_ctrl is not None:
+            self.current_workspace.zoom_ctrl.clear()
+        self._current_config_path = None
+        if new_measurements:
+            self.events.file_loaded.emit(
+                FileLoadedEvent(path=str(paths[0]), tab=self.current_workspace)
+            )
+        return result
+
+    def add_measurements(self, paths: list[str | os.PathLike]) -> LoadResult:
+        """Load *paths* as additional measurements alongside what's already open (REQ-FILE-022).
+
+        Purely additive: no existing tab's signals, zoom, cursor, or
+        undo/redo state is touched. Files that fail to open are collected
+        into the returned LoadResult rather than aborting the whole
+        operation (REQ-FILE-023); a failure never affects any
+        already-loaded measurement (REQ-FILE-024).
+        """
+        result = LoadResult()
+        labels = [m.label for m in self._measurements]
+        for path in paths:
+            loader = self._loader_factory()
+            try:
+                loader.open(path)
+            except MdfLoadError as exc:
+                result.failed.append((str(path), exc))
+                continue
+            info = loader.measurement_info()
+            label = make_label(path, labels)
+            labels.append(label)
+            measurement = LoadedMeasurement(loader=loader, info=info, label=label)
+            self._measurements.append(measurement)
+            result.succeeded.append(measurement)
+            if self._settings is not None:
+                self._settings.add_recent(path)
+        if result.succeeded:
+            self._browser.set_measurements([m.label for m in self._measurements])
+            self._refresh_measurement_axes()
+            self.refresh_display_names()
+        return result
+
+    def close_measurement(self, measurement: LoadedMeasurement) -> None:
+        """Remove *measurement* and every one of its active signals from every tab (REQ-FILE-028).
+
+        Confirmation (warn when the measurement has active signals) is
+        MainWindow's job, mirroring the stripe/tab-close pattern — this
+        method always proceeds unconditionally once called.
+        """
+        saved_index = self._active_tab_index
+        try:
+            for index, workspace in enumerate(self._workspaces):
+                affected = [a for a in workspace.active if a.measurement is measurement]
+                if not affected:
+                    continue
+                self._active_tab_index = index
+                self.remove_signals(affected)
+        finally:
+            self._active_tab_index = saved_index
+        # Identity comparison, not `in`/`.remove()`'s `==` — LoadedMeasurement
+        # is a mutable dataclass with no custom __eq__, so two structurally
+        # matching-but-distinct instances could otherwise compare equal.
+        self._measurements = [m for m in self._measurements if m is not measurement]
+        self._browser.set_measurements([m.label for m in self._measurements])
+        if self._measurements:
+            self._browser.populate(self._measurements[0].loader.channel_tree())
+        else:
+            self._browser.clear()
+        self._refresh_measurement_axes()
+        self.refresh_display_names()
+
+    def _refresh_measurement_axes(self) -> None:
+        """Push the current measurement pool to every tab's plot area (#101).
+
+        Measurements are a single global pool shared across tabs, so every
+        tab's bottom-most-stripe axis rows (REQ-PLOT-301) must reflect it,
+        not just the currently active tab.
+        """
+        for workspace in self._workspaces:
+            workspace.plot.refresh_measurement_axes(self._measurements)
+
+    def on_measurement_offset_changed(self, measurement: LoadedMeasurement) -> None:
+        """Refresh every active signal belonging to *measurement*, in every
+        tab (#101) — the offset changed via dragging that measurement's own
+        axis row (PlotStripesArea.measurement_offset_changed), so every
+        curve using it must be redrawn at its new display_timestamps.
+        """
+        for workspace in self._workspaces:
+            for active in workspace.active:
+                if active.measurement is measurement:
+                    workspace.plot.refresh_signal_data(active)
+
+    def add_signal(
+        self,
+        group_index: int,
+        channel_index: int,
+        stripe=None,
+        measurement: LoadedMeasurement | None = None,
+    ) -> bool:
         """Load a channel and add it to the plot and the Active Signals Table.
 
         *stripe*, when given, is the target PlotStripe (e.g. a drag-and-drop
         onto a specific stripe); omitted/None adds to the current active stripe.
 
+        *measurement* identifies which loaded measurement (#101)
+        group_index/channel_index refer to — required to disambiguate once
+        more than one measurement is loaded. Omitted (or when exactly one
+        measurement is loaded) resolves automatically via
+        _default_measurement(), preserving single-measurement call sites;
+        with no measurement loaded through the pool APIs at all, falls back
+        to the loader injected at construction (legacy/back-compat path).
+
         Returns True if added, False if the channel was already active in
-        the current tab (the same channel may still be active in another
-        tab — see REQ-BROWSER-040).
+        the current tab for the same measurement (the same channel may
+        still be active in another tab, or under a different measurement —
+        see REQ-BROWSER-040).
         Raises MdfLoadError if the channel cannot be read or its samples are
         not numeric.
         """
         current = self.current_workspace
+        measurement = measurement or self._default_measurement()
+        loader = measurement.loader if measurement is not None else self._loader
         if any(
             s.metadata.group_index == group_index
             and s.metadata.channel_index == channel_index
+            and s.measurement is measurement
             for s in current.active
         ):
             return False
-        data, meta = self._loader.load_signal(group_index, channel_index)
+        data, meta = loader.load_signal(group_index, channel_index)
         rgb = _COLOR_PALETTE[current.color_index % len(_COLOR_PALETTE)]
         current.color_index += 1
-        active = ActiveSignal(data=data, metadata=meta, color=rgb, step_mode=meta.is_integer)
+        active = ActiveSignal(
+            data=data, metadata=meta, color=rgb, step_mode=meta.is_integer, measurement=measurement,
+        )
         current.active.append(active)
         current.plot.add_signal(active, stripe=stripe)
         current.table.add_row(active, current.plot.get_stripe_for_signal(active))
@@ -615,14 +842,29 @@ class AppController:
 
         The display-name-shortening rule is a global preference (REQ-PLOT-160),
         so all tabs update together rather than just the currently active one.
+        Once more than one measurement is loaded, every name is additionally
+        prefixed with its measurement's label (REQ-PLOT-306) — applied last,
+        wrapping the already-shortened name (REQ-PLOT-307), so the
+        shortening rule behaves identically regardless of measurement count.
+        """
+        for workspace in self._workspaces:
+            workspace.table.set_name_formatter(self._format_display_name)
+
+    def _format_display_name(self, active: ActiveSignal) -> str:
+        """Shared display-name formatting: shorten, then measurement-prefix.
+
+        Used by both refresh_display_names() (Active Signals Table) and
+        _push_selection_to_drawer() (Signal Info Box), so the two panels
+        never disagree on what a signal's display name is (REQ-PLOT-306/307).
         """
         if self._settings is not None:
             from mdf_viewer.settings import apply_display_name_rule
-            formatter = lambda n: apply_display_name_rule(n, self._settings)
+            name = apply_display_name_rule(active.metadata.name, self._settings)
         else:
-            formatter = lambda n: n
-        for workspace in self._workspaces:
-            workspace.table.set_name_formatter(formatter)
+            name = active.metadata.name
+        if self.measurement_count > 1 and active.measurement is not None:
+            return f"[{active.measurement.label}] {name}"
+        return name
 
     def refresh_z_order(self) -> None:
         """Reapply Z-order, selection boost, and Y-axis visibility after a preference change."""
@@ -746,7 +988,9 @@ class AppController:
         if active_signal is None:
             self._signal_info.clear()
         else:
-            self._signal_info.set_metadata(active_signal.metadata)
+            self._signal_info.set_metadata(
+                active_signal.metadata, display_name=self._format_display_name(active_signal),
+            )
             self._signal_info.set_properties(active_signal.display_mode, active_signal.marker_shape, active_signal.line_width, active_signal.line_style)
             if active_signal.metadata.enum_map:
                 self._signal_info.set_enum_options(
@@ -793,26 +1037,90 @@ class AppController:
         return snapshots
 
     def find_signal_by_name(self, name: str) -> list:
-        """Return all SignalMetadata entries in the loaded file that match *name*."""
-        return self._loader.find_signal_by_name(name)
+        """Return all SignalMetadata entries matching *name*.
+
+        Searches the union of every currently loaded measurement (#101,
+        resolving carry-over/near-match across a multi-file Replace);
+        falls back to the loader injected at construction when the pool
+        is empty (legacy/back-compat path — also used directly by tests).
+        """
+        if not self._measurements:
+            return self._loader.find_signal_by_name(name)
+        result: list = []
+        for measurement in self._measurements:
+            result.extend(measurement.loader.find_signal_by_name(name))
+        return result
 
     def find_similar_signal_by_name(self, name: str) -> list:
-        """Return SignalMetadata entries that near-match *name* (REQ-FILE-032/033)."""
-        return self._loader.find_similar_signal_by_name(name)
+        """Return SignalMetadata entries that near-match *name* (REQ-FILE-032/033).
+
+        Same union-across-the-pool / legacy-fallback behavior as
+        find_signal_by_name() above.
+        """
+        if not self._measurements:
+            return self._loader.find_similar_signal_by_name(name)
+        result: list = []
+        for measurement in self._measurements:
+            result.extend(measurement.loader.find_similar_signal_by_name(name))
+        return result
+
+    def find_signal_locations_by_name(
+        self, name: str
+    ) -> list[tuple[LoadedMeasurement, "object"]]:
+        """Return (measurement, SignalMetadata) pairs matching *name* across the pool.
+
+        Used by MainWindow's multi-file Replace carry-over resolution
+        (#101) to disambiguate a name that matches in more than one
+        loaded measurement — plain find_signal_by_name() can't, since its
+        flat SignalMetadata results don't say which measurement they came
+        from. Empty when the pool is empty (no legacy fallback: the
+        single-measurement legacy path has no ambiguity to resolve).
+        """
+        result: list[tuple[LoadedMeasurement, object]] = []
+        for measurement in self._measurements:
+            for meta in measurement.loader.find_signal_by_name(name):
+                result.append((measurement, meta))
+        return result
+
+    def find_similar_signal_locations_by_name(
+        self, name: str
+    ) -> list[tuple[LoadedMeasurement, "object"]]:
+        """Same as find_signal_locations_by_name() but for near-matches (REQ-FILE-032/033)."""
+        result: list[tuple[LoadedMeasurement, object]] = []
+        for measurement in self._measurements:
+            for meta in measurement.loader.find_similar_signal_by_name(name):
+                result.append((measurement, meta))
+        return result
 
     def restore_signals(
-        self, resolved: list[tuple[ActiveSignalSnapshot, int, int]]
+        self,
+        resolved: list[
+            tuple[ActiveSignalSnapshot, int, int]
+            | tuple[ActiveSignalSnapshot, int, int, LoadedMeasurement | None]
+        ],
     ) -> None:
-        """Re-add signals from (snapshot, group_index, channel_index) tuples.
+        """Re-add signals from (snapshot, group_index, channel_index[, measurement]) tuples.
+
+        The trailing *measurement* is optional (#101) — omitted (3-tuple)
+        resolves via add_signal()'s own _default_measurement() fallback,
+        preserving pre-#101 single-measurement callers unchanged; given
+        explicitly (4-tuple), disambiguates which loaded measurement
+        group_index/channel_index refer to (used by MainWindow's
+        multi-file Replace carry-over resolution).
 
         Each signal is added via the normal path (palette color), then all
         display attributes from the snapshot are applied immediately.
         """
         from PyQt6.QtGui import QColor
         current = self.current_workspace
-        for snap, gi, ci in resolved:
+        for entry in resolved:
+            if len(entry) == 4:
+                snap, gi, ci, measurement = entry
+            else:
+                snap, gi, ci = entry
+                measurement = None
             try:
-                added = self.add_signal(gi, ci)
+                added = self.add_signal(gi, ci, measurement=measurement)
             except Exception:
                 continue
             if not added:
@@ -846,7 +1154,12 @@ class AppController:
             current.cursor_ctrl.refresh()
 
     def restore_tab_signals(
-        self, index: int, resolved: list[tuple[ActiveSignalSnapshot, int, int]]
+        self,
+        index: int,
+        resolved: list[
+            tuple[ActiveSignalSnapshot, int, int]
+            | tuple[ActiveSignalSnapshot, int, int, LoadedMeasurement | None]
+        ],
     ) -> None:
         """Restore resolved snapshots into the tab at *index* (REQ-PLOT-260).
 
@@ -919,9 +1232,13 @@ class AppController:
             current.selected.metadata.name if current.selected is not None else None
         )
 
+        # .mvc save/restore stays single-measurement scope for #101 (#106's
+        # job to extend it) — always the first pool entry, or the legacy
+        # loader when the pool is empty.
+        meas_loader = self._measurements[0].loader if self._measurements else self._loader
         meas_path = ""
-        if self._loader.is_open and self._loader._path is not None:
-            meas_path = str(self._loader._path)
+        if meas_loader.is_open and meas_loader._path is not None:
+            meas_path = str(meas_loader._path)
 
         if self._settings is not None:
             name_separator = self._settings.display_name_separator
@@ -1011,7 +1328,7 @@ class AppController:
 
     @property
     def is_file_loaded(self) -> bool:
-        return self._loader.is_open
+        return bool(self._measurements) or self._loader.is_open
 
     @property
     def active_signals(self) -> list[ActiveSignal]:

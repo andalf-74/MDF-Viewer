@@ -452,3 +452,81 @@ def test_filter_plain_text_still_does_substring_match(populated_browser: SignalB
     populated_browser._filter_edit.setText("raw")
     populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 1
+
+
+# ---------------------------------------------------------------------------
+# Multiple Measurements (#101, REQ-BROWSER-050/051/052)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-BROWSER-050")
+def test_selector_hidden_with_one_measurement(browser: SignalBrowser) -> None:
+    browser.set_measurements(["run1"])
+    assert browser._measurement_combo.isHidden() is True
+
+
+@pytest.mark.requirement("REQ-BROWSER-050")
+def test_selector_hidden_with_zero_measurements(browser: SignalBrowser) -> None:
+    browser.set_measurements([])
+    assert browser._measurement_combo.isHidden() is True
+
+
+@pytest.mark.requirement("REQ-BROWSER-050")
+def test_selector_shown_with_multiple_measurements(browser: SignalBrowser) -> None:
+    browser.set_measurements(["run1", "run2"])
+    assert browser._measurement_combo.isHidden() is False
+    assert browser._measurement_combo.count() == 2
+    assert browser._measurement_combo.itemText(0) == "run1"
+    assert browser._measurement_combo.itemText(1) == "run2"
+
+
+def test_current_measurement_index_defaults_to_zero(browser: SignalBrowser) -> None:
+    assert browser.current_measurement_index() == 0
+
+
+@pytest.mark.requirement("REQ-BROWSER-051")
+def test_switching_selector_emits_measurement_selected(
+    browser: SignalBrowser, qtbot: QtBot
+) -> None:
+    browser.set_measurements(["run1", "run2"])
+    with qtbot.waitSignal(browser.measurement_selected) as blocker:
+        browser._measurement_combo.setCurrentIndex(1)
+    assert blocker.args == [1]
+    assert browser.current_measurement_index() == 1
+
+
+@pytest.mark.requirement("REQ-BROWSER-051")
+def test_switching_selector_clears_active_filter(
+    browser: SignalBrowser, sample_groups, qtbot: QtBot
+) -> None:
+    browser.set_measurements(["run1", "run2"])
+    browser.populate(sample_groups)
+    browser._filter_edit.setText("sin")
+    browser._apply_filter()
+    assert browser._proxy.rowCount() == 1
+
+    browser._measurement_combo.setCurrentIndex(1)
+    browser.populate(sample_groups)  # caller's responsibility, mirroring _on_measurement_selected
+
+    assert browser._filter_edit.text() == ""
+
+
+def test_clear_hides_selector_and_resets_index(browser: SignalBrowser) -> None:
+    browser.set_measurements(["run1", "run2"])
+    browser._measurement_combo.setCurrentIndex(1)
+    browser.clear()
+    assert browser._measurement_combo.isHidden() is True
+    assert browser.current_measurement_index() == 0
+
+
+@pytest.mark.requirement("REQ-BROWSER-052")
+def test_add_signals_requested_unaffected_by_selector_state(
+    populated_browser: SignalBrowser, qtbot: QtBot
+) -> None:
+    """add_signals_requested itself still carries only (group_index,
+    channel_index) pairs — which measurement they belong to is read
+    separately via current_measurement_index() by the caller."""
+    populated_browser.set_measurements(["run1", "run2"])
+    time_item = populated_browser._model.item(0).child(0)
+    with qtbot.waitSignal(populated_browser.add_signals_requested, timeout=500) as blocker:
+        populated_browser._tree.doubleClicked.emit(_px(populated_browser, time_item))
+    assert blocker.args == [[(0, 0)]]

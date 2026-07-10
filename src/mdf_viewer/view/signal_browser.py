@@ -3,11 +3,16 @@
 Emits add_signals_requested(list) when the user wants to add one or more
 signals (double-click a channel node, select + "Add Signal" button, or drag).
 Holds no model data itself; populated by the controller, reports intent out.
+
+When more than one measurement is loaded (#101), a small selector above the
+tree lets the user pick which loaded measurement's channels the tree
+currently shows (REQ-BROWSER-050/051); hidden entirely with exactly one
+measurement loaded. All three ways to request adding a signal (double-click,
+"Add Signal" button, drag) implicitly target whichever measurement the
+selector currently shows.
 """
 
 from __future__ import annotations
-
-import json
 
 from PyQt6.QtCore import (
     QByteArray,
@@ -20,6 +25,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QDrag, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QLineEdit,
     QPushButton,
     QTreeView,
@@ -28,7 +34,7 @@ from PyQt6.QtWidgets import (
 )
 
 from mdf_viewer.model.mdf_loader import ChannelGroupInfo
-from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
+from mdf_viewer.view._mime import SIGNAL_MIME_TYPE, encode_signal_payload
 
 # Stores (group_index, channel_index) tuple on channel items; None on group items.
 _LOCATION_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -42,15 +48,16 @@ _FILTER_DELAY_MS = 250
 class _DragTreeView(QTreeView):
     """QTreeView that encodes selected signal locations as MIME data on drag."""
 
-    def __init__(self, get_locations, parent=None):
+    def __init__(self, get_locations, get_measurement_index, parent=None):
         super().__init__(parent)
         self._get_locations = get_locations
+        self._get_measurement_index = get_measurement_index
 
     def startDrag(self, supported_actions):
         locations = self._get_locations()
         if not locations:
             return
-        data = json.dumps([[gi, ci] for gi, ci in locations]).encode()
+        data = encode_signal_payload(self._get_measurement_index(), locations)
         mime = QMimeData()
         mime.setData(SIGNAL_MIME_TYPE, QByteArray(data))
         drag = QDrag(self)
@@ -63,9 +70,14 @@ class SignalBrowser(QWidget):
 
     # Emits a list of (group_index, channel_index) tuples — one or many.
     add_signals_requested = pyqtSignal(list)
+    # Emitted when the user picks a different measurement in the selector
+    # (#101) — the caller (AppController via MainWindow) re-populates the
+    # tree with that measurement's channel_tree() via populate().
+    measurement_selected = pyqtSignal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self._current_measurement_index = 0
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -73,12 +85,16 @@ class SignalBrowser(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
+        self._measurement_combo = QComboBox()
+        self._measurement_combo.setVisible(False)
+        layout.addWidget(self._measurement_combo)
+
         self._filter_edit = QLineEdit()
         self._filter_edit.setPlaceholderText("Filter signals… (* and ? wildcards)")
         self._filter_edit.setClearButtonEnabled(True)
         layout.addWidget(self._filter_edit)
 
-        self._tree = _DragTreeView(self._selected_locations)
+        self._tree = _DragTreeView(self._selected_locations, self._get_current_measurement_index)
         self._tree.setHeaderHidden(True)
         self._tree.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
         self._tree.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)
@@ -108,10 +124,31 @@ class SignalBrowser(QWidget):
         self._tree.doubleClicked.connect(self._on_double_click)
         self._tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._add_btn.clicked.connect(self._on_add_clicked)
+        self._measurement_combo.currentIndexChanged.connect(self._on_measurement_combo_changed)
 
     # ------------------------------------------------------------------
     # Public API (called by the controller)
     # ------------------------------------------------------------------
+
+    def set_measurements(self, labels: list[str]) -> None:
+        """Rebuild the measurement selector from *labels* (REQ-BROWSER-050).
+
+        Hidden entirely with 0 or 1 measurement loaded — the selector only
+        matters once there's something to disambiguate. Does not itself
+        change which measurement's channels the tree shows; the caller
+        follows up with populate() for whichever index should be current.
+        """
+        self._measurement_combo.blockSignals(True)
+        self._measurement_combo.clear()
+        self._measurement_combo.addItems(labels)
+        self._measurement_combo.blockSignals(False)
+        self._measurement_combo.setVisible(len(labels) > 1)
+        if self._current_measurement_index >= len(labels):
+            self._current_measurement_index = 0
+
+    def current_measurement_index(self) -> int:
+        """Index of the measurement whose channels the tree currently shows."""
+        return self._current_measurement_index
 
     def populate(self, groups: list[ChannelGroupInfo]) -> None:
         """Rebuild the tree from a channel hierarchy.
@@ -136,6 +173,11 @@ class SignalBrowser(QWidget):
         self._clear_filter()
         self._model.clear()
         self._add_btn.setEnabled(False)
+        self._current_measurement_index = 0
+        self._measurement_combo.blockSignals(True)
+        self._measurement_combo.clear()
+        self._measurement_combo.blockSignals(False)
+        self._measurement_combo.setVisible(False)
 
     # ------------------------------------------------------------------
     # Slots (private)
@@ -156,6 +198,15 @@ class SignalBrowser(QWidget):
 
     def _on_selection_changed(self) -> None:
         self._add_btn.setEnabled(bool(self._selected_locations()))
+
+    def _on_measurement_combo_changed(self, index: int) -> None:
+        if index < 0:
+            return
+        self._current_measurement_index = index
+        self.measurement_selected.emit(index)
+
+    def _get_current_measurement_index(self) -> int:
+        return self._current_measurement_index
 
     def _on_add_clicked(self) -> None:
         locs = self._selected_locations()

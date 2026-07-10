@@ -107,6 +107,39 @@ All notable changes to MDF-Viewer are documented in this file.
   - `docs/requirements/plotting.md` gained a new "Per-Stripe Active
     Signals Table" section (REQ-PLOT-270 through 280) and a "Stripe
     Naming" section (REQ-PLOT-290 through 294).
+- Multi-Measurement Loading (#101): multiple MDF files can now be loaded
+  and displayed together, each independently pannable relative to the
+  others.
+  - File ▸ Open now allows selecting multiple files at once; once at
+    least one measurement is already loaded, opening or dropping another
+    file asks whether to Replace every currently loaded measurement or
+    Add the new one(s) alongside them. Loading multiple files at once
+    loads every file that succeeds and reports the rest together in one
+    error dialog, rather than aborting on the first failure.
+  - Each loaded measurement gets its own X-axis row, stacked below the
+    plot; dragging a measurement's own row pans its curves independently
+    of every other measurement, while wheel/box zoom always stays shared
+    across all of them. Cursor values stay correct regardless of how far
+    a measurement has been panned.
+  - The Signal Browser gains a measurement selector above the channel
+    tree once more than one measurement is loaded, so signals from any
+    loaded measurement can be added to any stripe or tab.
+  - Once two or more measurements are loaded, every active signal's
+    displayed name (Active Signals Table, Signal Info Box) is prefixed
+    with its measurement's label so identically-named channels from
+    different files stay distinguishable.
+  - Carrying active signals over on a multi-file Replace (the existing
+    "keep signals" preference) now disambiguates a name that matches in
+    more than one of the newly-loaded measurements via the existing
+    channel-group picker, extended to show which measurement each
+    candidate belongs to.
+  - `.mvc` session save/restore is unchanged and stays scoped to a single
+    measurement for now (multi-measurement session support is #106).
+  - `docs/requirements/file-handling.md` and `docs/requirements/
+    plotting.md` gained new "Multiple Measurements" sections
+    (REQ-FILE-010 through 028, REQ-PLOT-300 through 309) and
+    `docs/requirements/signal-browser.md` gained REQ-BROWSER-050 through
+    052.
 
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the

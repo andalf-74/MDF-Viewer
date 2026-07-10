@@ -14,7 +14,7 @@ from pytestqt.qtbot import QtBot
 
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
-from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
+from mdf_viewer.view._mime import SIGNAL_MIME_TYPE, encode_signal_payload
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.widgets import ColorSwatch as _ColorSwatch
 from mdf_viewer.view_model.active_signal import ActiveSignal
@@ -1004,13 +1004,14 @@ def test_signals_dropped_emitted_on_valid_mime(
 ) -> None:
     stripe = _FakeStripe("Stripe 1")
     table.add_stripe_segment(stripe)
-    locs = [[0, 1], [1, 2]]
+    locs = [(0, 1), (1, 2)]
     mime = QMimeData()
-    mime.setData(SIGNAL_MIME_TYPE, QByteArray(json.dumps(locs).encode()))
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(0, locs)))
     with qtbot.waitSignal(table.signals_dropped_on_stripe) as blocker:
         table.eventFilter(table._segments[0].viewport(), _drop_event(mime))
     assert blocker.args[0] == [(0, 1), (1, 2)]
     assert blocker.args[1] is stripe
+    assert blocker.args[2] == 0
 
 
 @pytest.mark.requirement("REQ-PLOT-143")
@@ -1419,7 +1420,7 @@ def test_set_name_formatter_updates_existing_rows(
     populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot
 ) -> None:
     table, sigs = populated
-    table.set_name_formatter(lambda n: n.upper())
+    table.set_name_formatter(lambda a: a.metadata.name.upper())
     for row, sig in enumerate(sigs):
         assert table._segments[0].item(row, 1).text() == sig.metadata.name.upper()
 
@@ -1428,7 +1429,7 @@ def test_set_name_formatter_updates_existing_rows(
 def test_set_name_formatter_applied_to_new_rows(
     table: ActiveSignalsTable, qtbot: QtBot
 ) -> None:
-    table.set_name_formatter(lambda n: f"[{n}]")
+    table.set_name_formatter(lambda a: f"[{a.metadata.name}]")
     active = _make_active("mysig")
     table.add_row(active)
     assert table._segments[0].item(0, 1).text() == "[mysig]"

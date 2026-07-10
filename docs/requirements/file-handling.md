@@ -19,23 +19,60 @@ inline so it can be cited from an issue or a test via
 
 ## Loading a Measurement File
 
-The application shows exactly one measurement file at a time — MDF3 or
-MDF4 — and only one file can be open at once [REQ-FILE-010]. A measurement
-can be opened via the File ▸ Open dialog, by dragging a file onto the main
-window, or by passing a path as a startup argument (e.g. via file
-association / "Open with") [REQ-FILE-011]. Loading a new measurement file
-replaces the one currently open: the previous channel tree, active signals,
-cursors, zoom state, and measurement info are cleared and rebuilt from the
-new file [REQ-FILE-012]. If the opened path is a `.mvc` file rather than a
-measurement file, it is handled as a session load (see "Session
+The application can hold one or more measurement files open at once —
+MDF3 or MDF4, in any combination — with no fixed technical maximum,
+though the UI is designed around a small number of simultaneous
+measurements (a soft target of up to 3; see "Multiple Measurements"
+below) [REQ-FILE-010]. A measurement can be opened via the File ▸ Open
+dialog, which allows selecting multiple files at once, by dragging one or
+more files onto the main window, or by passing a path as a startup
+argument (e.g. via file association / "Open with") [REQ-FILE-011].
+Opening one or more files while no measurement is currently loaded loads
+them immediately with no prompt, becoming the initial set of loaded
+measurements [REQ-FILE-012]. If the opened path is a `.mvc` file rather
+than a measurement file, it is handled as a session load (see "Session
 Persistence" below) instead of a direct measurement load, regardless of
-which of the three entry points was used [REQ-FILE-013].
+which entry point was used [REQ-FILE-013].
 
-When a file is dropped onto the main window while another measurement is
-already loaded, the user is asked to confirm the replacement before it
-happens [REQ-FILE-020]. Opening via the File ▸ Open dialog or a startup
-argument does not ask for confirmation, since selecting a file through
-either of those is already a deliberate action.
+Opening or dropping one or more files while at least one measurement is
+already loaded asks the user, once per operation, whether to Replace
+every currently loaded measurement or Add the newly opened file(s)
+alongside them; a startup argument never triggers this prompt, since it
+only ever runs before anything else has been loaded [REQ-FILE-020].
+Replacing clears every currently loaded measurement — channel tree(s),
+active signals, cursors, zoom state, and measurement info — and rebuilds
+from only the newly opened file(s), the same as an initial load
+[REQ-FILE-021]. Adding loads each newly opened file as an additional
+measurement alongside what is already open, leaving every existing
+measurement's channel tree, active signals, cursors, and zoom state
+untouched [REQ-FILE-022]. When opening or dropping multiple files in one
+operation, each file loads independently: files that succeed are loaded
+per REQ-FILE-021/022 as appropriate, while any failures are collected and
+reported together in one error dialog naming each failed file, rather
+than aborting the whole operation on the first failure [REQ-FILE-023]. A
+failure during an Add never affects any already-loaded measurement — only
+the failing file itself is skipped [REQ-FILE-024].
+
+## Multiple Measurements
+
+Once more than one measurement is loaded, each one is independent data:
+its own channel tree, its own file-level metadata, and its own pannable
+X-axis offset (see `plotting.md` "Multiple Measurements") — signals from
+different measurements can be freely mixed into the same or different
+plot stripes and tabs [REQ-FILE-025]. A newly added measurement always
+starts with its X-axis offset at zero, i.e. its own raw recorded time; no
+automatic alignment between measurements is attempted — manual alignment
+is a deliberate user action (see `plotting.md`) [REQ-FILE-026]. Each
+loaded measurement has a user-facing label derived from its file name,
+used to identify its X-axis row and to prefix its signals' displayed
+names (see `plotting.md`); if two loaded measurements would otherwise
+produce the same label, a disambiguating suffix is appended so labels
+stay unique [REQ-FILE-027]. Closing a measurement that has no active
+signals in any tab or stripe removes it immediately with no confirmation;
+closing one with at least one active signal shows a warning offering
+"Close anyway" or "Cancel", mirroring stripe and tab close (REQ-PLOT-194,
+REQ-PLOT-252) — confirming removes that measurement's X-axis row and
+every one of its signals from every tab and stripe [REQ-FILE-028].
 
 ## Active Signals When Replacing a File
 
@@ -75,10 +112,12 @@ the same not-found summary as signals with no match at all
 
 The application must never crash because a measurement file is malformed,
 incomplete, or otherwise unreadable [REQ-FILE-040]. If opening or reading
-the new file fails, the load attempt ends with no measurement open — the
-previous file's channel tree and active signals are not restored — and the
-failure is reported to the user in an error dialog naming the file
-[REQ-FILE-041].
+a file fails during an initial load or a Replace (REQ-FILE-021), the load
+attempt ends with no measurement open — any previously loaded
+measurement's channel tree and active signals are not restored — and the
+failure is reported to the user in an error dialog naming the file; a
+failure during an Add (REQ-FILE-022) instead leaves every already-loaded
+measurement untouched, per REQ-FILE-024 [REQ-FILE-041].
 
 ## Recently Opened Files
 

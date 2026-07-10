@@ -59,6 +59,29 @@ class TestSignalGroupPickerDialog:
         text = dlg._list.item(0).text()
         assert "7" in text
 
+    @pytest.mark.requirement("REQ-PLOT-306")
+    def test_tagged_candidates_show_measurement_label(self, qtbot: QtBot) -> None:
+        from unittest.mock import MagicMock
+        measurement = MagicMock(label="run1")
+        candidates = [(measurement, _meta(gi=3, ci=1))]
+        dlg = SignalGroupPickerDialog("rpm", candidates)
+        qtbot.addWidget(dlg)
+        text = dlg._list.item(0).text()
+        assert "run1" in text
+        assert "3" in text
+
+    @pytest.mark.requirement("REQ-PLOT-306")
+    def test_accept_returns_selected_tagged_tuple(self, qtbot: QtBot) -> None:
+        from unittest.mock import MagicMock
+        measurement = MagicMock(label="run1")
+        c0 = (measurement, _meta(gi=0, ci=1))
+        c1 = (measurement, _meta(gi=1, ci=2))
+        dlg = SignalGroupPickerDialog("rpm", [c0, c1])
+        qtbot.addWidget(dlg)
+        dlg._list.setCurrentRow(1)
+        dlg._on_accept()
+        assert dlg.selected() is c1
+
 
 # ---------------------------------------------------------------------------
 # SignalsNotFoundDialog
@@ -154,3 +177,24 @@ class TestNearMatchDialog:
         qtbot.addWidget(dlg)
         dlg._list.item(1).setCheckState(Qt.CheckState.Unchecked)
         assert dlg.checked_mask() == [True, False]
+
+    @pytest.mark.requirement("REQ-PLOT-306")
+    def test_tagged_candidate_shows_measurement_label(self, qtbot: QtBot) -> None:
+        from unittest.mock import MagicMock
+        measurement = MagicMock(label="run1")
+        pending = [("old\\ETKC:1", (measurement, _meta("old\\XCP:1")))]
+        dlg = NearMatchDialog(pending)
+        qtbot.addWidget(dlg)
+        text = dlg._list.item(0).text()
+        assert "old\\ETKC:1" in text
+        assert "run1" in text
+        assert "old\\XCP:1" in text
+
+    @pytest.mark.requirement("REQ-PLOT-306")
+    def test_accepted_matches_returns_tagged_tuple(self, qtbot: QtBot) -> None:
+        from unittest.mock import MagicMock
+        measurement = MagicMock(label="run1")
+        pending = [("old\\ETKC:1", (measurement, _meta("old\\XCP:1")))]
+        dlg = NearMatchDialog(pending)
+        qtbot.addWidget(dlg)
+        assert dlg.accepted_matches() == pending

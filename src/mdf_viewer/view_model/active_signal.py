@@ -9,12 +9,17 @@ PyQtGraph curve, its dedicated ViewBox, and its color). Living in the
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from PyQt6.QtGui import QColor
 
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
+
+if TYPE_CHECKING:
+    import numpy as np
+
+    from mdf_viewer.model.loaded_measurement import LoadedMeasurement
 
 
 @dataclass
@@ -39,6 +44,11 @@ class ActiveSignal:
     data: SignalData
     metadata: SignalMetadata
     color: QColor | tuple[int, int, int]
+    # The measurement this signal was added from (#101). A live reference,
+    # not a copied offset — None outside multi-measurement contexts (e.g.
+    # tests constructing an ActiveSignal directly), in which case
+    # display_timestamps falls back to the signal's own raw timestamps.
+    measurement: "LoadedMeasurement | None" = None
     step_mode: bool = False
     enum_display_table: bool = True    # cursor-value columns in the Active Signals Table
     enum_display_cursor: bool = False  # floating cursor label on the plot
@@ -53,3 +63,17 @@ class ActiveSignal:
     def __post_init__(self) -> None:
         if isinstance(self.color, tuple):
             self.color = QColor(*self.color)
+
+    @property
+    def display_timestamps(self) -> "np.ndarray":
+        """Timestamps shifted by this signal's measurement offset (#101).
+
+        Used everywhere a signal's X position is rendered or measured
+        (curve data, zoom-to-fit range, visible-range masks) so that
+        panning one measurement's axis row shifts its curves without
+        touching the shared X-zoom. Falls back to the raw timestamps when
+        no measurement is set (REQ-PLOT-304).
+        """
+        if self.measurement is None:
+            return self.data.timestamps
+        return self.data.timestamps + self.measurement.offset_s

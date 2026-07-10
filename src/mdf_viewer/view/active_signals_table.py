@@ -54,7 +54,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
+from mdf_viewer.view._mime import SIGNAL_MIME_TYPE, decode_signal_payload
 from mdf_viewer.view.widgets import ColorSwatch, make_splitter
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
@@ -224,12 +224,13 @@ class ActiveSignalsTable(QWidget):
     color_change_requested = pyqtSignal(list, QColor)
     # list[ActiveSignal], bool enabled — emitted from context menu step-mode actions
     step_mode_set_requested = pyqtSignal(list, bool)
-    # list of (group_index, channel_index), target stripe — emitted when
-    # signals are dropped from the Signal Browser onto a specific segment;
-    # they're added to that segment's stripe (REQ-PLOT-277), the same way
+    # list of (group_index, channel_index), target stripe, and which loaded
+    # measurement (#101) they belong to — emitted when signals are dropped
+    # from the Signal Browser onto a specific segment; they're added to
+    # that segment's stripe (REQ-PLOT-277), the same way
     # PlotStripesArea.signals_dropped_on_stripe works for drops onto a
     # stripe directly in the plot area.
-    signals_dropped_on_stripe = pyqtSignal(list, object)
+    signals_dropped_on_stripe = pyqtSignal(list, object, int)
     # list[ActiveSignal] in new order — emitted after a row drag-and-drop reorder
     order_changed = pyqtSignal(list)
     # str (selected signal name) — emitted when "Display Name Rule…" is chosen from context menu
@@ -267,7 +268,7 @@ class ActiveSignalsTable(QWidget):
         self._segment_for_stripe: dict = {}
         self._stripe_for_segment: dict = {}
 
-        self._name_formatter: Callable[[str], str] = lambda n: n
+        self._name_formatter: Callable[[ActiveSignal], str] = lambda a: a.metadata.name
         self._shorten_names_enabled: bool = False
         self._merged_signals: set = set()
         self._synced_signals: set = set()
@@ -403,14 +404,19 @@ class ActiveSignalsTable(QWidget):
         if isinstance(swatch, ColorSwatch):
             swatch.set_color(color)
 
-    def set_name_formatter(self, formatter: Callable[[str], str]) -> None:
-        """Set a function that maps raw signal names to display names, then refresh all rows."""
+    def set_name_formatter(self, formatter: Callable[[ActiveSignal], str]) -> None:
+        """Set a function that maps an active signal to its display name, then refresh all rows.
+
+        Takes the whole ActiveSignal (not just its raw name) so the
+        formatter can factor in measurement identity (#101, REQ-PLOT-306)
+        alongside the existing display-name-shortening rule.
+        """
         self._name_formatter = formatter
         for seg in self._segments:
             for row, active in enumerate(self._segment_signals(seg)):
                 item = seg.item(row, _COL_NAME)
                 if item is not None:
-                    item.setText(formatter(active.metadata.name))
+                    item.setText(formatter(active))
 
     def remove_row(self, active: ActiveSignal) -> None:
         """Remove the row for the given ActiveSignal. No-op if not present."""
@@ -638,7 +644,7 @@ class ActiveSignalsTable(QWidget):
             lambda checked=False, a=active: self._on_color_swatch_clicked(a)
         )
         seg.setCellWidget(row, _COL_COLOR, swatch)
-        seg.setItem(row, _COL_NAME, _ro_item(self._name_formatter(active.metadata.name)))
+        seg.setItem(row, _COL_NAME, _ro_item(self._name_formatter(active)))
         for col in _CURSOR_COLS:
             seg.setItem(row, col, _ro_item(""))
 
@@ -867,9 +873,9 @@ class ActiveSignalsTable(QWidget):
             mime = event.mimeData()
             if mime.hasFormat(SIGNAL_MIME_TYPE):
                 data = bytes(mime.data(SIGNAL_MIME_TYPE))
-                locs = [tuple(item) for item in json.loads(data)]
+                measurement_index, locs = decode_signal_payload(data)
                 stripe = self._stripe_for_segment.get(seg)
-                self.signals_dropped_on_stripe.emit(locs, stripe)
+                self.signals_dropped_on_stripe.emit(locs, stripe, measurement_index)
                 event.acceptProposedAction()
                 return True
             if mime.hasFormat(_ROW_MIME_TYPE):

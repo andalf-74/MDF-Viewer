@@ -269,10 +269,18 @@ class SignalInfoBox(QWidget):
     # Info tab API
     # ------------------------------------------------------------------
 
-    def set_metadata(self, meta: SignalMetadata) -> None:
-        """Populate the Info section from a SignalMetadata and show it."""
+    def set_metadata(self, meta: SignalMetadata, display_name: str | None = None) -> None:
+        """Populate the Info section from a SignalMetadata and show it.
+
+        *display_name*, when given, overrides just the "Name" row's shown
+        text (e.g. with a measurement-label prefix, REQ-PLOT-306) — every
+        other row, and by-name resolution elsewhere, always uses meta.name
+        directly (REQ-PLOT-307).
+        """
         _clear_form(self._form)
         for label, value in _metadata_rows(meta):
+            if label == "Name" and display_name is not None:
+                value = display_name
             if label == "Comment":
                 _add_wrapped_row(self._form, label, value)
             else:

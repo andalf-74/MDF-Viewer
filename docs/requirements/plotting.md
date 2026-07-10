@@ -493,9 +493,80 @@ Tab" action rather than auto-creating a replacement tab [REQ-PLOT-254].
 
 ### Loading a New Measurement File
 
-Loading a new measurement file preserves the existing tab structure —
-tabs, their names, and their stripe layouts; within each tab, signals
-are re-resolved by name against the new file the same way single-tab
-signal restore already works today, and each tab's zoom, cursor, and
-undo/redo state resets independently the same way it already does for a
-single plot area [REQ-PLOT-260].
+Replacing every currently loaded measurement (`file-handling.md`
+REQ-FILE-021) preserves the existing tab structure — tabs, their names,
+and their stripe layouts; within each tab, signals are re-resolved by
+name against the newly opened file(s) the same way single-tab signal
+restore already works today, and each tab's zoom, cursor, and undo/redo
+state resets independently the same way it already does for a single
+plot area [REQ-PLOT-260]. Adding one or more measurements
+(`file-handling.md` REQ-FILE-022) instead leaves every existing tab's
+signals, zoom, cursor, and undo/redo state completely untouched; only the
+newly added measurement's own X-axis row (see "Multiple Measurements"
+below) and channel tree become available [REQ-PLOT-261].
+
+## Multiple Measurements
+
+Introduced to let several MDF files be viewed and visually aligned
+together (#17/#101). Loading, adding, replacing, and closing individual
+measurements is `file-handling.md`'s domain (REQ-FILE-010–028); this
+section covers how multiple loaded measurements are represented and
+interacted with inside the plot area itself.
+
+### X-Axis Per Measurement
+
+Each loaded measurement gets its own X-axis row, labeled with that
+measurement's file-derived label (REQ-FILE-027), stacked below the
+bottom-most stripe [REQ-PLOT-300]. Only the bottom-most stripe's area
+shows these X-axis rows; every other stripe shows none, the same way a
+single stripe's X-axis was hidden before multi-measurement support
+(REQ-PLOT-181, generalized to the full stack of per-measurement rows)
+[REQ-PLOT-301]. Every measurement is drawn using one shared X-zoom (scale
+and range): zooming X, however triggered, always applies to every
+measurement in lockstep, with no per-measurement zoom factor
+[REQ-PLOT-302]. Dragging inside a stripe's interior pans every
+measurement's X in lockstep, extending REQ-PLOT-051 to multiple
+measurements; dragging directly on one measurement's own X-axis row
+instead pans only that measurement's individual time offset, shifting
+its curves relative to every other measurement without changing the
+shared zoom/range [REQ-PLOT-303]. A measurement's offset is a signed time
+value added to its own recorded timestamps before display; it defaults
+to zero on load (REQ-FILE-026) and is not bounded — panning it can shift
+its curves arbitrarily far from every other measurement's [REQ-PLOT-304].
+
+### Cursors and Values Across Measurements
+
+A cursor's horizontal position is a single shared "display time,"
+identical to today's single-measurement behavior; a signal's value at a
+cursor is looked up by subtracting that signal's own measurement's offset
+(REQ-PLOT-304) from the cursor's display time before locating the
+sample, so cursor values stay correct regardless of how far a
+measurement's axis has been panned [REQ-PLOT-305]. Arrow-key cursor
+stepping (REQ-PLOT-090–093), off-screen indicators (REQ-PLOT-110–113),
+and the delta-time line (REQ-PLOT-100–105) are unaffected by multiple
+measurements, continuing to operate purely in this shared display-time
+space.
+
+### Signal Identity and Naming
+
+Once two or more measurements are loaded, every active signal's
+displayed name is prefixed with its measurement's label (REQ-FILE-027)
+in the Active Signals Table and the Signal Info Box, so identically-named
+channels from different measurements stay distinguishable; with only one
+measurement loaded, no prefix is shown [REQ-PLOT-306]. Cursor value
+labels are unaffected — they show only a bare value (REQ-PLOT-080–084),
+never a signal name, regardless of measurement count. The measurement
+prefix affects only how a signal's name is displayed — the underlying
+channel name used to resolve and reload the signal is unaffected, the
+same rule as display-name shortening (REQ-PLOT-162) [REQ-PLOT-307].
+
+### Signal Assignment Across Measurements
+
+A signal from any loaded measurement can be added to any stripe in any
+tab via the existing Signal Browser add actions (REQ-BROWSER-030/031)
+and stripe-assignment rules (REQ-PLOT-200–203); no distinction is made
+between a stripe or tab's "own" measurement and any other loaded
+measurement [REQ-PLOT-308]. Merged and Synced Y-axis groups
+(REQ-PLOT-031–038) can include signals from different measurements,
+since group membership is governed only by the stripe-sharing rule
+(REQ-PLOT-038), not by measurement [REQ-PLOT-309].

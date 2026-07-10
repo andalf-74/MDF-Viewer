@@ -253,6 +253,109 @@ def test_deleting_bottom_stripe_reveals_ticks_on_new_bottom(area: PlotStripesAre
 
 
 # ---------------------------------------------------------------------------
+# Per-measurement X-axis rows (#101)
+# ---------------------------------------------------------------------------
+
+def _make_measurement(offset_s: float = 0.0):
+    from mdf_viewer.model.loaded_measurement import LoadedMeasurement
+    from mdf_viewer.model.mdf_loader import MdfLoader
+    from mdf_viewer.model.measurement import MeasurementInfo
+
+    return LoadedMeasurement(
+        loader=MdfLoader(), info=MeasurementInfo(file_name="run.mf4"), label="run",
+        offset_s=offset_s,
+    )
+
+
+@pytest.mark.requirement("REQ-PLOT-301")
+def test_refresh_measurement_axes_targets_only_bottom_stripe(area: PlotStripesArea) -> None:
+    first = area._stripes[0]
+    s2 = area.create_stripe()
+    m1 = _make_measurement()
+    area.refresh_measurement_axes([m1])
+    assert first._measurement_axes == []
+    assert len(s2._measurement_axes) == 1
+
+
+@pytest.mark.requirement("REQ-PLOT-301")
+def test_plain_time_axis_hidden_once_measurements_loaded(area: PlotStripesArea) -> None:
+    """Per-measurement rows replace the plain 'Time' axis rather than
+    stacking alongside it — loading 2 measurements should show 2 axis
+    rows total, not 3 (bug found during the M6 live-test checkpoint)."""
+    bottom = area._stripes[-1]
+    assert bottom._pi.getAxis('bottom').style['showValues'] is True
+
+    m1, m2 = _make_measurement(), _make_measurement()
+    area.refresh_measurement_axes([m1, m2])
+
+    assert bottom._pi.getAxis('bottom').style['showValues'] is False
+    assert len(bottom._measurement_axes) == 2
+
+
+@pytest.mark.requirement("REQ-PLOT-301")
+def test_plain_time_axis_shown_again_when_pool_empties(area: PlotStripesArea) -> None:
+    m1 = _make_measurement()
+    area.refresh_measurement_axes([m1])
+    bottom = area._stripes[-1]
+    assert bottom._pi.getAxis('bottom').style['showValues'] is False
+
+    area.refresh_measurement_axes([])
+
+    assert bottom._pi.getAxis('bottom').style['showValues'] is True
+    assert bottom._measurement_axes == []
+
+
+@pytest.mark.requirement("REQ-PLOT-301")
+def test_new_bottom_stripe_gets_measurement_axes_on_create(area: PlotStripesArea) -> None:
+    m1 = _make_measurement()
+    area.refresh_measurement_axes([m1])
+    first = area._stripes[0]
+    assert len(first._measurement_axes) == 1
+
+    s2 = area.create_stripe()
+    assert first._measurement_axes == []
+    assert len(s2._measurement_axes) == 1
+
+
+@pytest.mark.requirement("REQ-PLOT-301")
+def test_deleting_bottom_stripe_moves_measurement_axes_to_new_bottom(
+    area: PlotStripesArea,
+) -> None:
+    m1 = _make_measurement()
+    area.refresh_measurement_axes([m1])
+    first = area._stripes[0]
+    s2 = area.create_stripe()
+    area.delete_stripe(s2)
+    assert len(first._measurement_axes) == 1
+
+
+@pytest.mark.requirement("REQ-FILE-031")
+def test_measurement_offset_changed_reemitted(area: PlotStripesArea, qtbot: QtBot) -> None:
+    m1 = _make_measurement()
+    area.refresh_measurement_axes([m1])
+    bottom = area._stripes[-1]
+    with qtbot.waitSignal(area.measurement_offset_changed) as blocker:
+        bottom._measurement_axes[0]._on_offset_changed(m1)
+    assert blocker.args == [m1]
+
+
+@pytest.mark.requirement("REQ-PLOT-304")
+def test_refresh_signal_data_reaches_owning_stripe(area: PlotStripesArea) -> None:
+    active = _make_active()
+    area.add_signal(active)
+    original = active.curve.xData.copy()
+    active.measurement = _make_measurement(offset_s=5.0)
+    area.refresh_signal_data(active)
+    assert not np.array_equal(active.curve.xData, original)
+    assert np.array_equal(active.curve.xData, original + 5.0)
+
+
+def test_refresh_signal_data_noop_for_unknown_signal(area: PlotStripesArea) -> None:
+    active = _make_active()
+    area.refresh_signal_data(active)  # must not raise
+
+
+# ---------------------------------------------------------------------------
 # Signal routing
 # ---------------------------------------------------------------------------
 
@@ -372,6 +475,29 @@ def test_zoom_to_fit_x_spans_all_stripes(area: PlotStripesArea) -> None:
     x_min, x_max = area.plot_item.vb.viewRange()[0]
     assert x_min < 1.0
     assert x_max > 99.0
+
+
+@pytest.mark.requirement("REQ-PLOT-304")
+def test_zoom_to_fit_uses_offset_shifted_range(area: PlotStripesArea) -> None:
+    from mdf_viewer.model.loaded_measurement import LoadedMeasurement
+    from mdf_viewer.model.mdf_loader import MdfLoader
+    from mdf_viewer.model.measurement import MeasurementInfo
+
+    measurement = LoadedMeasurement(
+        loader=MdfLoader(), info=MeasurementInfo(file_name="run.mf4"), label="run",
+        offset_s=50.0,
+    )
+    active = ActiveSignal(
+        data=SignalData(timestamps=np.linspace(0.0, 1.0, 10), samples=np.zeros(10)),
+        metadata=SignalMetadata(name="sig", unit="V", group_index=0, channel_index=0),
+        color=QColor(1, 2, 3),
+        measurement=measurement,
+    )
+    area.add_signal(active)
+    area.zoom_to_fit()
+    x_min, x_max = area.plot_item.vb.viewRange()[0]
+    assert x_min <= 50.0
+    assert x_max >= 51.0
 
 
 def _make_flat(name: str, y: float) -> ActiveSignal:
@@ -524,8 +650,8 @@ def test_first_ever_miss_click_is_forwarded(area: PlotStripesArea, qtbot: QtBot)
 def test_signals_dropped_on_stripe_carries_target_stripe(area: PlotStripesArea, qtbot: QtBot) -> None:
     s2 = area.create_stripe()
     with qtbot.waitSignal(area.signals_dropped_on_stripe, timeout=1000) as blocker:
-        s2.signals_dropped.emit([(0, 1)])
-    assert blocker.args == [[(0, 1)], s2]
+        s2.signals_dropped.emit([(0, 1)], 2)
+    assert blocker.args == [[(0, 1)], s2, 2]
 
 
 # ---------------------------------------------------------------------------

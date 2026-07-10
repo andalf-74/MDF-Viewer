@@ -130,6 +130,7 @@ class MainWindow(QMainWindow):
         self._controller = controller
         controller.set_cursor_mode_callback(self._on_cursor_mode_changed)
         self.signal_browser.add_signals_requested.connect(self._on_add_signals)
+        self.signal_browser.measurement_selected.connect(self._on_measurement_selected)
         self._wire_tab_view(self.plot_area, self.active_signals_table)
         self.signal_info_box.display_mode_requested.connect(
             controller.on_display_mode_requested
@@ -829,13 +830,20 @@ class MainWindow(QMainWindow):
     # Slots
     # ------------------------------------------------------------------
 
+    def _on_measurement_selected(self, index: int) -> None:
+        """The Signal Browser's measurement selector changed (#101, REQ-BROWSER-051)."""
+        if self._controller is None:
+            return
+        self.signal_browser.populate(self._controller.channel_tree_for_measurement(index))
+
     def _on_add_signals(self, locations: list) -> None:
         if self._controller is None:
             return
+        measurement = self._controller.measurement_at(self.signal_browser.current_measurement_index())
         skipped = 0
         for gi, ci in locations:
             try:
-                if not self._controller.add_signal(gi, ci):
+                if not self._controller.add_signal(gi, ci, measurement=measurement):
                     skipped += 1
             except MdfLoadError as exc:
                 QMessageBox.critical(self, "Error Loading Signal", str(exc))
@@ -843,13 +851,14 @@ class MainWindow(QMainWindow):
             noun = "signal" if skipped == 1 else "signals"
             self.show_status(f"{skipped} {noun} already active, skipped.")
 
-    def _on_add_signals_to_stripe(self, locations: list, stripe) -> None:
+    def _on_add_signals_to_stripe(self, locations: list, stripe, measurement_index: int = 0) -> None:
         if self._controller is None:
             return
+        measurement = self._controller.measurement_at(measurement_index)
         skipped = 0
         for gi, ci in locations:
             try:
-                if not self._controller.add_signal(gi, ci, stripe=stripe):
+                if not self._controller.add_signal(gi, ci, stripe=stripe, measurement=measurement):
                     skipped += 1
             except MdfLoadError as exc:
                 QMessageBox.critical(self, "Error Loading Signal", str(exc))
@@ -880,76 +889,131 @@ class MainWindow(QMainWindow):
         if Path(path).suffix.lower() == ".mvc":
             self._load_config(Path(path))
             return
-        if self._controller.is_file_loaded:
-            reply = QMessageBox.question(
-                self,
-                "Replace File",
-                f"Replace the currently loaded file with\n{Path(path).name}?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
+        # Replace-vs-Add prompting (when applicable) happens inside
+        # _load_files() itself, so drag-drop gets the same choice as
+        # File > Open once >=1 measurement is already loaded (REQ-FILE-020).
         self._load_file(path)
 
     def _on_load_file(self) -> None:
         if self._controller is None:
             return
-        path, _ = QFileDialog.getOpenFileName(
+        paths, _ = QFileDialog.getOpenFileNames(
             self, "Open File", "", _ALL_FILE_FILTER
         )
-        if not path:
+        if not paths:
             return
-        if Path(path).suffix.lower() == ".mvc":
-            self._load_config(Path(path))
+        if len(paths) == 1 and Path(paths[0]).suffix.lower() == ".mvc":
+            self._load_config(Path(paths[0]))
         else:
-            self._load_file(path)
+            self._load_files(paths)
+
+    def _ask_replace_or_add(self) -> str | None:
+        """Prompt Replace vs. Add when >=1 measurement is already loaded (REQ-FILE-020).
+
+        Returns "replace", "add", or None if the user canceled.
+        """
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Load Measurement")
+        msg.setIcon(QMessageBox.Icon.Question)
+        msg.setText("A measurement is already loaded.")
+        msg.setInformativeText(
+            "Replace it with the newly selected file(s), or add them alongside it?"
+        )
+        replace_btn = msg.addButton("Replace", QMessageBox.ButtonRole.AcceptRole)
+        add_btn = msg.addButton("Add", QMessageBox.ButtonRole.YesRole)
+        msg.addButton(QMessageBox.StandardButton.Cancel)
+        msg.exec()
+        clicked = msg.clickedButton()
+        if clicked is replace_btn:
+            return "replace"
+        if clicked is add_btn:
+            return "add"
+        return None
 
     def _load_file(self, path: str | Path) -> None:
-        """Load *path* via the controller, showing busy feedback meanwhile.
+        """Back-compat single-file entry point — see _load_files()."""
+        self._load_files([path])
 
-        Loading a large MDF file can take noticeable time; without this the
-        application appears to freeze. Show a wait cursor and a persistent
-        status message for the duration of the call.
+    def _load_files(self, paths: list[str | Path]) -> None:
+        """Load *paths* via the controller, showing busy feedback meanwhile.
+
+        Prompts Replace vs. Add whenever at least one measurement is
+        already loaded (REQ-FILE-020); with none loaded, loads directly
+        with no prompt (REQ-FILE-012). Builds one error dialog naming
+        every file that failed to open, rather than surfacing only the
+        first failure (REQ-FILE-023).
         """
         if self._controller is None:
             return
 
-        snapshots = self._collect_snapshots_if_keeping()
+        mode = "replace"
+        if self._controller.measurement_count > 0:
+            mode = self._ask_replace_or_add()
+            if mode is None:
+                return
 
-        self.show_status(f"Loading {Path(path).name}…", timeout_ms=0)
+        snapshots = self._collect_snapshots_if_keeping() if mode == "replace" else {}
+
+        names = ", ".join(Path(p).name for p in paths)
+        self.show_status(f"Loading {names}…", timeout_ms=0)
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         QApplication.processEvents()
-        load_ok = True
         try:
-            self._controller.load_file(path)
-        except MdfLoadError as exc:
-            QMessageBox.critical(self, "Load Error", str(exc))
-            load_ok = False
+            if mode == "replace":
+                result = self._controller.replace_measurements(paths)
+            else:
+                result = self._controller.add_measurements(paths)
         finally:
             QApplication.restoreOverrideCursor()
             self.statusBar().clearMessage()
 
-        if load_ok and snapshots:
+        if result.failed:
+            lines = "\n".join(f"{Path(p).name}: {err}" for p, err in result.failed)
+            QMessageBox.critical(self, "Load Error", lines)
+
+        if mode == "replace" and result.succeeded and snapshots:
             self._restore_snapshots(snapshots)
 
-    def _classify_signal_name(self, name: str, group_name: str = "") -> tuple[str, list]:
-        """Classify *name* against the loaded file for signal-restore purposes.
+    def _classify_signal_name(
+        self, name: str, group_name: str = "", *, measurement_aware: bool = False,
+    ) -> tuple[str, list]:
+        """Classify *name* against the loaded file(s) for signal-restore purposes.
 
         Tries an exact match first, falling back to a near match
         (REQ-FILE-032/033) only when there's no exact match at all — a
         near match is never preferred over an exact one. Returns
         (status, candidates) where status is one of "exact_single",
         "exact_multiple", "near_single", "near_multiple", or "not_found".
+
+        *measurement_aware* selects between two candidate shapes: False
+        (default) returns plain SignalMetadata, searching only against
+        `.mvc` restore's deliberately single-measurement scope (#106).
+        True returns (LoadedMeasurement, SignalMetadata) tuples, searched
+        across every loaded measurement — used by the multi-file Replace
+        carry-over flow (#101) to disambiguate a name matching in more
+        than one loaded measurement, which a bare SignalMetadata result
+        can't express.
         """
-        candidates = self._controller.find_signal_by_name(name)
-        is_near = False
-        if not candidates:
-            candidates = self._controller.find_similar_signal_by_name(name)
-            is_near = True
-        if group_name and candidates:
-            narrowed = [c for c in candidates if c.group_name == group_name]
-            if narrowed:
-                candidates = narrowed
+        if measurement_aware:
+            candidates = self._controller.find_signal_locations_by_name(name)
+            is_near = False
+            if not candidates:
+                candidates = self._controller.find_similar_signal_locations_by_name(name)
+                is_near = True
+            if group_name and candidates:
+                narrowed = [c for c in candidates if c[1].group_name == group_name]
+                if narrowed:
+                    candidates = narrowed
+        else:
+            candidates = self._controller.find_signal_by_name(name)
+            is_near = False
+            if not candidates:
+                candidates = self._controller.find_similar_signal_by_name(name)
+                is_near = True
+            if group_name and candidates:
+                narrowed = [c for c in candidates if c.group_name == group_name]
+                if narrowed:
+                    candidates = narrowed
         if not candidates:
             return "not_found", []
         prefix = "near" if is_near else "exact"
@@ -1000,18 +1064,22 @@ class MainWindow(QMainWindow):
 
         for tab_index, snapshots in snapshots_by_tab.items():
             for snap in snapshots:
-                status, candidates = self._classify_signal_name(snap.name)
+                # measurement_aware=True: a multi-file Replace (#101) can load
+                # more than one measurement at once, so candidates must say
+                # which measurement each came from to disambiguate a name
+                # matching in more than one — see _classify_signal_name().
+                status, candidates = self._classify_signal_name(snap.name, measurement_aware=True)
                 if status == "exact_single":
-                    meta = candidates[0]
+                    measurement, meta = candidates[0]
                     resolved_by_tab.setdefault(tab_index, []).append(
-                        (snap, meta.group_index, meta.channel_index)
+                        (snap, meta.group_index, meta.channel_index, measurement)
                     )
                 elif status == "exact_multiple":
                     dlg = SignalGroupPickerDialog(snap.name, candidates, self)
                     if dlg.exec():
-                        meta = dlg.selected()
+                        measurement, meta = dlg.selected()
                         resolved_by_tab.setdefault(tab_index, []).append(
-                            (snap, meta.group_index, meta.channel_index)
+                            (snap, meta.group_index, meta.channel_index, measurement)
                         )
                     else:
                         not_found.append(snap.name)
@@ -1033,8 +1101,9 @@ class MainWindow(QMainWindow):
             checked = dlg.checked_mask() if dlg.exec() else [False] * len(pending_near_matches)
             for (tab_index, snap, candidate), accepted in zip(pending_near_matches, checked):
                 if accepted:
+                    measurement, meta = candidate
                     resolved_by_tab.setdefault(tab_index, []).append(
-                        (snap, candidate.group_index, candidate.channel_index)
+                        (snap, meta.group_index, meta.channel_index, measurement)
                     )
                 else:
                     not_found.append(snap.name)

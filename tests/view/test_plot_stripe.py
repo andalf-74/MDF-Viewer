@@ -6,7 +6,6 @@ than PyQtGraph internals. All tests require a QApplication via qtbot.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -21,7 +20,7 @@ from pytestqt.qtbot import QtBot
 
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
-from mdf_viewer.view._mime import SIGNAL_MIME_TYPE
+from mdf_viewer.view._mime import SIGNAL_MIME_TYPE, encode_signal_payload
 from mdf_viewer.view.plot_stripe import PlotStripe, _SignalAxisItem, _ViewBox
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
@@ -195,14 +194,14 @@ def test_set_show_x_axis_ticks_also_hides_time_label(plot: PlotStripe) -> None:
 
 def test_drag_enter_signal_mime_shows_highlight(plot: PlotStripe) -> None:
     mime = QMimeData()
-    mime.setData(SIGNAL_MIME_TYPE, QByteArray(json.dumps([[0, 0]]).encode()))
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(0, [(0, 0)])))
     plot.eventFilter(plot._pw.viewport(), _drag_enter_event(mime))
     assert plot._drag_hover_active is True
 
 
 def test_drag_leave_clears_highlight(plot: PlotStripe) -> None:
     mime = QMimeData()
-    mime.setData(SIGNAL_MIME_TYPE, QByteArray(json.dumps([[0, 0]]).encode()))
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(0, [(0, 0)])))
     plot.eventFilter(plot._pw.viewport(), _drag_enter_event(mime))
     assert plot._drag_hover_active is True
 
@@ -214,7 +213,7 @@ def test_drag_leave_clears_highlight(plot: PlotStripe) -> None:
 
 def test_drop_clears_highlight(plot: PlotStripe) -> None:
     mime = QMimeData()
-    mime.setData(SIGNAL_MIME_TYPE, QByteArray(json.dumps([[0, 0]]).encode()))
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(0, [(0, 0)])))
     plot.eventFilter(plot._pw.viewport(), _drag_enter_event(mime))
     assert plot._drag_hover_active is True
 
@@ -685,12 +684,22 @@ def test_set_enum_display_yaxis_merged_any_on_rule(plot: PlotStripe) -> None:
 
 @pytest.mark.requirement("REQ-BROWSER-031")
 def test_signals_dropped_emitted_on_signal_mime(plot: PlotStripe, qtbot: QtBot) -> None:
-    locs = [[0, 1], [1, 2]]
+    locs = [(0, 1), (1, 2)]
     mime = QMimeData()
-    mime.setData(SIGNAL_MIME_TYPE, QByteArray(json.dumps(locs).encode()))
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(0, locs)))
     with qtbot.waitSignal(plot.signals_dropped) as blocker:
         plot.eventFilter(plot._pw.viewport(), _drop_event(mime))
     assert blocker.args[0] == [(0, 1), (1, 2)]
+    assert blocker.args[1] == 0
+
+
+@pytest.mark.requirement("REQ-FILE-031")
+def test_signals_dropped_carries_measurement_index(plot: PlotStripe, qtbot: QtBot) -> None:
+    mime = QMimeData()
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(2, [(0, 1)])))
+    with qtbot.waitSignal(plot.signals_dropped) as blocker:
+        plot.eventFilter(plot._pw.viewport(), _drop_event(mime))
+    assert blocker.args[1] == 2
 
 
 @pytest.mark.requirement("REQ-BROWSER-031")
@@ -804,6 +813,210 @@ def test_zoom_to_fit_sets_x_range(plot: PlotStripe) -> None:
     # Range should encompass [0.5, 2.5] with some padding
     assert x_range[0] <= 0.5
     assert x_range[1] >= 2.5
+
+
+# ---------------------------------------------------------------------------
+# Multi-measurement offset (#101) — display_timestamps used for X-positioning
+# ---------------------------------------------------------------------------
+
+def _make_measurement(offset_s: float = 0.0):
+    from mdf_viewer.model.loaded_measurement import LoadedMeasurement
+    from mdf_viewer.model.mdf_loader import MdfLoader
+    from mdf_viewer.model.measurement import MeasurementInfo
+
+    return LoadedMeasurement(
+        loader=MdfLoader(), info=MeasurementInfo(file_name="run.mf4"), label="run",
+        offset_s=offset_s,
+    )
+
+
+@pytest.mark.requirement("REQ-PLOT-304")
+def test_add_signal_renders_curve_at_offset_timestamps(plot: PlotStripe) -> None:
+    measurement = _make_measurement(offset_s=5.0)
+    t = np.array([0.0, 1.0, 2.0])
+    data = SignalData(timestamps=t, samples=t)
+    meta = SignalMetadata(name="x", group_index=0, channel_index=0)
+    active = ActiveSignal(data=data, metadata=meta, color=QColor(200, 100, 50), measurement=measurement)
+    plot.add_signal(active)
+    # xData is the raw stored dataset; getData() would return the
+    # view-clipped/downsampled display dataset instead (not what we want to
+    # verify here — see test_curve_data_is_full_resolution_despite_downsampling
+    # above for why that distinction matters).
+    assert np.array_equal(active.curve.xData, np.array([5.0, 6.0, 7.0]))
+
+
+@pytest.mark.requirement("REQ-PLOT-304")
+def test_zoom_to_fit_uses_offset_shifted_range(plot: PlotStripe) -> None:
+    measurement = _make_measurement(offset_s=10.0)
+    t = np.linspace(0.5, 2.5, 50)
+    data = SignalData(timestamps=t, samples=np.ones(50))
+    meta = SignalMetadata(name="x", group_index=0, channel_index=0)
+    active = ActiveSignal(data=data, metadata=meta, color=QColor(200, 100, 50), measurement=measurement)
+    plot.add_signal(active)
+    plot.zoom_to_fit()
+    x_range = plot._pi.vb.viewRange()[0]
+    assert x_range[0] <= 10.5
+    assert x_range[1] >= 12.5
+
+
+@pytest.mark.requirement("REQ-PLOT-304")
+def test_swimlanes_visible_mask_uses_offset_shifted_range(plot: PlotStripe) -> None:
+    measurement = _make_measurement(offset_s=100.0)
+    t = np.linspace(0.0, 1.0, 50)
+    data = SignalData(timestamps=t, samples=np.linspace(0.0, 10.0, 50))
+    meta = SignalMetadata(name="x", group_index=0, channel_index=0)
+    active = ActiveSignal(data=data, metadata=meta, color=QColor(200, 100, 50), measurement=measurement)
+    plot.add_signal(active)
+    plot._pi.vb.setXRange(100.0, 101.0, padding=0)
+    assert plot.swimlanes([active])
+    y_min, y_max = active.view_box.viewRange()[1]
+    # With the view range matching the offset-shifted data, the visible mask
+    # should include (nearly) the full sample range, not treat it as empty.
+    assert y_max - y_min > 5.0
+
+
+@pytest.mark.requirement("REQ-PLOT-304")
+def test_zoom_y_to_view_visible_mask_uses_offset_shifted_range(plot: PlotStripe) -> None:
+    measurement = _make_measurement(offset_s=100.0)
+    t = np.linspace(0.0, 1.0, 50)
+    data = SignalData(timestamps=t, samples=np.linspace(0.0, 10.0, 50))
+    meta = SignalMetadata(name="x", group_index=0, channel_index=0)
+    active = ActiveSignal(data=data, metadata=meta, color=QColor(200, 100, 50), measurement=measurement)
+    plot.add_signal(active)
+    plot._pi.vb.setXRange(100.0, 101.0, padding=0)
+    assert plot.zoom_y_to_view()
+    y_min, y_max = active.view_box.viewRange()[1]
+    assert y_max - y_min > 5.0
+
+
+@pytest.mark.requirement("REQ-PLOT-304")
+def test_refresh_signal_data_reapplies_display_timestamps(plot: PlotStripe) -> None:
+    measurement = _make_measurement(offset_s=0.0)
+    t = np.array([0.0, 1.0, 2.0])
+    data = SignalData(timestamps=t, samples=t)
+    meta = SignalMetadata(name="x", group_index=0, channel_index=0)
+    active = ActiveSignal(data=data, metadata=meta, color=QColor(200, 100, 50), measurement=measurement)
+    plot.add_signal(active)
+    assert np.array_equal(active.curve.xData, np.array([0.0, 1.0, 2.0]))
+
+    measurement.offset_s = 5.0
+    plot.refresh_signal_data(active)
+    assert np.array_equal(active.curve.xData, np.array([5.0, 6.0, 7.0]))
+
+
+def test_refresh_signal_data_noop_when_signal_not_present(plot: PlotStripe) -> None:
+    active = _make_active()
+    plot.refresh_signal_data(active)  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Per-measurement X-axis rows + drag-to-offset (#101)
+# ---------------------------------------------------------------------------
+
+def _make_measurement_axis(measurement, on_offset_changed=None, vb=None):
+    from mdf_viewer.view.plot_stripe import _MeasurementAxisItem
+    return _MeasurementAxisItem(
+        measurement=measurement, on_offset_changed=on_offset_changed, linkView=vb or MagicMock(),
+    )
+
+
+@pytest.mark.requirement("REQ-PLOT-300")
+def test_set_measurement_axes_creates_one_row_per_measurement(plot: PlotStripe) -> None:
+    m1 = _make_measurement(offset_s=0.0)
+    m2 = _make_measurement(offset_s=0.0)
+    plot.set_measurement_axes([m1, m2])
+    assert len(plot._measurement_axes) == 2
+
+
+@pytest.mark.requirement("REQ-PLOT-301")
+def test_set_measurement_axes_empty_clears_rows(plot: PlotStripe) -> None:
+    m1 = _make_measurement()
+    plot.set_measurement_axes([m1])
+    assert len(plot._measurement_axes) == 1
+    plot.set_measurement_axes([])
+    assert plot._measurement_axes == []
+
+
+@pytest.mark.requirement("REQ-PLOT-301")
+def test_set_measurement_axes_rebuild_replaces_rows(plot: PlotStripe) -> None:
+    m1 = _make_measurement()
+    plot.set_measurement_axes([m1])
+    first_axis = plot._measurement_axes[0]
+    m2 = _make_measurement()
+    plot.set_measurement_axes([m2])
+    assert len(plot._measurement_axes) == 1
+    assert plot._measurement_axes[0] is not first_axis
+
+
+@pytest.mark.requirement("REQ-PLOT-300")
+def test_measurement_axis_tick_strings_subtract_offset() -> None:
+    m1 = _make_measurement(offset_s=10.0)
+    axis = _make_measurement_axis(m1)
+    assert axis.tickStrings([15.0], 1.0, 1.0) == ["5"]
+
+
+def test_measurement_axis_tick_strings_zero_offset() -> None:
+    m1 = _make_measurement(offset_s=0.0)
+    axis = _make_measurement_axis(m1)
+    assert axis.tickStrings([15.0], 1.0, 1.0) == ["15"]
+
+
+@pytest.mark.requirement("REQ-PLOT-303")
+def test_measurement_axis_drag_updates_offset(qtbot: QtBot) -> None:
+    m1 = _make_measurement(offset_s=0.0)
+    vb = MagicMock()
+    vb.viewPixelSize.return_value = (0.1, 0.1)  # 0.1 data units per pixel
+    received = []
+    axis = _make_measurement_axis(m1, on_offset_changed=received.append, vb=vb)
+
+    start = MagicMock()
+    start.button.return_value = Qt.MouseButton.LeftButton
+    start.isStart.return_value = True
+    start.buttonDownScenePos.return_value = QPoint(0, 0)
+    start.scenePos.return_value = QPoint(0, 0)
+    axis.mouseDragEvent(start)
+
+    move = MagicMock()
+    move.button.return_value = Qt.MouseButton.LeftButton
+    move.isStart.return_value = False
+    move.buttonDownScenePos.return_value = QPoint(0, 0)
+    move.scenePos.return_value = QPoint(50, 0)
+    axis.mouseDragEvent(move)
+
+    assert m1.offset_s == pytest.approx(5.0)  # 50 px * 0.1 data-units/px
+    assert received == [m1, m1]
+    move.accept.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-PLOT-303")
+def test_measurement_axis_drag_never_touches_linked_view_pan() -> None:
+    """Dragging the axis must never call the linked ViewBox's own
+    mouseDragEvent — that would pan the shared X range, which REQ-PLOT-303
+    reserves exclusively for interior drags/wheel zoom."""
+    m1 = _make_measurement(offset_s=0.0)
+    vb = MagicMock()
+    vb.viewPixelSize.return_value = (0.1, 0.1)
+    axis = _make_measurement_axis(m1, vb=vb)
+
+    event = MagicMock()
+    event.button.return_value = Qt.MouseButton.LeftButton
+    event.isStart.return_value = True
+    event.buttonDownScenePos.return_value = QPoint(0, 0)
+    event.scenePos.return_value = QPoint(30, 0)
+    axis.mouseDragEvent(event)
+
+    vb.mouseDragEvent.assert_not_called()
+
+
+def test_measurement_axis_drag_ignores_non_left_button() -> None:
+    m1 = _make_measurement(offset_s=0.0)
+    vb = MagicMock()
+    axis = _make_measurement_axis(m1, vb=vb)
+    event = MagicMock()
+    event.button.return_value = Qt.MouseButton.RightButton
+    axis.mouseDragEvent(event)
+    event.ignore.assert_called_once()
+    assert m1.offset_s == 0.0
 
 
 # ---------------------------------------------------------------------------

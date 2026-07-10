@@ -49,6 +49,12 @@ def _wire_tab(
     plot_area.stripe_deleted.connect(cursor_view.remove_stripe)
     workspace.cursor_stripes_view = cursor_view
 
+    # Dragging a measurement's own X-axis row (#101) only touches that one
+    # tab's PlotStripesArea view state directly; refreshing the affected
+    # curves' data is cross-tab (the pool is global), so it's routed
+    # through AppController rather than handled here.
+    plot_area.measurement_offset_changed.connect(controller.on_measurement_offset_changed)
+
     cursor_ctrl = CursorController(
         cursor_view=cursor_view,
         get_x_range=lambda: tuple(plot_area.plot_item.vb.viewRange()[0]),

@@ -55,3 +55,17 @@ channels were skipped for this reason [REQ-BROWSER-040]. When adding
 multiple channels at once, a failure reading one channel's samples is
 reported to the user without aborting the remaining requested channels
 [REQ-BROWSER-041].
+
+## Multiple Measurements
+
+When more than one measurement is loaded (`file-handling.md`
+"Multiple Measurements"), a selector above the channel tree lets the
+user pick which loaded measurement's channels the tree currently
+displays; with exactly one measurement loaded, no selector is shown and
+the tree simply shows that measurement's channels as today
+[REQ-BROWSER-050]. Switching the selector replaces the tree's contents
+with the selected measurement's channel hierarchy and clears any active
+filter, the same as loading a new measurement does today
+(REQ-BROWSER-012) [REQ-BROWSER-051]. An add-signal request always adds
+the channel from whichever measurement is currently selected in the tree
+(REQ-BROWSER-050) [REQ-BROWSER-052].

@@ -45,9 +45,10 @@ class PlotStripesArea(QWidget):
     file_dropped = pyqtSignal(object)
     range_changed = pyqtSignal()
     signal_clicked = pyqtSignal(object)
-    # list of (group_index, channel_index), target PlotStripe — a signal drag
-    # from the Signal Browser was dropped onto a specific stripe.
-    signals_dropped_on_stripe = pyqtSignal(list, object)
+    # list of (group_index, channel_index), target PlotStripe, and which
+    # loaded measurement (#101) they belong to — a signal drag from the
+    # Signal Browser was dropped onto a specific stripe.
+    signals_dropped_on_stripe = pyqtSignal(list, object, int)
     # Stripe lifecycle / focus.
     stripe_created = pyqtSignal(object)
     stripe_deleted = pyqtSignal(object)
@@ -59,12 +60,21 @@ class PlotStripesArea(QWidget):
     # MainWindow can mirror them onto the Active Signals Table's own segment
     # splitter (REQ-PLOT-274).
     stripe_sizes_changed = pyqtSignal(list)
+    # The LoadedMeasurement whose offset_s just changed via dragging one of
+    # the bottom-most stripe's per-measurement axis rows (#101) — AppController
+    # listens to refresh that measurement's curves across every tab/stripe.
+    measurement_offset_changed = pyqtSignal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
         self._splitter = make_splitter(Qt.Orientation.Vertical)
         self._stripes: list[PlotStripe] = []
+        # Current global measurement pool (#101), pushed here by AppController
+        # via refresh_measurement_axes() — applied to whichever stripe is
+        # currently bottom-most (REQ-PLOT-301); re-applied whenever the
+        # bottom-most stripe changes (create/delete).
+        self._measurements: list = []
         # Creation-order counter for default stripe names (REQ-PLOT-291),
         # scoped to this tab's PlotStripesArea — mirrors MainWindow's own
         # _tab_counter, never reused or renumbered as stripes are deleted.
@@ -222,9 +232,34 @@ class PlotStripesArea(QWidget):
         self._schedule_realign()
 
     def _update_x_axis_tick_visibility(self) -> None:
-        """Only the bottom-most stripe shows X-axis tick labels (REQ-PLOT-181)."""
+        """Only the bottom-most stripe shows X-axis info (REQ-PLOT-181): either
+        the plain 'Time' axis (no measurements loaded — matches pre-#101
+        behavior exactly) or the per-measurement axis rows (#101,
+        REQ-PLOT-301), never both. Once at least one measurement is loaded,
+        the per-measurement row(s) replace the plain 'Time' axis rather than
+        stacking alongside it, since they cover the same information (the
+        shared display-time ruler) plus each measurement's own offset."""
         for i, stripe in enumerate(self._stripes):
-            stripe.set_show_x_axis_ticks(i == len(self._stripes) - 1)
+            is_bottom = i == len(self._stripes) - 1
+            measurements_for_stripe = self._measurements if is_bottom else []
+            stripe.set_show_x_axis_ticks(is_bottom and not measurements_for_stripe)
+            stripe.set_measurement_axes(
+                measurements_for_stripe,
+                on_offset_changed=self.measurement_offset_changed.emit,
+            )
+
+    def refresh_measurement_axes(self, measurements: list) -> None:
+        """Push the current measurement pool (#101) to the bottom-most stripe.
+
+        Called by AppController whenever the pool changes (replace/add/
+        close); _update_x_axis_tick_visibility() re-applies self._measurements
+        on its own whenever the bottom-most stripe itself changes (stripe
+        create/delete), so the axis rows always follow whichever stripe
+        REQ-PLOT-301 currently designates without this needing to be called
+        again for that case.
+        """
+        self._measurements = measurements
+        self._update_x_axis_tick_visibility()
 
     def _schedule_realign(self) -> None:
         """Defer axis-width realignment to let Qt finish laying out the new axis first.
@@ -264,7 +299,7 @@ class PlotStripesArea(QWidget):
         stripe.range_changed.connect(self.range_changed)
         stripe.signal_clicked.connect(lambda active, s=stripe: self._on_signal_clicked(s, active))
         stripe.signals_dropped.connect(
-            lambda locs, s=stripe: self.signals_dropped_on_stripe.emit(locs, s)
+            lambda locs, midx, s=stripe: self.signals_dropped_on_stripe.emit(locs, s, midx)
         )
         stripe.activated.connect(self.set_active_stripe)
         stripe.create_stripe_requested.connect(lambda _s: self.create_stripe())
@@ -336,6 +371,11 @@ class PlotStripesArea(QWidget):
         if stripe is not None:
             stripe.set_step_mode(active, step_mode)
 
+    def refresh_signal_data(self, active: ActiveSignal) -> None:
+        stripe = self._signal_stripe.get(active)
+        if stripe is not None:
+            stripe.refresh_signal_data(active)
+
     def set_display_mode(self, active: ActiveSignal, mode: str, shape: str) -> None:
         stripe = self._signal_stripe.get(active)
         if stripe is not None:
@@ -401,8 +441,8 @@ class PlotStripesArea(QWidget):
         signals = list(self._signal_stripe)
         if not signals:
             return
-        t_min = min(float(a.data.timestamps[0]) for a in signals if len(a.data.timestamps))
-        t_max = max(float(a.data.timestamps[-1]) for a in signals if len(a.data.timestamps))
+        t_min = min(float(a.display_timestamps[0]) for a in signals if len(a.data.timestamps))
+        t_max = max(float(a.display_timestamps[-1]) for a in signals if len(a.data.timestamps))
         self.zoom_to_x_range(t_min, t_max)
         for stripe in (self._stripes if all_stripes else [self._active_stripe]):
             stripe.autorange_y()

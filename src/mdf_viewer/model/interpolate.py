@@ -11,9 +11,18 @@ if TYPE_CHECKING:
 
 
 def interpolate(active: ActiveSignal, x: float) -> float | None:
-    """Linearly interpolate the signal value at timestamp *x*."""
+    """Linearly interpolate the signal value at display-time *x*.
+
+    *x* is in shared "display time" (REQ-PLOT-305) — when the signal
+    belongs to a measurement with a nonzero X-axis offset, *x* is shifted
+    back to that measurement's own raw recorded time before indexing into
+    its timestamps, so cursor values stay correct regardless of how far
+    that measurement's axis has been panned.
+    """
     ts = active.data.timestamps
     ys = active.data.samples
+    offset = active.measurement.offset_s if active.measurement is not None else 0.0
+    x -= offset
     if len(ts) == 0 or x < ts[0] or x > ts[-1]:
         return None
     idx = int(np.searchsorted(ts, x))

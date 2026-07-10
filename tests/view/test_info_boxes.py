@@ -245,6 +245,20 @@ def test_sbox_set_metadata_shows_name(sbox: SignalInfoBox) -> None:
     assert "engine_speed" in _all_texts(_form_texts(sbox))
 
 
+@pytest.mark.requirement("REQ-PLOT-306")
+def test_sbox_set_metadata_display_name_overrides_name_row(sbox: SignalInfoBox) -> None:
+    sbox.set_metadata(_make_meta(name="engine_speed"), display_name="[run1] engine_speed")
+    texts = _all_texts(_form_texts(sbox))
+    assert "[run1] engine_speed" in texts
+    assert "Name: engine_speed" not in texts
+
+
+@pytest.mark.requirement("REQ-PLOT-306")
+def test_sbox_set_metadata_no_display_name_shows_raw_name(sbox: SignalInfoBox) -> None:
+    sbox.set_metadata(_make_meta(name="engine_speed"), display_name=None)
+    assert "engine_speed" in _all_texts(_form_texts(sbox))
+
+
 @pytest.mark.requirement("REQ-PLOT-150")
 def test_sbox_set_metadata_shows_unit(sbox: SignalInfoBox) -> None:
     sbox.set_metadata(_make_meta(unit="rpm"))

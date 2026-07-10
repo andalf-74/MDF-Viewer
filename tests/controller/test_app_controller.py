@@ -7,6 +7,7 @@ calls the right methods on the right objects in the right order.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, call
 
 import numpy as np
@@ -414,7 +415,9 @@ def test_set_selected_signal_calls_set_metadata(
     ctrl.add_signal(0, 1)
     sig = ctrl.active_signals[0]
     ctrl.set_selected_signal(sig)
-    deps["signal_info"].set_metadata.assert_called_once_with(sig.metadata)
+    deps["signal_info"].set_metadata.assert_called_once_with(
+        sig.metadata, display_name=sig.metadata.name,
+    )
 
 
 @pytest.mark.requirement("REQ-PLOT-152")
@@ -901,7 +904,8 @@ def test_refresh_display_names_formatter_applies_rule(tmp_path, deps: dict) -> N
     )
     ctrl_with_settings.refresh_display_names()
     formatter = deps["table"].set_name_formatter.call_args[0][0]
-    assert formatter("a.b.PosADP") == "PosADP"
+    stub = SimpleNamespace(metadata=SimpleNamespace(name="a.b.PosADP"), measurement=None)
+    assert formatter(stub) == "PosADP"
 
 
 @pytest.mark.requirement("REQ-PLOT-161")
@@ -916,7 +920,69 @@ def test_refresh_display_names_identity_without_settings(deps: dict) -> None:
     )
     ctrl.refresh_display_names()
     formatter = deps["table"].set_name_formatter.call_args[0][0]
-    assert formatter("any.name") == "any.name"
+    stub = SimpleNamespace(metadata=SimpleNamespace(name="any.name"), measurement=None)
+    assert formatter(stub) == "any.name"
+
+
+@pytest.mark.requirement("REQ-PLOT-306")
+def test_display_name_no_prefix_with_one_measurement(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_signal(0, 1)
+    (sig,) = ctrl2.active_signals
+    assert ctrl2._format_display_name(sig) == sig.metadata.name
+
+
+@pytest.mark.requirement("REQ-PLOT-306")
+def test_display_name_prefixed_with_multiple_measurements(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+    ctrl2.add_signal(0, 1, measurement=m1)
+    ctrl2.add_signal(0, 1, measurement=m2)
+    sig1, sig2 = ctrl2.active_signals
+    assert ctrl2._format_display_name(sig1) == f"[{m1.label}] {sig1.metadata.name}"
+    assert ctrl2._format_display_name(sig2) == f"[{m2.label}] {sig2.metadata.name}"
+
+
+@pytest.mark.requirement("REQ-PLOT-307")
+def test_display_name_prefix_wraps_already_shortened_name(tmp_path, deps: dict) -> None:
+    from mdf_viewer.settings import Settings
+    s = Settings(path=tmp_path / "s.json")
+    s.display_name_rule_enabled = True
+    s.display_name_separator = "."
+    s.display_name_direction = "right"
+    s.display_name_segments = 1
+    loader_a, loader_b = _make_pool_loader(), _make_pool_loader()
+    loader_a.load_signal.return_value = (
+        _make_signal_data(), _make_metadata("a.b.PosADP", gi=0, ci=1),
+    )
+    loader_b.load_signal.return_value = (
+        _make_signal_data(), _make_metadata("a.b.PosADP", gi=0, ci=1),
+    )
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
+    ctrl2._settings = s
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+    ctrl2.add_signal(0, 1, measurement=m1)
+    (sig,) = ctrl2.active_signals
+
+    assert ctrl2._format_display_name(sig) == f"[{m1.label}] PosADP"
+
+
+@pytest.mark.requirement("REQ-PLOT-306")
+def test_display_name_unaffected_by_own_measurement_prefix_when_multi_but_no_measurement(
+    deps: dict,
+) -> None:
+    """A signal with no measurement attached (legacy/back-compat add_signal
+    path) is never prefixed, even once the pool has >1 measurement."""
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    stub = SimpleNamespace(metadata=SimpleNamespace(name="sig"), measurement=None)
+    assert ctrl2._format_display_name(stub) == "sig"
 
 
 # ---------------------------------------------------------------------------
@@ -1425,6 +1491,369 @@ def test_find_signal_by_name_ignores_display_shortening(tmp_path, deps: dict) ->
 
 
 # ---------------------------------------------------------------------------
+# Multi-measurement pool (#101)
+# ---------------------------------------------------------------------------
+
+def _make_pool_loader() -> MagicMock:
+    loader = MagicMock()
+    loader.channel_tree.return_value = []
+    loader.measurement_info.return_value = _make_measurement_info()
+    loader.load_signal.return_value = (_make_signal_data(), _make_metadata())
+    loader.is_open = True
+    return loader
+
+
+def _make_ctrl_with_loaders(deps: dict, loaders: list) -> AppController:
+    """Build an AppController whose loader_factory hands out *loaders* in order."""
+    it = iter(loaders)
+    return AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+        loader_factory=lambda: next(it),
+    )
+
+
+@pytest.mark.requirement("REQ-FILE-021")
+def test_replace_measurements_populates_pool(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    result = ctrl2.replace_measurements(["a.mf4", "b.mf4"])
+    assert ctrl2.measurement_count == 2
+    assert len(result.succeeded) == 2
+    assert not result.failed
+
+
+@pytest.mark.requirement("REQ-FILE-027")
+def test_replace_measurements_disambiguates_duplicate_labels(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    result = ctrl2.replace_measurements(["run.mf4", "sub/run.mf4"])
+    labels = [m.label for m in result.succeeded]
+    assert labels == ["run", "run (2)"]
+
+
+@pytest.mark.requirement("REQ-FILE-021")
+def test_replace_measurements_discards_previous_pool(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(
+        deps, [_make_pool_loader(), _make_pool_loader(), _make_pool_loader()],
+    )
+    ctrl2.replace_measurements(["a.mf4"])
+    assert ctrl2.measurement_count == 1
+    ctrl2.replace_measurements(["b.mf4", "c.mf4"])
+    assert ctrl2.measurement_count == 2
+
+
+@pytest.mark.requirement("REQ-FILE-023")
+def test_replace_measurements_collects_failures(deps: dict) -> None:
+    bad = MagicMock()
+    bad.open.side_effect = MdfLoadError("bad file")
+    good = _make_pool_loader()
+    ctrl2 = _make_ctrl_with_loaders(deps, [bad, good])
+    result = ctrl2.replace_measurements(["bad.mf4", "good.mf4"])
+    assert len(result.succeeded) == 1
+    assert len(result.failed) == 1
+    assert result.failed[0][0] == "bad.mf4"
+    assert ctrl2.measurement_count == 1
+
+
+@pytest.mark.requirement("REQ-FILE-021")
+def test_replace_measurements_clears_current_tab_signals(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_signal(0, 1)
+    assert ctrl2.active_signals != []
+    ctrl2.replace_measurements(["b.mf4"])
+    assert ctrl2.active_signals == []
+
+
+@pytest.mark.requirement("REQ-FILE-022")
+def test_add_measurements_does_not_touch_existing_signals(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_signal(0, 1)
+    existing = ctrl2.active_signals
+    ctrl2.add_measurements(["b.mf4"])
+    assert ctrl2.measurement_count == 2
+    assert ctrl2.active_signals == existing
+
+
+@pytest.mark.requirement("REQ-FILE-024")
+def test_add_measurements_failure_does_not_affect_existing_pool(deps: dict) -> None:
+    bad = MagicMock()
+    bad.open.side_effect = MdfLoadError("bad file")
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), bad])
+    ctrl2.replace_measurements(["a.mf4"])
+    result = ctrl2.add_measurements(["bad.mf4"])
+    assert len(result.failed) == 1
+    assert ctrl2.measurement_count == 1
+
+
+@pytest.mark.requirement("REQ-FILE-028")
+def test_close_measurement_removes_only_its_own_signals(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+    ctrl2.add_signal(0, 1, measurement=m1)
+    ctrl2.add_signal(0, 2, measurement=m2)
+    assert len(ctrl2.active_signals) == 2
+
+    ctrl2.close_measurement(m1)
+
+    assert ctrl2.measurement_count == 1
+    assert ctrl2.measurements == [m2]
+    remaining = ctrl2.active_signals
+    assert len(remaining) == 1
+    assert remaining[0].measurement is m2
+
+
+@pytest.mark.requirement("REQ-PLOT-020")
+def test_add_signal_duplicate_check_is_measurement_scoped(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+    assert ctrl2.add_signal(0, 1, measurement=m1) is True
+    # Same (group_index, channel_index) from a *different* measurement is not a duplicate.
+    assert ctrl2.add_signal(0, 1, measurement=m2) is True
+    assert len(ctrl2.active_signals) == 2
+
+
+@pytest.mark.requirement("REQ-PLOT-020")
+def test_add_signal_duplicate_check_still_applies_within_same_measurement(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    assert ctrl2.add_signal(0, 1, measurement=m1) is True
+    assert ctrl2.add_signal(0, 1, measurement=m1) is False
+    assert len(ctrl2.active_signals) == 1
+
+
+def test_add_signal_without_measurement_resolves_sole_pool_entry(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    ctrl2.add_signal(0, 1)
+    assert ctrl2.active_signals[0].measurement is m1
+
+
+@pytest.mark.requirement("REQ-FILE-031")
+def test_find_signal_by_name_searches_pool_union(deps: dict) -> None:
+    loader_a = _make_pool_loader()
+    loader_b = _make_pool_loader()
+    meta_a = _make_metadata("speed", gi=0, ci=1)
+    meta_b = _make_metadata("speed", gi=0, ci=5)
+    loader_a.find_signal_by_name.return_value = [meta_a]
+    loader_b.find_signal_by_name.return_value = [meta_b]
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+
+    result = ctrl2.find_signal_by_name("speed")
+
+    assert result == [meta_a, meta_b]
+
+
+@pytest.mark.requirement("REQ-FILE-031")
+def test_find_signal_locations_by_name_tags_each_candidate(deps: dict) -> None:
+    loader_a = _make_pool_loader()
+    loader_b = _make_pool_loader()
+    meta_a = _make_metadata("speed", gi=0, ci=1)
+    meta_b = _make_metadata("speed", gi=0, ci=5)
+    loader_a.find_signal_by_name.return_value = [meta_a]
+    loader_b.find_signal_by_name.return_value = [meta_b]
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+
+    result = ctrl2.find_signal_locations_by_name("speed")
+
+    assert result == [(m1, meta_a), (m2, meta_b)]
+
+
+def test_find_signal_locations_by_name_empty_pool(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [])
+    assert ctrl2.find_signal_locations_by_name("speed") == []
+
+
+@pytest.mark.requirement("REQ-FILE-032")
+def test_find_similar_signal_locations_by_name_tags_each_candidate(deps: dict) -> None:
+    loader_a = _make_pool_loader()
+    meta_a = _make_metadata("a\\ETKC:1", gi=0, ci=1)
+    loader_a.find_similar_signal_by_name.return_value = [meta_a]
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+
+    result = ctrl2.find_similar_signal_locations_by_name("a\\XCP:1")
+
+    assert result == [(m1, meta_a)]
+
+
+def test_measurement_count_and_measurements_are_empty_initially(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [])
+    assert ctrl2.measurement_count == 0
+    assert ctrl2.measurements == []
+
+
+@pytest.mark.requirement("REQ-BROWSER-050")
+def test_measurement_at_returns_pool_entry(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+    assert ctrl2.measurement_at(0) is m1
+    assert ctrl2.measurement_at(1) is m2
+
+
+def test_measurement_at_out_of_range_returns_none(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [])
+    assert ctrl2.measurement_at(0) is None
+    assert ctrl2.measurement_at(-1) is None
+
+
+@pytest.mark.requirement("REQ-BROWSER-051")
+def test_channel_tree_for_measurement_delegates_to_loader(deps: dict) -> None:
+    loader = _make_pool_loader()
+    groups = [object()]
+    loader.channel_tree.return_value = groups
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    assert ctrl2.channel_tree_for_measurement(0) == groups
+
+
+def test_channel_tree_for_measurement_out_of_range_returns_empty(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [])
+    assert ctrl2.channel_tree_for_measurement(5) == []
+
+
+@pytest.mark.requirement("REQ-BROWSER-050")
+def test_replace_measurements_sets_browser_measurements(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["run1.mf4", "run2.mf4"])
+    deps["browser"].set_measurements.assert_called_once_with(["run1", "run2"])
+
+
+@pytest.mark.requirement("REQ-BROWSER-050")
+def test_add_measurements_updates_browser_measurements(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["run1.mf4"])
+    deps["browser"].set_measurements.reset_mock()
+    ctrl2.add_measurements(["run2.mf4"])
+    deps["browser"].set_measurements.assert_called_once_with(["run1", "run2"])
+
+
+@pytest.mark.requirement("REQ-FILE-028")
+def test_close_measurement_updates_browser_to_remaining_measurement(deps: dict) -> None:
+    loader_a = _make_pool_loader()
+    loader_b = _make_pool_loader()
+    groups_b = [object()]
+    loader_b.channel_tree.return_value = groups_b
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+
+    ctrl2.close_measurement(m1)
+
+    deps["browser"].set_measurements.assert_called_with([m2.label])
+    # populate() falls back to the first remaining measurement's tree.
+    deps["browser"].populate.assert_called_with(groups_b)
+
+
+@pytest.mark.requirement("REQ-FILE-028")
+def test_close_last_measurement_clears_browser(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    deps["browser"].clear.reset_mock()
+
+    ctrl2.close_measurement(m1)
+
+    deps["browser"].clear.assert_called()
+
+
+@pytest.mark.requirement("REQ-PLOT-301")
+def test_replace_measurements_refreshes_axes_on_every_tab(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    plot2, table2 = MagicMock(), MagicMock()
+    ctrl2.create_tab(plot2, table2)
+
+    ctrl2.replace_measurements(["a.mf4"])
+
+    deps["plot"].refresh_measurement_axes.assert_called_with(ctrl2.measurements)
+    plot2.refresh_measurement_axes.assert_called_with(ctrl2.measurements)
+
+
+@pytest.mark.requirement("REQ-PLOT-301")
+def test_add_measurements_refreshes_axes_on_every_tab(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    plot2, table2 = MagicMock(), MagicMock()
+    ctrl2.create_tab(plot2, table2)
+    ctrl2.replace_measurements(["a.mf4"])
+    deps["plot"].refresh_measurement_axes.reset_mock()
+    plot2.refresh_measurement_axes.reset_mock()
+
+    ctrl2.add_measurements(["b.mf4"])
+
+    deps["plot"].refresh_measurement_axes.assert_called_with(ctrl2.measurements)
+    plot2.refresh_measurement_axes.assert_called_with(ctrl2.measurements)
+
+
+@pytest.mark.requirement("REQ-PLOT-301")
+def test_close_measurement_refreshes_axes_on_every_tab(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    plot2, table2 = MagicMock(), MagicMock()
+    ctrl2.create_tab(plot2, table2)
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    deps["plot"].refresh_measurement_axes.reset_mock()
+    plot2.refresh_measurement_axes.reset_mock()
+
+    ctrl2.close_measurement(m1)
+
+    deps["plot"].refresh_measurement_axes.assert_called_with([])
+    plot2.refresh_measurement_axes.assert_called_with([])
+
+
+@pytest.mark.requirement("REQ-FILE-031")
+def test_on_measurement_offset_changed_refreshes_only_that_measurements_signals(
+    deps: dict,
+) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+    ctrl2.add_signal(0, 1, measurement=m1)
+    ctrl2.add_signal(0, 1, measurement=m2)
+    sig1, sig2 = ctrl2.active_signals
+    deps["plot"].refresh_signal_data.reset_mock()
+
+    ctrl2.on_measurement_offset_changed(m1)
+
+    deps["plot"].refresh_signal_data.assert_called_once_with(sig1)
+
+
+@pytest.mark.requirement("REQ-FILE-031")
+def test_on_measurement_offset_changed_reaches_every_tab(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+
+    plot2, table2 = MagicMock(), MagicMock()
+    ctrl2.create_tab(plot2, table2)
+    ctrl2.add_signal(0, 1, measurement=m1)
+    (sig_in_tab2,) = ctrl2.active_signals
+
+    ctrl2.on_measurement_offset_changed(m1)
+
+    plot2.refresh_signal_data.assert_called_once_with(sig_in_tab2)
+
+
+# ---------------------------------------------------------------------------
 # restore_signals
 # ---------------------------------------------------------------------------
 
@@ -1536,6 +1965,23 @@ def test_restore_signals_multiple_signals(ctrl: AppController, deps: dict) -> No
     assert [s.metadata.name for s in ctrl.active_signals] == ["a", "b"]
 
 
+@pytest.mark.requirement("REQ-FILE-031")
+def test_restore_signals_4tuple_routes_to_named_measurement(deps: dict) -> None:
+    loader_a = _make_pool_loader()
+    loader_b = _make_pool_loader()
+    loader_a.load_signal.return_value = (_make_signal_data(), _make_metadata("a", gi=0, ci=1))
+    loader_b.load_signal.return_value = (_make_signal_data(), _make_metadata("b", gi=0, ci=1))
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+
+    snap_a, snap_b = _make_snapshot("a"), _make_snapshot("b")
+    ctrl2.restore_signals([(snap_a, 0, 1, m1), (snap_b, 0, 1, m2)])
+
+    assert [s.measurement for s in ctrl2.active_signals] == [m1, m2]
+
+
 # ---------------------------------------------------------------------------
 # snapshot includes group_name
 # ---------------------------------------------------------------------------
@@ -1617,6 +2063,27 @@ def test_capture_config_measurement_path(ctrl: AppController, deps: dict, tmp_pa
     deps["loader"]._path = meas
     config = ctrl.capture_config(tmp_path / "session.mvc")
     assert config.measurement_path == str(meas)
+
+
+@pytest.mark.requirement("REQ-FILE-061")
+def test_capture_config_uses_first_measurement_when_multiple_loaded(
+    deps: dict, tmp_path
+) -> None:
+    """.mvc save/restore stays deliberately single-measurement scope for
+    #101 (multi-measurement session support is #106's job) — capturing
+    with 2 measurements loaded silently captures only the first."""
+    loader_a, loader_b = _make_pool_loader(), _make_pool_loader()
+    meas_a = tmp_path / "a.mf4"
+    loader_a._path = meas_a
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
+    ctrl2.replace_measurements([str(meas_a)])
+    ctrl2.add_measurements(["b.mf4"])
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    config = ctrl2.capture_config(tmp_path / "session.mvc")
+
+    assert config.measurement_path == str(meas_a)
 
 
 def test_capture_config_no_file_open(ctrl: AppController, deps: dict, tmp_path) -> None:
@@ -2456,7 +2923,9 @@ def test_switch_tab_restores_previously_selected_signal_in_drawer(
     ctrl.create_tab(MagicMock(), MagicMock())
     ctrl.switch_tab(0)
 
-    deps["signal_info"].set_metadata.assert_called_once_with(sig_a.metadata)
+    deps["signal_info"].set_metadata.assert_called_once_with(
+        sig_a.metadata, display_name=sig_a.metadata.name,
+    )
 
 
 def test_switch_tab_clears_drawer_when_tab_has_no_selection(
