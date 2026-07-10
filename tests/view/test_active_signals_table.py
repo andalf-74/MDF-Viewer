@@ -1198,6 +1198,39 @@ def test_apply_row_move_across_segments_reassigns_stripe(table: ActiveSignalsTab
 
 
 @pytest.mark.requirement("REQ-PLOT-279")
+def test_apply_row_move_across_segments_emits_move_to_stripe_requested(
+    table: ActiveSignalsTable, qtbot: QtBot
+) -> None:
+    """A cross-segment drag must also relocate the signal in the plot (#116),
+    not just the table row — reuses the same signal the "Move to Stripe"
+    context-menu action already emits, so AppController.move_signals_to_stripe
+    handles both the same way."""
+    s1 = _FakeStripe("Stripe 1")
+    s2 = _FakeStripe("Stripe 2")
+    seg1 = table.add_stripe_segment(s1)
+    seg2 = table.add_stripe_segment(s2)
+    a = _make_active("alpha")
+    table.add_row(a, s1)
+    with qtbot.waitSignal(table.move_to_stripe_requested) as blocker:
+        table._apply_row_move([a], seg2, 0)
+    assert blocker.args == [[a], s2]
+
+
+def test_apply_row_move_within_segment_does_not_emit_move_to_stripe_requested(
+    table: ActiveSignalsTable, qtbot: QtBot
+) -> None:
+    """A same-segment reorder is not a stripe change — no plot-side move needed."""
+    s1 = _FakeStripe("Stripe 1")
+    seg1 = table.add_stripe_segment(s1)
+    a = _make_active("alpha")
+    b = _make_active("beta")
+    table.add_row(a, s1)
+    table.add_row(b, s1)
+    with qtbot.assertNotEmitted(table.move_to_stripe_requested):
+        table._apply_row_move([b], seg1, 0)
+
+
+@pytest.mark.requirement("REQ-PLOT-279")
 def test_apply_row_move_across_segments_lands_at_requested_position(
     table: ActiveSignalsTable,
 ) -> None:

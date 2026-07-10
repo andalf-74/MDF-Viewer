@@ -939,15 +939,23 @@ class ActiveSignalsTable(QWidget):
         move_to_stripe's stripe-membership reassignment, then splicing every
         affected segment's rendering back to reflect it. Segments that lose
         members are re-rendered too, not just the target.
+
+        A cross-segment move also emits move_to_stripe_requested for the
+        signals that actually changed stripe, so the controller relocates
+        them in the plot too (#116) — this method used to only update its
+        own _stripe_for_signal bookkeeping, leaving the AST row moved but
+        the curve behind in its old stripe.
         """
         target_stripe = self._stripe_for_segment.get(target_seg)
         local_before = self._segment_signals(target_seg)
         dst_row = max(0, min(dst_row, len(local_before)))
 
         affected_segments = {target_seg}
+        cross_stripe_moves: list[ActiveSignal] = []
         for m in moving:
             old_stripe = self._stripe_for_signal.get(m)
             if old_stripe != target_stripe:
+                cross_stripe_moves.append(m)
                 old_seg = self._segment_for_stripe.get(old_stripe)
                 if old_seg is not None:
                     affected_segments.add(old_seg)
@@ -980,6 +988,12 @@ class ActiveSignalsTable(QWidget):
             )
             self._render_segment(seg, select_rows=select_rows)
         self.order_changed.emit(list(self._signals))
+        if cross_stripe_moves:
+            # _stripe_for_signal is already updated above, so the
+            # controller's own table.move_to_stripe() call (inside its
+            # move_signals_to_stripe handler) is a safe no-op here — this
+            # emit exists purely to reach the plot side (#116).
+            self.move_to_stripe_requested.emit(cross_stripe_moves, target_stripe)
 
     def _reorder_segment_in_place(self, seg: _ActiveTable, new_local: list[ActiveSignal]) -> None:
         """Rewrite the shared list's slots for *seg*'s stripe to *new_local*'s
