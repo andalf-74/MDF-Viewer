@@ -426,7 +426,10 @@ Stripe" context-menu actions (REQ-PLOT-202) [REQ-PLOT-279]. The Remove
 Signal and Remove All controls remain a single set beneath the whole
 Active Signals Table area rather than one pair per segment; Remove All
 removes every active signal across every stripe in the tab
-[REQ-PLOT-280].
+[REQ-PLOT-280]. Dragging a row from the Active Signals Table onto a
+stripe's plot area moves that signal to the target stripe, appended after
+its existing signals, the same way dropping it onto another segment does
+(REQ-PLOT-279) [REQ-PLOT-281].
 
 ### Stripe Naming
 

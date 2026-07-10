@@ -33,7 +33,6 @@ tracking N parallel copies makes that class of bug structurally impossible.
 
 from __future__ import annotations
 
-import json
 from typing import Callable
 
 from PyQt6.QtCore import QByteArray, QEvent, QMimeData, QPoint, Qt, pyqtSignal
@@ -54,7 +53,13 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from mdf_viewer.view._mime import SIGNAL_MIME_TYPE, decode_signal_payload
+from mdf_viewer.view._mime import (
+    ROW_MIME_TYPE,
+    SIGNAL_MIME_TYPE,
+    decode_row_payload,
+    decode_signal_payload,
+    encode_row_payload,
+)
 from mdf_viewer.view.widgets import ColorSwatch, make_splitter
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
@@ -67,14 +72,6 @@ _NUM_COLS = 5
 
 _CURSOR_COLS = (_COL_C1, _COL_C2, _COL_DELTA)
 _HEADERS = ("", "Signal", "Cursor 1", "Cursor 2", "Δ")
-
-# Internal drag MIME type for moving/reordering active-signal rows, within
-# one segment (M7) or across segments (M8) — a JSON list of id(ActiveSignal)
-# (valid only within this process's lifetime, which a drag never outlives).
-# Replaces Qt's native InternalMove reorder entirely, uniformly for both
-# cases, via the same eventFilter DragEnter/DragMove/Drop pattern already
-# used for SIGNAL_MIME_TYPE drops from the Signal Browser.
-_ROW_MIME_TYPE = "application/x-mdf-viewer-active-signal-move"
 
 
 def _ro_item(text: str) -> QTableWidgetItem:
@@ -582,7 +579,7 @@ class ActiveSignalsTable(QWidget):
         # setDragEnabled(True) would additionally let Qt try to start its own
         # native drag using its default item MIME encoding, which would
         # fight with that. DropOnly still accepts both SIGNAL_MIME_TYPE
-        # (Signal Browser) and _ROW_MIME_TYPE (row move) drops, handled by
+        # (Signal Browser) and ROW_MIME_TYPE (row move) drops, handled by
         # the eventFilter installed on the viewport below.
         seg.setDragEnabled(False)
         seg.setAcceptDrops(True)
@@ -857,14 +854,14 @@ class ActiveSignalsTable(QWidget):
         t = event.type()
         if t == QEvent.Type.DragEnter:
             mime = event.mimeData()
-            if mime.hasFormat(SIGNAL_MIME_TYPE) or mime.hasFormat(_ROW_MIME_TYPE):
+            if mime.hasFormat(SIGNAL_MIME_TYPE) or mime.hasFormat(ROW_MIME_TYPE):
                 event.acceptProposedAction()
                 return True
             event.ignore()
             return True
         elif t == QEvent.Type.DragMove:
             mime = event.mimeData()
-            if mime.hasFormat(SIGNAL_MIME_TYPE) or mime.hasFormat(_ROW_MIME_TYPE):
+            if mime.hasFormat(SIGNAL_MIME_TYPE) or mime.hasFormat(ROW_MIME_TYPE):
                 event.acceptProposedAction()
                 return True
             event.ignore()
@@ -878,7 +875,7 @@ class ActiveSignalsTable(QWidget):
                 self.signals_dropped_on_stripe.emit(locs, stripe, measurement_index)
                 event.acceptProposedAction()
                 return True
-            if mime.hasFormat(_ROW_MIME_TYPE):
+            if mime.hasFormat(ROW_MIME_TYPE):
                 self._on_row_move_drop(seg, event)
                 return True
             return True
@@ -906,14 +903,14 @@ class ActiveSignalsTable(QWidget):
         if not moving:
             return
         mime = QMimeData()
-        mime.setData(_ROW_MIME_TYPE, QByteArray(json.dumps([id(a) for a in moving]).encode()))
+        mime.setData(ROW_MIME_TYPE, QByteArray(encode_row_payload(moving)))
         drag = QDrag(seg)
         drag.setMimeData(mime)
         drag.exec(Qt.DropAction.MoveAction)
 
     def _on_row_move_drop(self, seg: _ActiveTable, event) -> None:
-        data = bytes(event.mimeData().data(_ROW_MIME_TYPE))
-        ids = set(json.loads(data))
+        data = bytes(event.mimeData().data(ROW_MIME_TYPE))
+        ids = decode_row_payload(data)
         # Iterate self._signals (not the JSON-decoded set, whose order is
         # arbitrary) so a multi-signal drag preserves its existing relative
         # order in the drop, whether the signals came from one segment or

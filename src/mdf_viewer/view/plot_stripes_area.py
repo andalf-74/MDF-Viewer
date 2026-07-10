@@ -49,6 +49,10 @@ class PlotStripesArea(QWidget):
     # loaded measurement (#101) they belong to — a signal drag from the
     # Signal Browser was dropped onto a specific stripe.
     signals_dropped_on_stripe = pyqtSignal(list, object, int)
+    # set of id(ActiveSignal), and target PlotStripe — an already-active
+    # signal was dragged from the Active Signals Table and dropped onto a
+    # stripe's plot area (#116).
+    active_signals_dropped_on_stripe = pyqtSignal(object, object)
     # Stripe lifecycle / focus.
     stripe_created = pyqtSignal(object)
     stripe_deleted = pyqtSignal(object)
@@ -300,6 +304,9 @@ class PlotStripesArea(QWidget):
         stripe.signal_clicked.connect(lambda active, s=stripe: self._on_signal_clicked(s, active))
         stripe.signals_dropped.connect(
             lambda locs, midx, s=stripe: self.signals_dropped_on_stripe.emit(locs, s, midx)
+        )
+        stripe.active_signals_dropped.connect(
+            lambda ids, s=stripe: self.active_signals_dropped_on_stripe.emit(ids, s)
         )
         stripe.activated.connect(self.set_active_stripe)
         stripe.create_stripe_requested.connect(lambda _s: self.create_stripe())

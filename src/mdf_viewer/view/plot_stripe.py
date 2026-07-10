@@ -29,7 +29,12 @@ from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QPen
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QWidget
 
-from mdf_viewer.view._mime import SIGNAL_MIME_TYPE, decode_signal_payload
+from mdf_viewer.view._mime import (
+    ROW_MIME_TYPE,
+    SIGNAL_MIME_TYPE,
+    decode_row_payload,
+    decode_signal_payload,
+)
 from mdf_viewer.view_model.active_signal import ActiveSignal
 from mdf_viewer.view_model.zoom_state import ZoomState
 
@@ -288,6 +293,12 @@ class PlotStripe(QWidget):
     # list of (group_index, channel_index), and which loaded measurement
     # (#101) they belong to (index into AppController.measurements).
     signals_dropped = pyqtSignal(list, int)
+    # Emitted when an already-active signal is dragged from the Active
+    # Signals Table and dropped onto this stripe's plot area (#116): the set
+    # of id(ActiveSignal) being moved — resolved back to actual ActiveSignal
+    # objects by whoever handles the signal, since only they know the full
+    # active-signal list.
+    active_signals_dropped = pyqtSignal(object)
     # Emitted whenever the X or any signal Y range changes (for zoom undo/redo).
     range_changed = pyqtSignal()
     # Emitted on a left-click in the plot: the topmost hit ActiveSignal, or None on a miss.
@@ -1502,7 +1513,7 @@ class PlotStripe(QWidget):
         self._pw.setStyleSheet(f"border: {border};")
 
     def _accepts_drag(self, mime_data) -> bool:
-        if mime_data.hasFormat(SIGNAL_MIME_TYPE):
+        if mime_data.hasFormat(SIGNAL_MIME_TYPE) or mime_data.hasFormat(ROW_MIME_TYPE):
             return True
         if mime_data.hasUrls():
             return any(
@@ -1518,6 +1529,11 @@ class PlotStripe(QWidget):
             data = bytes(mime.data(SIGNAL_MIME_TYPE))
             measurement_index, locs = decode_signal_payload(data)
             self.signals_dropped.emit(locs, measurement_index)
+            event.acceptProposedAction()
+        elif mime.hasFormat(ROW_MIME_TYPE):
+            data = bytes(mime.data(ROW_MIME_TYPE))
+            ids = decode_row_payload(data)
+            self.active_signals_dropped.emit(ids)
             event.acceptProposedAction()
         elif mime.hasUrls():
             for url in mime.urls():

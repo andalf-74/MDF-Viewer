@@ -20,7 +20,12 @@ from pytestqt.qtbot import QtBot
 
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
-from mdf_viewer.view._mime import SIGNAL_MIME_TYPE, encode_signal_payload
+from mdf_viewer.view._mime import (
+    ROW_MIME_TYPE,
+    SIGNAL_MIME_TYPE,
+    encode_row_payload,
+    encode_signal_payload,
+)
 from mdf_viewer.view.plot_stripe import PlotStripe, _SignalAxisItem, _ViewBox
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
@@ -709,6 +714,39 @@ def test_signals_dropped_not_emitted_for_wrong_mime(
     mime = QMimeData()
     mime.setText("irrelevant")
     with qtbot.assertNotEmitted(plot.signals_dropped):
+        plot.eventFilter(plot._pw.viewport(), _drop_event(mime))
+
+
+# ---------------------------------------------------------------------------
+# Drag and drop — active-signal row moved from the Active Signals Table (#116)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-281")
+def test_drag_enter_accepted_for_row_mime(plot: PlotStripe) -> None:
+    mime = QMimeData()
+    mime.setData(ROW_MIME_TYPE, QByteArray(encode_row_payload([])))
+    event = _drag_enter_event(mime)
+    plot.eventFilter(plot._pw.viewport(), event)
+    event.acceptProposedAction.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-PLOT-281")
+def test_active_signals_dropped_emitted_on_row_mime(plot: PlotStripe, qtbot: QtBot) -> None:
+    active = _make_active()
+    mime = QMimeData()
+    mime.setData(ROW_MIME_TYPE, QByteArray(encode_row_payload([active])))
+    with qtbot.waitSignal(plot.active_signals_dropped) as blocker:
+        plot.eventFilter(plot._pw.viewport(), _drop_event(mime))
+    assert blocker.args[0] == {id(active)}
+
+
+@pytest.mark.requirement("REQ-PLOT-281")
+def test_active_signals_dropped_not_emitted_for_wrong_mime(
+    plot: PlotStripe, qtbot: QtBot
+) -> None:
+    mime = QMimeData()
+    mime.setText("irrelevant")
+    with qtbot.assertNotEmitted(plot.active_signals_dropped):
         plot.eventFilter(plot._pw.viewport(), _drop_event(mime))
 
 

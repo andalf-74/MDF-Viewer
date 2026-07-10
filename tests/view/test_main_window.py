@@ -817,6 +817,27 @@ def test_move_to_new_stripe_requested_calls_controller(
     mock_controller.move_signals_to_new_stripe.assert_called_once_with(["sig"])
 
 
+@pytest.mark.requirement("REQ-PLOT-281")
+def test_active_signals_dropped_on_stripe_calls_controller(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    a, b = MagicMock(), MagicMock()
+    mock_controller.active_signals = [a, b]
+    stripe = MagicMock()
+    wired.plot_area.active_signals_dropped_on_stripe.emit({id(a)}, stripe)
+    mock_controller.move_signals_to_stripe.assert_called_once_with([a], stripe)
+
+
+@pytest.mark.requirement("REQ-PLOT-281")
+def test_active_signals_dropped_on_stripe_no_op_for_unresolved_ids(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.active_signals = []
+    stripe = MagicMock()
+    wired.plot_area.active_signals_dropped_on_stripe.emit({999}, stripe)
+    mock_controller.move_signals_to_stripe.assert_not_called()
+
+
 @pytest.mark.requirement("REQ-PLOT-193")
 def test_delete_stripe_requested_empty_stripe_deletes_directly(
     wired: MainWindow, mock_controller: MagicMock

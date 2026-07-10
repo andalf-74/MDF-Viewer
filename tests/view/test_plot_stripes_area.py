@@ -654,6 +654,17 @@ def test_signals_dropped_on_stripe_carries_target_stripe(area: PlotStripesArea, 
     assert blocker.args == [[(0, 1)], s2, 2]
 
 
+@pytest.mark.requirement("REQ-PLOT-281")
+def test_active_signals_dropped_on_stripe_carries_target_stripe(
+    area: PlotStripesArea, qtbot: QtBot
+) -> None:
+    s2 = area.create_stripe()
+    ids = {123, 456}
+    with qtbot.waitSignal(area.active_signals_dropped_on_stripe, timeout=1000) as blocker:
+        s2.active_signals_dropped.emit(ids)
+    assert blocker.args == [ids, s2]
+
+
 # ---------------------------------------------------------------------------
 # Signal re-emission
 # ---------------------------------------------------------------------------

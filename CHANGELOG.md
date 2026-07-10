@@ -160,6 +160,16 @@ All notable changes to MDF-Viewer are documented in this file.
   session restores normally).
 
 ### Fixed
+- Dragging a signal row in the Active Signals Table between two stripes'
+  segments moved the table row but left the signal's curve behind in its
+  old stripe's plot; dragging a row onto a stripe's plot area directly
+  (rather than onto another AST segment) was rejected outright with a
+  blocked cursor (#116). The cross-segment row drag now also relocates the
+  signal in the plot (REQ-PLOT-279), and dropping onto a stripe's plot area
+  now moves the signal there too, appended after that stripe's existing
+  signals (REQ-PLOT-281) — both paths reuse the same
+  `AppController.move_signals_to_stripe` the "Move to Stripe" context-menu
+  action already used, which worked correctly the whole time.
 - The File menu's "Load MDF…" action (and its "Load MDF File (Ctrl+O)"
   tooltip) named only MDF files, even though it always accepted `.mvc`
   config files too. Renamed to "Open…" / "Open File (Ctrl+O)" (#113),

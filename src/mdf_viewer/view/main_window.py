@@ -167,6 +167,9 @@ class MainWindow(QMainWindow):
         """
         controller = self._controller
         plot_area.signals_dropped_on_stripe.connect(self._on_add_signals_to_stripe)
+        plot_area.active_signals_dropped_on_stripe.connect(
+            self._on_active_signals_dropped_to_stripe
+        )
         plot_area.file_dropped.connect(self._on_file_dropped)
         plot_area.delete_stripe_requested.connect(self._on_delete_stripe_requested)
         active_signals_table.signals_dropped_on_stripe.connect(self._on_add_signals_to_stripe)
@@ -865,6 +868,20 @@ class MainWindow(QMainWindow):
         if skipped:
             noun = "signal" if skipped == 1 else "signals"
             self.show_status(f"{skipped} {noun} already active, skipped.")
+
+    def _on_active_signals_dropped_to_stripe(self, ids: set, stripe) -> None:
+        """An already-active signal was dragged from the Active Signals Table
+        and dropped onto *stripe*'s plot area (#116). Resolves the dragged
+        id(ActiveSignal) set back to actual ActiveSignal objects — PlotStripe
+        only knows the ids, not the full active-signal list — then moves them
+        the same way the AST's own cross-segment drag and "Move to Stripe"
+        context menu action already do.
+        """
+        if self._controller is None:
+            return
+        signals = [a for a in self._controller.active_signals if id(a) in ids]
+        if signals:
+            self._controller.move_signals_to_stripe(signals, stripe)
 
     def _on_delete_stripe_requested(self, stripe) -> None:
         if self._controller is None:
