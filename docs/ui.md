@@ -25,10 +25,15 @@
 ## Menu Bar
 
 - **File**
-  - Open… (opens file dialog; accepts measurement files and `.mvc` configs)
+  - Open… (Ctrl+O; opens file dialog; accepts measurement files and `.mvc` configs)
   - Recently opened files (up to 4; shown between Open… and Preferences when non-empty)
+  - Save Config (Ctrl+S) / Save Config As…
   - Preferences… (opens Preferences dialog)
-  - Exit
+  - Exit (Ctrl+Q)
+- **Edit**
+  - New Tab / New Stripe (#115 — moved here from File)
+  - Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z)
+  - Sync Measurements — checkable; collapses/restores every loaded measurement's own time axis into one shared ruler (#102); disabled with fewer than 2 measurements loaded
 - **Help**
   - Check for Update… (fetches GitHub releases API; shows update dialog or "up to date" dialog)
   - License (Enter / View/Change)
@@ -38,7 +43,10 @@
 
 ## Toolbar
 
+Order (#114 — "All Stripes" moved next to Load, ahead of the two zoom actions it governs, with a separator after "Zoom Y to View" marking where its effect ends):
+
 - **Load File** – folder icon, opens file dialog (Ctrl+O)
+- **All Stripes** – checkable; whether "Zoom to Fit"/"Zoom Y to View" apply to every stripe or only the active one
 - **Zoom to Fit** – resets viewport to show all active signals fully (X: full time range, Y: auto-scaled per signal) (Ctrl+0 / F)
 - **Zoom Y to View** – auto-scales Y axes for all signals within the current X span (Y)
 - **Swimlanes** – arranges signals in non-overlapping horizontal swimlanes (B)
@@ -46,6 +54,8 @@
 - **Cursor Toggle** – cycles through: 1 cursor → 2 cursors → cursors hidden → (repeat)
 
 Keyboard shortcuts for cursors: `.` toggles Cursor 1 (HIDDEN↔ONE, TWO→ONE), `,` toggles Cursor 2 (HIDDEN/ONE→TWO, TWO→HIDDEN).
+
+A per-stripe "Sync"/"Un-Sync" button also floats in the corner of the measurement-axis area at the bottom of the plot, mirroring the Edit menu's "Sync Measurements" action (#102) — see `docs/architecture.md`'s "Measurement Synchronization" entry.
 
 ---
 

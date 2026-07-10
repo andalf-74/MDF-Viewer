@@ -247,8 +247,8 @@ def test_closing_last_of_three_activates_left_neighbor(wired: MainWindow, mock_c
 
 
 def test_new_tab_menu_action_exists(window: MainWindow) -> None:
-    file_menu = window.menuBar().actions()[0].menu()
-    texts = [a.text() for a in file_menu.actions()]
+    """#115: moved from the File menu to the Edit menu."""
+    texts = [a.text() for a in window._edit_menu.actions()]
     assert any("New Tab" in t for t in texts)
 
 
@@ -257,8 +257,8 @@ def test_new_tab_menu_action_exists(window: MainWindow) -> None:
 # ---------------------------------------------------------------------------
 
 def test_new_stripe_menu_action_exists(window: MainWindow) -> None:
-    file_menu = window.menuBar().actions()[0].menu()
-    texts = [a.text() for a in file_menu.actions()]
+    """#115: moved from the File menu to the Edit menu."""
+    texts = [a.text() for a in window._edit_menu.actions()]
     assert any("New Stripe" in t for t in texts)
 
 
@@ -449,6 +449,40 @@ def test_toolbar_has_cursor_action(window: MainWindow) -> None:
     toolbars = window.findChildren(type(window.addToolBar("_t")))
     toolbar_actions = [a for tb in toolbars for a in tb.actions()]
     assert window._cursor_action in toolbar_actions
+
+
+def test_toolbar_all_stripes_action_before_zoom_actions(window: MainWindow) -> None:
+    """#114: "All Stripes" moved next to Load, ahead of the two zoom actions
+    it governs, rather than sitting between Zoom Y and Swimlanes where its
+    scope was ambiguous."""
+    toolbars = window.findChildren(type(window.addToolBar("_t")))
+    toolbar_actions = [a for tb in toolbars for a in tb.actions()]
+    all_stripes_idx = toolbar_actions.index(window._zoom_all_stripes_action)
+    assert all_stripes_idx < toolbar_actions.index(window._zoom_fit_action)
+    assert all_stripes_idx < toolbar_actions.index(window._zoom_y_action)
+
+
+def test_toolbar_separator_after_zoom_y_action(window: MainWindow) -> None:
+    """#114: a new separator after "Zoom Y to View" visually brackets the
+    two actions "All Stripes" affects, rather than leaving that ambiguous."""
+    toolbars = window.findChildren(type(window.addToolBar("_t")))
+    toolbar_actions = [a for tb in toolbars for a in tb.actions()]
+    y_idx = toolbar_actions.index(window._zoom_y_action)
+    swimlanes_idx = toolbar_actions.index(window._swimlanes_action)
+    between = toolbar_actions[y_idx + 1:swimlanes_idx]
+    assert any(a.isSeparator() for a in between)
+
+
+def test_new_tab_action_in_edit_menu_not_file_menu(window: MainWindow) -> None:
+    """#115: "New Tab" moved from the File menu to the Edit menu."""
+    assert window._new_tab_action in window._edit_menu.actions()
+    assert window._new_tab_action not in window._file_menu.actions()
+
+
+def test_new_stripe_action_in_edit_menu_not_file_menu(window: MainWindow) -> None:
+    """#115: "New Stripe" moved from the File menu to the Edit menu."""
+    assert window._new_stripe_action in window._edit_menu.actions()
+    assert window._new_stripe_action not in window._file_menu.actions()
 
 
 # ---------------------------------------------------------------------------

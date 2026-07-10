@@ -171,6 +171,13 @@ All notable changes to MDF-Viewer are documented in this file.
   session restores normally).
 
 ### Fixed
+- The "All Stripes" toolbar toggle sat between "Zoom Y to View" and
+  "Swimlanes," leaving it ambiguous which actions it actually governed
+  (#114). Moved next to "Load File," ahead of "Zoom to Fit"/"Zoom Y to
+  View" (the two actions it controls), with a new separator after "Zoom Y
+  to View" bracketing them off from "Swimlanes" and the cursor actions.
+- "New Tab" and "New Stripe" lived in the File menu; moved to the Edit
+  menu, which fits their workspace-creation purpose better (#115).
 - Using Swimlanes after splitting signals across multiple stripes could
   crash the whole application with a native segfault, no Python traceback
   (#120). Root cause: three separate places in `plot_stripe.py`

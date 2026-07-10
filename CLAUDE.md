@@ -125,6 +125,10 @@ GitHub issues are the only backlog and arrive in different flavors. **Before sta
 - **Chore / Maintenance** → dependency bumps, CI, packaging. No requirements impact; update `docs/release.md` if it changes the release/build process.
 - **Design / Architecture question** → resolve into a `docs/architecture.md` decision-log entry.
 
+**`docs/ui.md`** update is not gated to one flavor the way requirements/architecture are — whichever flavor (Feature or Bug) actually adds, removes, or moves a menu item, toolbar button, dialog, or panel must update the relevant section of `docs/ui.md` too, in the same commit as the code change. It's the map of what the user currently sees; unlike requirements (stable invariants) it's pure current-state documentation, so it goes stale the moment a layout change lands without a matching edit — which is exactly what happened across #97/#99/#100/#101/#102 before this rule existed.
+
+**`docs/api.md`** gets the same treatment — same reasoning, same risk of drift, just mapping the codebase's module/class structure instead of the visible UI. Whichever flavor adds a new module, or changes a class's public methods/signals/fields enough that the existing entry no longer matches, updates the relevant `api.md` entry in the same commit. A pure-internal change with no altered public surface (most Refactor/Tech debt work) doesn't need an edit.
+
 **CHANGELOG.md** is reserved for user-visible changes only (Keep a Changelog style) — Feature and Bug entries. Test-coverage, Investigation, Refactor/Tech debt, Chore, and Design-question issues do not get a CHANGELOG entry unless they also produce a user-visible side effect.
 
 ### Plugin vs. Built-in Decision Rule
