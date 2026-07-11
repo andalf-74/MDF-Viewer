@@ -441,9 +441,10 @@ reused or renumbered when stripes are reordered or deleted
 the Active Signals Table segment, the same interaction used to rename a
 tab (REQ-PLOT-242) [REQ-PLOT-292]. The "Move to Stripe" context-menu
 submenu (REQ-PLOT-202) lists each stripe by its current name rather than
-its position [REQ-PLOT-293]. Stripe names are not saved to or restored
-from `.mvc` session files; a reloaded session's stripes revert to their
-default creation-order names [REQ-PLOT-294].
+its position [REQ-PLOT-293]. Stripe names, along with the rest of a
+tab's stripe layout, are part of the saved-session state captured and
+restored by the broader workspace/config format extension
+(`file-handling.md` REQ-FILE-090) [REQ-PLOT-294].
 
 ## Main Widget Tabs
 
@@ -600,10 +601,10 @@ is available both as a button floating in a corner of the
 measurement-axis area and as an Edit menu item, and is disabled
 whenever fewer than two measurements are loaded [REQ-PLOT-316].
 
-Synchronization state and every measurement's offset are not saved to a
-`.mvc` config file — reloading a saved workspace restores every
-measurement to its default (unsynchronized, zero offset) state,
-deferred to the broader workspace/config format extension (#106).
+Synchronization state and every measurement's offset are part of the
+saved-session state captured and restored by the broader workspace/config
+format extension (`file-handling.md` REQ-FILE-092) — see that file for
+the full multi-measurement session scope.
 Aligning measurements by matching a signal's value between them (rather
 than by manually dragging) is out of scope here — split into its own
 follow-up issue, since it depends on the signal-value-search mechanism

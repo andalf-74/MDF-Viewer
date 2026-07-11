@@ -63,7 +63,7 @@ See [`docs/release.md`](docs/release.md) for release build instructions.
 
 - **Single file only (MVP)** – loading a new file replaces the current one
 - **Recently opened files** – up to 4 entries persisted in `settings.json`; shown in File menu; stale paths pruned silently on menu open; failed loads are not recorded
-- **Session persistence is manual, not automatic** – the app always starts fresh (no auto-restore of the last session), but a session (active signals, colors, axis grouping, zoom, cursor state, window/splitter layout) can be saved to and restored from a `.mvc` file via File → Save Config / Save Config As… (#37, #77). Auto-restore-on-startup is not implemented.
+- **Session persistence is manual, not automatic** – the app always starts fresh (no auto-restore of the last session), but a full workspace session — every tab (name, plot|AST divider width, Active Signals Table column widths), every tab's plot-stripe layout, every active signal's placement/colors/axis grouping/zoom/cursor/selection, and the full loaded-measurement pool (paths, short names, offsets, Primary, Sync state) — can be saved to and restored from a `.mvc` file via File → Save Workspace / Save Workspace As… (#37, #77, extended to the full workspace by #106). Auto-restore-on-startup is not implemented.
 - **Robust error handling is mandatory** – the application must never crash on malformed, incomplete, or unexpected MDF content; errors must be caught and communicated to the user gracefully
 
 ---
@@ -188,12 +188,12 @@ See `docs/release.md` for the full build and publish steps.
 
 ## Current Status
 
-**As of 2026-07-11:** v2.1.1 is still the last released version (https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.1.1). 1542 tests passing. The **2.1.1 Bugfixing milestone is fully resolved**, all bugs closed. Fix-by-fix detail lives in `CHANGELOG.md`'s `[2.1.1]` entry, not repeated here.
+**As of 2026-07-11:** v2.1.1 is still the last released version (https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.1.1). 1609 tests passing. The **2.1.1 Bugfixing milestone is fully resolved**, all bugs closed. Fix-by-fix detail lives in `CHANGELOG.md`'s `[2.1.1]` entry, not repeated here.
 
 GitHub milestone numbering was reshuffled: **#17 (multi-file support) was pulled out of Backlog, broken into 10 sub-issues, and assigned version 2.2** as milestone **"2.2 Multiview/Multimeasurement"** (due 2026-07-31). The former "2.2 Plugins" effort was renumbered to **"2.3 Plugins"**. This is a version-number assignment only, not a release — 2.2 has not shipped.
 
 Two active milestones remain on GitHub:
-- **2.2 Multiview/Multimeasurement** — #17 (umbrella, epic), #97 Plot Stripes (done), #98 Bottom Drawer for Signal Info/Properties (done), #99 Main Widget Tabs (done), #100 Per-Stripe Active Signal Table (done), #101 Multi-Measurement Loading (done), #102 Measurement Synchronization (done), #103 Signal Browser multi-measurement support (done — flat cross-measurement list, Primary Measurement, editable short names, Close Measurement menu), #104 color/line-style convention, #105 apply selection to new measurement, #106 Workspace/Config format extension. Also #122 (Replace a single specific measurement, not just all of them) — split out of #17 while live-testing #103, not yet started.
+- **2.2 Multiview/Multimeasurement** — #17 (umbrella, epic), #97 Plot Stripes (done), #98 Bottom Drawer for Signal Info/Properties (done), #99 Main Widget Tabs (done), #100 Per-Stripe Active Signal Table (done), #101 Multi-Measurement Loading (done), #102 Measurement Synchronization (done), #103 Signal Browser multi-measurement support (done — flat cross-measurement list, Primary Measurement, editable short names, Close Measurement menu), #104 color/line-style convention (rejected by user directly on GitHub — "user can do this himself" — not implemented), #105 apply selection to new measurement (not started), #106 Workspace/Config format extension (implemented, tested, documented, live-verified 2026-07-11; not yet committed). Also #122 (Replace a single specific measurement, not just all of them) — split out of #17 while live-testing #103, not yet started.
 - **2.3 Plugins** — new plugin architecture effort: #43 (umbrella), #70 (event bus on AppController, done), #71 (PluginContext API facade), #72 (Plugin base class/lifecycle), #73 (UI extension points in MainWindow), #74 (plugin loader/discovery), #75 (proof-of-concept built-in plugin), #76 (convert update checker into a first-party plugin).
 
 There's also a **2.X Artificial Signals** milestone (#58, #86) not yet assigned a version number, and a **Backlog** milestone (due 2028-12-31, unscheduled) holding #55, #57, #60, #61.

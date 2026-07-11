@@ -27,7 +27,7 @@
 
 - **File**
   - Open… (Ctrl+O; opens file dialog; accepts measurement file(s) and `.mvc` configs; loading with a measurement already open prompts Replace vs. Add)
-  - Save Config (Ctrl+S) / Save Config As… — saves the active tab's session (active signals, colors, axis grouping, zoom, cursor state, window/splitter layout) to a `.mvc` file
+  - Save Workspace (Ctrl+S) / Save Workspace As… — saves the full session to a `.mvc` file (#106): every tab (name, plot|AST divider width, AST column widths), every tab's plot-stripe layout (names/sizes/active stripe), every active signal (colors, stripe/measurement placement, axis grouping, zoom, cursor state, selection), every loaded measurement (path, short name, offset, Primary, Sync state), and window/splitter layout
   - Close Measurement — submenu listing every loaded measurement by its short name (#103); selecting one closes it, warning first if it still has active signals; disabled/empty when nothing is loaded
   - Recently opened files (up to 4; shown between Open… and Preferences when non-empty)
   - Preferences… (opens Preferences dialog)

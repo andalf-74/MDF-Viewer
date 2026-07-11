@@ -547,9 +547,9 @@ class PlotStripesArea(QWidget):
         stripe = self._signal_stripe.get(active)
         return stripe.get_group_type(active) if stripe is not None else None
 
-    def get_axis_grouping(self) -> tuple[list[list[str]], list[list[str]]]:
-        merged: list[list[str]] = []
-        synced: list[list[str]] = []
+    def get_axis_grouping(self) -> tuple[list[list[tuple]], list[list[tuple]]]:
+        merged: list[list[tuple]] = []
+        synced: list[list[tuple]] = []
         for stripe in self._stripes:
             m, s = stripe.get_axis_grouping()
             merged.extend(m)
@@ -558,22 +558,35 @@ class PlotStripesArea(QWidget):
 
     def restore_axis_grouping(
         self,
-        merged: list[list[str]],
-        synced: list[list[str]],
+        merged: list[list[tuple]],
+        synced: list[list[tuple]],
         active_signals: list,
     ) -> None:
-        # Delegates to merge_signals/sync_signals, which already validate
-        # same-stripe membership (REQ-PLOT-038) and no-op otherwise — correct
-        # as long as a restored session's signals all land in one stripe,
-        # which holds today since stripe layout isn't part of a saved session
-        # (workspace/config persistence for stripes is issue #106).
-        name_map = {a.metadata.name: a for a in active_signals}
-        for group_names in merged:
-            actives = [name_map[n] for n in group_names if n in name_map]
+        """Restore merged/synced groups from (name, measurement) pairs (#106).
+
+        Delegates to merge_signals/sync_signals, which already validate
+        same-stripe membership (REQ-PLOT-038) and no-op otherwise. Matching
+        by (name, measurement) rather than bare name is required once more
+        than one loaded measurement can share a channel name in the same
+        tab — a bare-name match would silently resolve to whichever
+        same-named signal happens to win a dict-key collision, potentially
+        grouping the wrong measurement's signal (found via live-testing,
+        #106 M6). Keyed by id(measurement), not the measurement object
+        itself — LoadedMeasurement is a plain, unhashable @dataclass
+        (mutable, field-equality __eq__); id() also gives identity rather
+        than value-equality matching, avoiding a second bug class where two
+        distinct measurements sharing the same path/label/offset would
+        otherwise spuriously match.
+        """
+        key_map = {(a.metadata.name, id(a.measurement)): a for a in active_signals}
+        for group_refs in merged:
+            keys = [(name, id(m)) for name, m in group_refs]
+            actives = [key_map[k] for k in keys if k in key_map]
             if len(actives) >= 2:
                 self.merge_signals(actives)
-        for group_names in synced:
-            actives = [name_map[n] for n in group_names if n in name_map]
+        for group_refs in synced:
+            keys = [(name, id(m)) for name, m in group_refs]
+            actives = [key_map[k] for k in keys if k in key_map]
             if len(actives) >= 2:
                 self.sync_signals(actives)
 

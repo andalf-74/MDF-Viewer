@@ -152,7 +152,9 @@ and style, display mode, marker shape, step mode, enum display toggles);
 the zoom state (X range and per-axis Y ranges); axis grouping (shared and
 linked axis groups); cursor mode and positions; the selected signal; the
 display-name-shortening rule; and the window and splitter layout
-[REQ-FILE-061].
+[REQ-FILE-061]. A session's per-tab stripe layout and full
+multi-measurement state are also captured — see "Session Scope: Stripes,
+Tabs, and Multi-Measurement" below.
 
 The measurement path inside a `.mvc` file is stored either as an absolute
 path or relative to the `.mvc` file's own directory, per user preference
@@ -185,3 +187,70 @@ path if the session has not been saved before [REQ-FILE-071].
 The application never auto-restores the previous session on startup —
 every launch begins with no file loaded, unless a measurement or `.mvc`
 path is supplied via a startup argument [REQ-FILE-080].
+
+## Session Scope: Stripes, Tabs, and Multi-Measurement
+
+Extends "Session Persistence" above to the full workspace introduced by
+Plot Stripes (`plotting.md` "Plot Stripes"), Main Widget Tabs
+(`plotting.md` "Main Widget Tabs"), and Multiple Measurements
+(`plotting.md` "Multiple Measurements") — previously out of scope for a
+saved session, each deferred to this section as those features shipped.
+
+A saved session captures, per tab: its name; its plot-stripe layout
+(stripe count, sizes, and names); which stripe each active signal is
+assigned to; and the row order of active signals within each stripe
+[REQ-FILE-090]. A saved session also captures which stripe is currently
+active within each tab, the order and names of the tabs themselves, and
+which tab is currently active in the window [REQ-FILE-091]. A saved
+session captures the full set of loaded measurements: each one's file
+path, short name, and X-axis time offset; which measurement is
+designated Primary; and whether Synchronize Measurements is active
+[REQ-FILE-092]. A saved session also captures, per tab, the width of the
+divider between the plot area and the Active Signals Table, and the
+Active Signals Table's own column widths (REQ-FILE-090 addendum, found
+missing during #106 M6 live-testing).
+
+Each active signal's saved state records which of the session's
+measurements it was captured from (by short name, falling back to load
+order for a session saved before short names existed), so restoring
+re-resolves it against that same measurement rather than an arbitrary
+one when multiple measurements are loaded [REQ-FILE-093]. This
+disambiguation applies everywhere a saved tab refers back to a specific
+signal by name — Y-axis zoom range, Merged/Synced axis group membership,
+and the selected signal — not just the resolve-to-a-channel step itself:
+a bare name is ambiguous whenever the same channel name is active from
+two different loaded measurements in the same tab, a real gap found via
+#106 M6 live-testing (a saved Merged group re-formed against the wrong
+measurement's same-named signal). Restoring a
+session replaces the entire current application state — every tab and
+every loaded measurement — the same way opening a `.mvc` file already
+replaces the single active tab's state today (REQ-FILE-013) [REQ-FILE-094].
+Every tab's signals are resolved using the same by-name resolution,
+ambiguous-match picker, and near-match detection as a single-tab session
+(REQ-FILE-066); every tab's near-match and not-found signals are batched
+into one confirmation dialog and one summary at the end of the load,
+rather than one dialog per tab [REQ-FILE-095].
+
+A session file saved before stripe, tab, or multi-measurement support
+existed loads exactly as it did before this extension: its signals load
+into a single default tab and stripe, and its measurement path loads as
+the sole (and Primary) loaded measurement — the same forward-compatible
+defaulting already used for other fields added after a file was written
+(REQ-FILE-067) [REQ-FILE-096].
+
+When a saved session references more than one measurement, a missing
+measurement is not prompted for individually the way a single-measurement
+session's missing file is (REQ-FILE-065 continues to apply unchanged
+when a session has exactly one measurement); instead every measurement
+that can't be found is listed together in one dialog offering to
+continue without them or cancel the whole load [REQ-FILE-097].
+Continuing drops each unresolved measurement from the restored set,
+folds any of its signals into the usual not-found summary (REQ-FILE-031),
+and reassigns Primary to the first-loaded of whatever remains if the
+originally-Primary measurement was itself one of the dropped ones
+(mirroring REQ-PLOT-321's close-measurement reassignment) [REQ-FILE-098].
+
+Applying a saved session's signal selection to a measurement other than
+the one it was captured from is a separate, related capability — see
+#105 — and is out of scope here, which always restores against the
+session's own recorded measurement(s).

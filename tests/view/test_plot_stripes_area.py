@@ -737,6 +737,47 @@ def test_get_axis_grouping_empty_by_default(area: PlotStripesArea) -> None:
     assert area.get_axis_grouping() == ([], [])
 
 
+@pytest.mark.requirement("REQ-FILE-093")
+def test_get_axis_grouping_includes_measurement(area: PlotStripesArea) -> None:
+    m1 = MagicMock(offset_s=0.0)
+    a = _make_active("a")
+    b = _make_active("b")
+    a.measurement = m1
+    b.measurement = m1
+    area.add_signal(a)
+    area.add_signal(b)
+    area.merge_signals([a, b])
+
+    merged, _synced = area.get_axis_grouping()
+
+    assert set(merged[0]) == {("a", m1), ("b", m1)}
+
+
+@pytest.mark.requirement("REQ-FILE-093")
+def test_restore_axis_grouping_disambiguates_by_measurement(area: PlotStripesArea) -> None:
+    """Two active signals share the bare name "RPM" but come from different
+    measurements — restoring a merged group saved for measurement 1's RPM
+    must merge it with its own Torque, not measurement 2's same-named RPM
+    (found via live-testing #106 M6)."""
+    m1, m2 = MagicMock(offset_s=0.0), MagicMock(offset_s=0.0)
+    rpm_1 = _make_active("RPM")
+    rpm_1.measurement = m1
+    torque_1 = _make_active("Torque")
+    torque_1.measurement = m1
+    rpm_2 = _make_active("RPM")
+    rpm_2.measurement = m2
+    for a in (rpm_1, torque_1, rpm_2):
+        area.add_signal(a)
+
+    area.restore_axis_grouping(
+        merged=[[("RPM", m1), ("Torque", m1)]], synced=[], active_signals=[rpm_1, torque_1, rpm_2],
+    )
+
+    merged_signals = area.get_merged_signals()
+    assert merged_signals == {rpm_1, torque_1}
+    assert rpm_2 not in merged_signals
+
+
 # ---------------------------------------------------------------------------
 # Click-selection cross-stripe rule (REQ-PLOT-047)
 # ---------------------------------------------------------------------------

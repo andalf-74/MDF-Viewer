@@ -46,10 +46,18 @@ def deps() -> dict:
     loader.channel_tree.return_value = []
     loader.measurement_info.return_value = _make_measurement_info()
     loader.load_signal.return_value = (_make_signal_data(), _make_metadata())
+    plot = MagicMock()
+    # Sane iterable/None defaults for capture_config's stripe walk (#106) —
+    # a bare MagicMock() isn't iterable, which would break every test that
+    # doesn't itself care about stripes but still exercises capture_config.
+    plot.get_stripes.return_value = []
+    plot.get_stripe_sizes.return_value = []
+    plot.get_active_stripe.return_value = None
+    plot.get_stripe_for_signal.return_value = None
     return {
         "loader": loader,
         "browser": MagicMock(),
-        "plot": MagicMock(),
+        "plot": plot,
         "table": MagicMock(),
         "info_box": MagicMock(),
         "signal_info": MagicMock(),
@@ -2239,6 +2247,56 @@ def test_restore_signals_4tuple_routes_to_named_measurement(deps: dict) -> None:
     assert [s.measurement for s in ctrl2.active_signals] == [m1, m2]
 
 
+@pytest.mark.requirement("REQ-FILE-090")
+def test_restore_signals_routes_into_named_stripe(ctrl: AppController, deps: dict) -> None:
+    """A snapshot's stripe_name (#106) routes the re-added signal into the
+    matching stripe by name, rather than whatever stripe is currently
+    active — the same routing `add_signal(stripe=...)` already supports
+    for drag-and-drop."""
+    meta = _make_metadata("rpm", gi=0, ci=5)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    stripe_a, stripe_b = MagicMock(), MagicMock()
+    stripe_a.name, stripe_b.name = "Vibration", "Temp"
+    deps["plot"].get_stripes.return_value = [stripe_a, stripe_b]
+    snap = _make_snapshot("rpm", stripe_name="Temp")
+
+    ctrl.restore_signals([(snap, 0, 5)])
+
+    deps["plot"].add_signal.assert_called_once()
+    _, kwargs = deps["plot"].add_signal.call_args
+    assert kwargs["stripe"] is stripe_b
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_restore_signals_no_stripe_name_defaults_to_none(ctrl: AppController, deps: dict) -> None:
+    meta = _make_metadata("rpm", gi=0, ci=5)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    stripe_a = MagicMock()
+    stripe_a.name = "Vibration"
+    deps["plot"].get_stripes.return_value = [stripe_a]
+    snap = _make_snapshot("rpm")  # stripe_name defaults to ""
+
+    ctrl.restore_signals([(snap, 0, 5)])
+
+    _, kwargs = deps["plot"].add_signal.call_args
+    assert kwargs["stripe"] is None
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_restore_signals_unmatched_stripe_name_defaults_to_none(ctrl: AppController, deps: dict) -> None:
+    meta = _make_metadata("rpm", gi=0, ci=5)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    stripe_a = MagicMock()
+    stripe_a.name = "Vibration"
+    deps["plot"].get_stripes.return_value = [stripe_a]
+    snap = _make_snapshot("rpm", stripe_name="Nonexistent")
+
+    ctrl.restore_signals([(snap, 0, 5)])
+
+    _, kwargs = deps["plot"].add_signal.call_args
+    assert kwargs["stripe"] is None
+
+
 # ---------------------------------------------------------------------------
 # snapshot includes group_name
 # ---------------------------------------------------------------------------
@@ -2308,10 +2366,10 @@ def test_capture_config_x_range(ctrl: AppController, deps: dict, tmp_path) -> No
     deps["loader"].is_open = True
     deps["loader"]._path = tmp_path / "test.mf4"
     config = ctrl.capture_config(tmp_path / "session.mvc")
-    assert config.x_range == (0.0, 5.0)
+    assert config.tabs[0].x_range == (0.0, 5.0)
 
 
-@pytest.mark.requirement("REQ-FILE-061")
+@pytest.mark.requirement("REQ-FILE-092")
 def test_capture_config_measurement_path(ctrl: AppController, deps: dict, tmp_path) -> None:
     meas = tmp_path / "meas.mf4"
     deps["plot"].get_zoom_state.return_value = _make_zoom_state()
@@ -2319,28 +2377,59 @@ def test_capture_config_measurement_path(ctrl: AppController, deps: dict, tmp_pa
     deps["loader"].is_open = True
     deps["loader"]._path = meas
     config = ctrl.capture_config(tmp_path / "session.mvc")
-    assert config.measurement_path == str(meas)
+    assert config.measurements[0].path == str(meas)
 
 
-@pytest.mark.requirement("REQ-FILE-061")
-def test_capture_config_uses_first_measurement_when_multiple_loaded(
+@pytest.mark.requirement("REQ-FILE-092")
+def test_capture_config_captures_every_loaded_measurement(
     deps: dict, tmp_path
 ) -> None:
-    """.mvc save/restore stays deliberately single-measurement scope for
-    #101 (multi-measurement session support is #106's job) — capturing
-    with 2 measurements loaded silently captures only the first."""
+    """capture_config() (#106 M2) captures the full measurement pool, not
+    just the first one."""
     loader_a, loader_b = _make_pool_loader(), _make_pool_loader()
-    meas_a = tmp_path / "a.mf4"
+    meas_a, meas_b = tmp_path / "a.mf4", tmp_path / "b.mf4"
     loader_a._path = meas_a
+    loader_b._path = meas_b
     ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
     ctrl2.replace_measurements([str(meas_a)])
-    ctrl2.add_measurements(["b.mf4"])
+    ctrl2.add_measurements([str(meas_b)])
     deps["plot"].get_zoom_state.return_value = _make_zoom_state()
     deps["plot"].get_axis_grouping.return_value = ([], [])
 
     config = ctrl2.capture_config(tmp_path / "session.mvc")
 
-    assert config.measurement_path == str(meas_a)
+    assert [m.path for m in config.measurements] == [str(meas_a), str(meas_b)]
+    assert [m.label for m in config.measurements] == ["M1", "M2"]
+
+
+@pytest.mark.requirement("REQ-FILE-092")
+def test_capture_config_primary_measurement_index(deps: dict, tmp_path) -> None:
+    loader_a, loader_b = _make_pool_loader(), _make_pool_loader()
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+    ctrl2.set_primary_measurement(m2)
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    config = ctrl2.capture_config(tmp_path / "session.mvc")
+
+    assert config.primary_measurement_index == 1
+
+
+@pytest.mark.requirement("REQ-FILE-092")
+def test_capture_config_measurements_synchronized_flag(deps: dict, tmp_path) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    ctrl2.toggle_measurements_synchronized()
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    config = ctrl2.capture_config(tmp_path / "session.mvc")
+
+    assert config.measurements_synchronized is True
 
 
 def test_capture_config_no_file_open(ctrl: AppController, deps: dict, tmp_path) -> None:
@@ -2348,7 +2437,7 @@ def test_capture_config_no_file_open(ctrl: AppController, deps: dict, tmp_path) 
     deps["plot"].get_axis_grouping.return_value = ([], [])
     deps["loader"].is_open = False
     config = ctrl.capture_config(tmp_path / "session.mvc")
-    assert config.measurement_path == ""
+    assert config.measurements == ()
 
 
 @pytest.mark.requirement("REQ-FILE-061")
@@ -2361,8 +2450,8 @@ def test_capture_config_cursor_snapshot_used(ctrl: AppController, deps: dict, tm
     deps["plot"].get_axis_grouping.return_value = ([], [])
     deps["loader"].is_open = False
     config = ctrl.capture_config(tmp_path / "session.mvc")
-    assert config.cursor_mode == "TWO"
-    assert config.cursor_positions == (1.0, 4.0)
+    assert config.tabs[0].cursor_mode == "TWO"
+    assert config.tabs[0].cursor_positions == (1.0, 4.0)
 
 
 @pytest.mark.requirement("REQ-FILE-061")
@@ -2406,30 +2495,293 @@ def test_capture_config_uses_settings_display_name_rule(deps: dict, tmp_path) ->
     assert config.display_name_segments == 4
 
 
+@pytest.mark.requirement("REQ-FILE-090")
+def test_capture_config_captures_stripe_layout(ctrl: AppController, deps: dict, tmp_path) -> None:
+    stripe1, stripe2 = MagicMock(), MagicMock()
+    stripe1.name = "Vibration"
+    stripe2.name = "Temp"
+    deps["plot"].get_stripes.return_value = [stripe1, stripe2]
+    deps["plot"].get_stripe_sizes.return_value = [300, 150]
+    deps["plot"].get_active_stripe.return_value = stripe2
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+
+    tab = config.tabs[0]
+    assert [s.name for s in tab.stripes] == ["Vibration", "Temp"]
+    assert [s.size for s in tab.stripes] == [300, 150]
+    assert tab.active_stripe_index == 1
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_capture_config_signal_stripe_index(ctrl: AppController, deps: dict, tmp_path) -> None:
+    stripe1, stripe2 = MagicMock(), MagicMock()
+    stripe1.name = "Stripe 1"
+    stripe2.name = "Stripe 2"
+    deps["plot"].get_stripes.return_value = [stripe1, stripe2]
+    deps["plot"].get_stripe_sizes.return_value = [1, 1]
+    deps["plot"].get_active_stripe.return_value = stripe1
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    ctrl.add_signal(0, 1)
+    deps["plot"].get_stripe_for_signal.return_value = stripe2
+
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+
+    assert config.tabs[0].signals[0].stripe_index == 1
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_capture_config_signal_measurement_index(deps: dict, tmp_path) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+    ctrl2.add_signal(0, 1, measurement=m2)
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    config = ctrl2.capture_config(tmp_path / "session.mvc")
+
+    assert config.tabs[0].signals[0].measurement_index == 1
+
+
+def _make_bare_tab_plot() -> MagicMock:
+    plot = MagicMock()
+    plot.get_stripes.return_value = []
+    plot.get_stripe_sizes.return_value = []
+    plot.get_active_stripe.return_value = None
+    plot.get_stripe_for_signal.return_value = None
+    plot.get_zoom_state.return_value = _make_zoom_state()
+    plot.get_axis_grouping.return_value = ([], [])
+    return plot
+
+
+@pytest.mark.requirement("REQ-FILE-091")
+def test_capture_config_multiple_tabs_with_names(ctrl: AppController, deps: dict, tmp_path) -> None:
+    plot2, table2 = _make_bare_tab_plot(), MagicMock()
+    ctrl.create_tab(plot2, table2)
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    config = ctrl.capture_config(tmp_path / "session.mvc", tab_names=["Engine", "Chassis"])
+
+    assert [t.name for t in config.tabs] == ["Engine", "Chassis"]
+
+
+@pytest.mark.requirement("REQ-FILE-091")
+def test_capture_config_default_tab_names_when_omitted(
+    ctrl: AppController, deps: dict, tmp_path
+) -> None:
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+    assert config.tabs[0].name == "Tab 1"
+
+
+@pytest.mark.requirement("REQ-FILE-091")
+def test_capture_config_active_tab_index(ctrl: AppController, deps: dict, tmp_path) -> None:
+    plot2, table2 = _make_bare_tab_plot(), MagicMock()
+    ctrl.create_tab(plot2, table2)  # becomes the active tab
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+
+    assert config.active_tab_index == 1
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_snapshot_active_signals_captures_stripe_name(ctrl: AppController, deps: dict) -> None:
+    stripe = MagicMock()
+    stripe.name = "Vibration"
+    deps["plot"].get_stripe_for_signal.return_value = stripe
+    ctrl.add_signal(0, 1)
+    (snap,) = ctrl.snapshot_active_signals()
+    assert snap.stripe_name == "Vibration"
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_snapshot_active_signals_stripe_name_empty_when_no_stripe(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    (snap,) = ctrl.snapshot_active_signals()
+    assert snap.stripe_name == ""
+
+
+# ---------------------------------------------------------------------------
+# restore_measurements (#106 Phase 1)
+# ---------------------------------------------------------------------------
+
+def _make_measurement_config(path="a.mf4", label="M1", offset_s=0.0):
+    from mdf_viewer.model.viewer_config import MeasurementConfig
+    return MeasurementConfig(path=path, label=label, offset_s=offset_s)
+
+
+@pytest.mark.requirement("REQ-FILE-092")
+def test_restore_measurements_all_succeed(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    configs = [
+        _make_measurement_config("a.mf4", "Engine", 0.0),
+        _make_measurement_config("b.mf4", "Chassis", 2.5),
+    ]
+
+    results = ctrl2.restore_measurements(configs, primary_index=0, synchronized=True)
+
+    assert all(r is not None for r in results)
+    assert [m.label for m in ctrl2.measurements] == ["Engine", "Chassis"]
+    assert ctrl2.measurements[1].offset_s == 2.5
+    assert ctrl2.primary_measurement is ctrl2.measurements[0]
+    assert ctrl2.is_measurements_synchronized is True
+
+
+@pytest.mark.requirement("REQ-FILE-098")
+def test_restore_measurements_partial_failure_preserves_index_alignment(deps: dict) -> None:
+    good_a = _make_pool_loader()
+    bad = MagicMock()
+    bad.open.side_effect = MdfLoadError("missing")
+    good_c = _make_pool_loader()
+    ctrl2 = _make_ctrl_with_loaders(deps, [good_a, bad, good_c])
+    configs = [
+        _make_measurement_config("a.mf4", "M1"),
+        _make_measurement_config("missing.mf4", "M2"),
+        _make_measurement_config("c.mf4", "M3"),
+    ]
+
+    results = ctrl2.restore_measurements(configs, primary_index=0, synchronized=False)
+
+    assert results[0] is not None
+    assert results[1] is None
+    assert results[2] is not None
+    assert [m.label for m in ctrl2.measurements] == ["M1", "M3"]
+
+
+@pytest.mark.requirement("REQ-FILE-098")
+def test_restore_measurements_primary_falls_back_when_primary_slot_failed(deps: dict) -> None:
+    bad = MagicMock()
+    bad.open.side_effect = MdfLoadError("missing")
+    good = _make_pool_loader()
+    ctrl2 = _make_ctrl_with_loaders(deps, [bad, good])
+    configs = [
+        _make_measurement_config("missing.mf4", "M1"),
+        _make_measurement_config("b.mf4", "M2"),
+    ]
+
+    ctrl2.restore_measurements(configs, primary_index=0, synchronized=False)
+
+    assert ctrl2.primary_measurement is ctrl2.measurements[0]
+    assert ctrl2.primary_measurement.label == "M2"
+
+
+@pytest.mark.requirement("REQ-FILE-098")
+def test_restore_measurements_all_fail_leaves_no_primary(deps: dict) -> None:
+    bad_a, bad_b = MagicMock(), MagicMock()
+    bad_a.open.side_effect = MdfLoadError("missing")
+    bad_b.open.side_effect = MdfLoadError("missing")
+    ctrl2 = _make_ctrl_with_loaders(deps, [bad_a, bad_b])
+    configs = [_make_measurement_config("a.mf4"), _make_measurement_config("b.mf4")]
+
+    results = ctrl2.restore_measurements(configs, primary_index=0, synchronized=False)
+
+    assert results == [None, None]
+    assert ctrl2.measurements == []
+    assert ctrl2.primary_measurement is None
+
+
+@pytest.mark.requirement("REQ-FILE-027")
+def test_restore_measurements_resets_load_counter_and_add_continues_after(deps: dict) -> None:
+    """A later add_measurements() after a session restore must never
+    reissue a default name already used by the restored session, the
+    same monotonic-counter guarantee as close-then-add (#103)."""
+    ctrl2 = _make_ctrl_with_loaders(
+        deps, [_make_pool_loader(), _make_pool_loader(), _make_pool_loader()],
+    )
+    configs = [_make_measurement_config("a.mf4", "M1"), _make_measurement_config("b.mf4", "M2")]
+    ctrl2.restore_measurements(configs, primary_index=0, synchronized=False)
+
+    result = ctrl2.add_measurements(["c.mf4"])
+
+    assert result.succeeded[0].label == "M3"
+
+
+@pytest.mark.requirement("REQ-FILE-092")
+def test_restore_measurements_refreshes_browser_and_info_box(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    configs = [_make_measurement_config("a.mf4", "M1")]
+
+    ctrl2.restore_measurements(configs, primary_index=0, synchronized=False)
+
+    deps["browser"].populate_all.assert_called()
+    deps["info_box"].set_measurements.assert_called()
+
+
 # ---------------------------------------------------------------------------
 # restore_config
 # ---------------------------------------------------------------------------
 
 def _make_viewer_config(**kwargs):
+    """Build a single-tab ViewerConfig; kwargs may name either a TabConfig
+    field (signals, x_range, y_ranges, merged_groups, synced_groups,
+    cursor_mode, cursor_positions, selected_signal) or a top-level
+    ViewerConfig field — routed to the right dataclass automatically.
+
+    For convenience, merged_groups/synced_groups/selected_signal/y_ranges
+    may still be given as bare signal-name strings / a name-keyed dict
+    (as before SignalRef existed) — auto-wrapped into
+    SignalRef(name=..., measurement_index=0), the single-measurement
+    default. Pass real SignalRef instances directly to test
+    measurement-aware disambiguation (#106 M6, REQ-FILE-093)."""
     from mdf_viewer.config_manager import CONFIG_FORMAT_VERSION
-    from mdf_viewer.model.viewer_config import ViewerConfig
-    defaults = dict(
-        format_version=CONFIG_FORMAT_VERSION,
-        measurement_path="/x.mf4",
+    from mdf_viewer.model.viewer_config import (
+        MeasurementConfig, SignalRef, StripeConfig, TabConfig, ViewerConfig,
+    )
+
+    def _ref(x):
+        return x if isinstance(x, SignalRef) else SignalRef(name=x, measurement_index=0)
+
+    tab_field_names = {
+        "signals", "x_range", "y_ranges", "merged_groups", "synced_groups",
+        "cursor_mode", "cursor_positions", "selected_signal",
+        "page_splitter_sizes", "ast_column_widths",
+    }
+    tab_defaults = dict(
+        name="Tab 1",
+        stripes=(StripeConfig(name="Stripe 1", size=1),),
+        active_stripe_index=0,
         signals=(),
         x_range=(0.0, 10.0),
-        y_ranges={},
+        y_ranges=(),
         merged_groups=(),
         synced_groups=(),
         cursor_mode="HIDDEN",
         cursor_positions=(0.0, 0.0),
         selected_signal=None,
+    )
+    top_defaults = dict(
+        format_version=CONFIG_FORMAT_VERSION,
+        measurements=(MeasurementConfig(path="/x.mf4", label="M1", offset_s=0.0),),
+        primary_measurement_index=0,
+        measurements_synchronized=False,
+        active_tab_index=0,
         display_name_separator=".",
         display_name_direction="right",
         display_name_segments=1,
     )
-    defaults.update(kwargs)
-    return ViewerConfig(**defaults)
+    for key, value in kwargs.items():
+        if key in ("merged_groups", "synced_groups"):
+            value = tuple(tuple(_ref(n) for n in g) for g in value)
+        elif key == "selected_signal" and value is not None:
+            value = _ref(value)
+        elif key == "y_ranges" and isinstance(value, dict):
+            value = tuple((_ref(n), rng) for n, rng in value.items())
+        if key in tab_field_names:
+            tab_defaults[key] = value
+        else:
+            top_defaults[key] = value
+    return ViewerConfig(tabs=(TabConfig(**tab_defaults),), **top_defaults)
 
 
 @pytest.mark.requirement("REQ-PLOT-036")
@@ -2437,14 +2789,14 @@ def test_restore_config_calls_restore_axis_grouping(ctrl: AppController, deps: d
     config = _make_viewer_config(
         merged_groups=(("a", "b"),),
     )
-    ctrl.restore_config(config, [])
+    ctrl.restore_config(config, {})
     deps["plot"].restore_axis_grouping.assert_called_once()
 
 
 @pytest.mark.requirement("REQ-FILE-061")
 def test_restore_config_calls_set_zoom_state(ctrl: AppController, deps: dict) -> None:
     config = _make_viewer_config()
-    ctrl.restore_config(config, [])
+    ctrl.restore_config(config, {})
     deps["plot"].set_zoom_state.assert_called_once()
 
 
@@ -2454,7 +2806,7 @@ def test_restore_config_calls_cursor_restore(ctrl: AppController, deps: dict) ->
     cursor = MagicMock()
     ctrl.set_cursor_controller(cursor)
     config = _make_viewer_config(cursor_mode="ONE", cursor_positions=(2.5, 0.0))
-    ctrl.restore_config(config, [])
+    ctrl.restore_config(config, {})
     cursor.restore.assert_called_once_with({"mode": "ONE", "positions": [2.5, 0.0]})
 
 
@@ -2464,7 +2816,7 @@ def test_restore_config_sets_selection(ctrl: AppController, deps: dict) -> None:
     deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
     snap = _make_snapshot("RPM")
     config = _make_viewer_config(selected_signal="RPM")
-    ctrl.restore_config(config, [(snap, 0, 1)])
+    ctrl.restore_config(config, {0: [(snap, 0, 1)]})
     assert ctrl.selected_signal is not None
     assert ctrl.selected_signal.metadata.name == "RPM"
 
@@ -2472,7 +2824,7 @@ def test_restore_config_sets_selection(ctrl: AppController, deps: dict) -> None:
 def test_restore_config_no_settings_does_not_crash(ctrl: AppController, deps: dict) -> None:
     """No Settings wired in (settings=None) must not crash (#89)."""
     config = _make_viewer_config()
-    ctrl.restore_config(config, [])  # must not raise
+    ctrl.restore_config(config, {})  # must not raise
 
 
 @pytest.mark.requirement("REQ-PLOT-170")
@@ -2497,7 +2849,7 @@ def test_restore_config_applies_display_name_rule_to_settings(
         display_name_direction="left",
         display_name_segments=4,
     )
-    ctrl_with_settings.restore_config(config, [])
+    ctrl_with_settings.restore_config(config, {})
     assert s.display_name_separator == "_"
     assert s.display_name_direction == "left"
     assert s.display_name_segments == 4
@@ -2518,8 +2870,164 @@ def test_restore_config_refreshes_display_names(deps: dict, tmp_path) -> None:
     )
     config = _make_viewer_config()
     deps["table"].reset_mock()
-    ctrl_with_settings.restore_config(config, [])
+    ctrl_with_settings.restore_config(config, {})
     deps["table"].set_name_formatter.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# restore_config — multi-tab (#106 M6)
+# ---------------------------------------------------------------------------
+
+def _wrap_tab_field(key, value):
+    """Apply the same bare-name → SignalRef convenience wrapping
+    _make_viewer_config() does, for helpers that build a TabConfig
+    override directly via dataclasses.replace() instead."""
+    from mdf_viewer.model.viewer_config import SignalRef
+
+    def _ref(x):
+        return x if isinstance(x, SignalRef) else SignalRef(name=x, measurement_index=0)
+
+    if key in ("merged_groups", "synced_groups"):
+        return tuple(tuple(_ref(n) for n in g) for g in value)
+    if key == "selected_signal" and value is not None:
+        return _ref(value)
+    if key == "y_ranges" and isinstance(value, dict):
+        return tuple((_ref(n), rng) for n, rng in value.items())
+    return value
+
+
+def _two_tab_viewer_config(**tab2_overrides):
+    """Build a 2-tab ViewerConfig from _make_viewer_config()'s single tab,
+    with the second tab's fields overridable independently — used to
+    confirm restore_config() applies each tab's own saved state rather
+    than reusing tab 1's for every tab."""
+    import dataclasses
+    config = _make_viewer_config()
+    tab1 = config.tabs[0]
+    tab2_overrides = {k: _wrap_tab_field(k, v) for k, v in tab2_overrides.items()}
+    tab2 = dataclasses.replace(tab1, name="Tab 2", **tab2_overrides)
+    return dataclasses.replace(config, tabs=(tab1, tab2))
+
+
+@pytest.mark.requirement("REQ-FILE-094")
+def test_restore_config_restores_every_tabs_axis_grouping(ctrl: AppController, deps: dict) -> None:
+    plot2, table2 = MagicMock(), MagicMock()
+    plot2.get_stripes.return_value = []
+    ctrl.create_tab(plot2, table2)
+
+    config = _two_tab_viewer_config(merged_groups=(("c", "d"),))
+    config = _replace_tab(config, 0, merged_groups=(("a", "b"),))
+
+    ctrl.restore_config(config, {})
+
+    deps["plot"].restore_axis_grouping.assert_called_once()
+    plot2.restore_axis_grouping.assert_called_once()
+    assert deps["plot"].restore_axis_grouping.call_args[0][0] == [[("a", None), ("b", None)]]
+    assert plot2.restore_axis_grouping.call_args[0][0] == [[("c", None), ("d", None)]]
+
+
+@pytest.mark.requirement("REQ-FILE-094")
+def test_restore_config_restores_every_tabs_zoom(ctrl: AppController, deps: dict) -> None:
+    plot2, table2 = MagicMock(), MagicMock()
+    plot2.get_stripes.return_value = []
+    ctrl.create_tab(plot2, table2)
+
+    config = _two_tab_viewer_config(x_range=(5.0, 15.0))
+    config = _replace_tab(config, 0, x_range=(0.0, 10.0))
+
+    ctrl.restore_config(config, {})
+
+    deps["plot"].set_zoom_state.assert_called_once()
+    plot2.set_zoom_state.assert_called_once()
+    assert deps["plot"].set_zoom_state.call_args[0][0].x_range == (0.0, 10.0)
+    assert plot2.set_zoom_state.call_args[0][0].x_range == (5.0, 15.0)
+
+
+@pytest.mark.requirement("REQ-FILE-091")
+def test_restore_config_restores_active_stripe_per_tab(ctrl: AppController, deps: dict) -> None:
+    stripe0a, stripe0b = MagicMock(), MagicMock()
+    deps["plot"].get_stripes.return_value = [stripe0a, stripe0b]
+    plot2, table2 = MagicMock(), MagicMock()
+    stripe1a, stripe1b = MagicMock(), MagicMock()
+    plot2.get_stripes.return_value = [stripe1a, stripe1b]
+    ctrl.create_tab(plot2, table2)
+
+    config = _two_tab_viewer_config(active_stripe_index=0)
+    config = _replace_tab(config, 0, active_stripe_index=1)
+
+    ctrl.restore_config(config, {})
+
+    deps["plot"].set_active_stripe.assert_called_once_with(stripe0b)
+    plot2.set_active_stripe.assert_called_once_with(stripe1a)
+
+
+@pytest.mark.requirement("REQ-FILE-091")
+def test_restore_config_restores_active_tab_index(ctrl: AppController, deps: dict) -> None:
+    import dataclasses
+    plot2, table2 = MagicMock(), MagicMock()
+    plot2.get_stripes.return_value = []
+    ctrl.create_tab(plot2, table2)  # tab 1 now active
+
+    config = _two_tab_viewer_config()
+    config = dataclasses.replace(config, active_tab_index=0)
+
+    ctrl.restore_config(config, {})
+
+    assert ctrl.current_workspace.plot is deps["plot"]
+
+
+def _replace_tab(config, index: int, **overrides):
+    import dataclasses
+    overrides = {k: _wrap_tab_field(k, v) for k, v in overrides.items()}
+    tabs = list(config.tabs)
+    tabs[index] = dataclasses.replace(tabs[index], **overrides)
+    return dataclasses.replace(config, tabs=tuple(tabs))
+
+
+@pytest.mark.requirement("REQ-FILE-094")
+def test_restore_config_tab_index_beyond_workspaces_is_skipped(
+    ctrl: AppController, deps: dict
+) -> None:
+    """A saved session with more tabs than currently exist (e.g. restore_config
+    called before _build_tab_skeletons finished, or a defensive bounds-check)
+    must not crash — extra tab configs are silently skipped."""
+    config = _two_tab_viewer_config()  # 2 tabs saved, only 1 workspace exists
+    ctrl.restore_config(config, {})  # must not raise
+    deps["plot"].restore_axis_grouping.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-FILE-093")
+def test_restore_config_with_real_measurements_does_not_hash_measurement(deps: dict) -> None:
+    """LoadedMeasurement is a plain, unhashable @dataclass (mutable,
+    field-equality __eq__, no unsafe_hash) — restore_config()'s
+    measurement-aware disambiguation must never put a LoadedMeasurement
+    directly into a dict/set key (id() instead), or this raises
+    TypeError with any *real* multi-measurement pool. A bare MagicMock
+    stand-in wouldn't catch this (MagicMock is hashable by default), so
+    this test deliberately uses the real loader-pool machinery."""
+    from mdf_viewer.model.viewer_config import SignalRef
+
+    loader_a = _make_pool_loader()
+    loader_b = _make_pool_loader()
+    loader_a.load_signal.return_value = (_make_signal_data(), _make_metadata("RPM", gi=0, ci=1))
+    loader_b.load_signal.return_value = (_make_signal_data(), _make_metadata("RPM", gi=0, ci=1))
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+
+    snap_a, snap_b = _make_snapshot("RPM"), _make_snapshot("RPM")
+    resolved = {0: [(snap_a, 0, 1, m1), (snap_b, 0, 1, m2)]}
+
+    config = _make_viewer_config(
+        merged_groups=(
+            (SignalRef(name="RPM", measurement_index=0), SignalRef(name="RPM", measurement_index=1)),
+        ),
+        y_ranges=((SignalRef(name="RPM", measurement_index=0), (1.0, 2.0)),),
+        selected_signal=SignalRef(name="RPM", measurement_index=1),
+    )
+
+    ctrl2.restore_config(config, resolved, [m1, m2])  # must not raise TypeError
 
 
 # ---------------------------------------------------------------------------

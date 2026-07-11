@@ -1256,14 +1256,17 @@ class PlotStripe(QWidget):
             result.update(grp)
         return result
 
-    def get_axis_grouping(self) -> tuple[list[list[str]], list[list[str]]]:
-        """Return current merged and synced groups as signal-name lists.
+    def get_axis_grouping(self) -> tuple[list[list[tuple]], list[list[tuple]]]:
+        """Return current merged and synced groups as (name, measurement) pairs.
 
         Returns (merged_groups, synced_groups) where each inner list contains
-        the metadata names of the signals in that group.
+        one (metadata name, owning LoadedMeasurement) pair per signal in that
+        group — the measurement is included (#106) so a saved/restored group
+        can disambiguate the same channel name active from two different
+        loaded measurements, which a bare name can't.
         """
-        merged = [[a.metadata.name for a in grp] for grp in self._merged_groups]
-        synced = [[a.metadata.name for a in grp] for grp in self._synced_groups]
+        merged = [[(a.metadata.name, a.measurement) for a in grp] for grp in self._merged_groups]
+        synced = [[(a.metadata.name, a.measurement) for a in grp] for grp in self._synced_groups]
         return merged, synced
 
     def restore_axis_grouping(

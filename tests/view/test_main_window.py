@@ -1767,7 +1767,7 @@ def test_restore_snapshots_restores_into_each_tab(
 ) -> None:
     window._controller = mock_controller
     mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
-    snap_a, snap_b = MagicMock(name="a"), MagicMock(name="b")
+    snap_a, snap_b = _snap("a"), _snap("b")
     measurement = MagicMock(label="m")
     mock_controller.find_signal_locations_by_name.side_effect = (
         lambda name: [(measurement, MagicMock(group_index=0, channel_index=1))]
@@ -1780,6 +1780,37 @@ def test_restore_snapshots_restores_into_each_tab(
     assert restored_tabs == {0, 2}
 
 
+@pytest.mark.requirement("REQ-FILE-090")
+def test_restore_snapshots_ignores_group_name_preserving_prior_behavior(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    """#106 M5 extracted a shared classify/dialog helper from
+    _restore_snapshots and _resolve_config_signals; use_group_name=False
+    for THIS caller preserves its pre-#106 behavior of never passing
+    group_name to _classify_signal_name, even when the snapshot itself
+    carries a real one (unlike _resolve_config_signals, which does use
+    it) — a deliberate choice to avoid silently changing this shipped
+    reload flow's resolution behavior as a side effect of the refactor.
+    """
+    window._controller = mock_controller
+    mock_controller.active_signals = []
+    snap = MagicMock()
+    snap.name = "Speed"
+    snap.group_name = "Engine"
+    snap.measurement = None
+    measurement = MagicMock()
+    mock_controller.find_signal_locations_by_name.return_value = [
+        (measurement, MagicMock(group_index=0, channel_index=1))
+    ]
+
+    with patch.object(
+        window, "_classify_signal_name", wraps=window._classify_signal_name
+    ) as spy:
+        window._restore_snapshots({0: [snap]})
+
+    spy.assert_called_once_with("Speed", "", measurement_aware=True, measurement=None)
+
+
 # ---------------------------------------------------------------------------
 # Near-match resolution wiring (#109, REQ-FILE-032-036)
 # ---------------------------------------------------------------------------
@@ -1787,6 +1818,12 @@ def test_restore_snapshots_restores_into_each_tab(
 def _snap(name: str) -> MagicMock:
     m = MagicMock()
     m.name = name
+    # Real ActiveSignalSnapshot.measurement defaults to None (#106 M6) —
+    # a bare MagicMock auto-vivifies any attribute access to a truthy
+    # Mock instead, which would wrongly look like a snapshot carrying its
+    # own scoped-restore measurement (REQ-FILE-093) to
+    # _resolve_and_confirm_snapshots().
+    m.measurement = None
     return m
 
 
@@ -1891,7 +1928,7 @@ def test_restore_snapshots_one_near_match_dialog_spans_all_tabs(
     candidate_a = (measurement, _near_candidate("a\\ETKC:1"))
     candidate_b = (measurement, _near_candidate("b\\ETKC:1"))
 
-    def classify(name, group_name="", measurement_aware=False):
+    def classify(name, group_name="", measurement_aware=False, measurement=None):
         return ("near_single", [candidate_a if name == "a\\XCP:1" else candidate_b])
 
     captured = {}
@@ -1934,10 +1971,12 @@ def test_restore_snapshots_near_multiple_uses_picker_then_near_match_dialog(
 
 
 # ---------------------------------------------------------------------------
-# _resolve_config_signals near-match wiring (#109)
+# _resolve_config_signals_for_tabs near-match wiring (#109, #106 M6)
 # ---------------------------------------------------------------------------
 
-def _signal_config(name: str, group_name: str = "") -> "SignalConfig":
+def _signal_config(
+    name: str, group_name: str = "", *, stripe_index: int = 0, measurement_index: int = 0,
+) -> "SignalConfig":
     from mdf_viewer.model.viewer_config import SignalConfig
     return SignalConfig(
         name=name,
@@ -1951,60 +1990,382 @@ def _signal_config(name: str, group_name: str = "") -> "SignalConfig":
         enum_display_table=False,
         enum_display_cursor=False,
         enum_display_yaxis=False,
+        stripe_index=stripe_index,
+        measurement_index=measurement_index,
     )
 
 
-def test_resolve_config_signals_near_single_resolves_when_accepted(
+def test_resolve_config_signals_for_tabs_near_single_resolves_when_accepted(
     window: MainWindow, mock_controller: MagicMock
 ) -> None:
     window._controller = mock_controller
     mock_controller.active_signals = []
-    config = MagicMock(signals=[_signal_config("a\\XCP:1")])
-    candidate = _near_candidate("a\\ETKC:1")
+    tab_config = MagicMock(signals=[_signal_config("a\\XCP:1")], stripes=[])
+    measurement = MagicMock(label="m")
+    candidate = (measurement, _near_candidate("a\\ETKC:1"))
     dlg = _FakeNearMatchDialog([("a\\XCP:1", candidate)])
 
     with patch.object(window, "_classify_signal_name", return_value=("near_single", [candidate])), \
          patch("mdf_viewer.view.near_match_dialog.NearMatchDialog", return_value=dlg):
-        resolved, not_found = window._resolve_config_signals(config)
+        resolved_by_tab, not_found = window._resolve_config_signals_for_tabs(
+            [tab_config], [measurement],
+        )
 
     assert not_found == []
+    resolved = resolved_by_tab[0]
     assert len(resolved) == 1
-    snap, gi, ci = resolved[0]
+    snap, gi, ci, meas = resolved[0]
     assert snap.name == "a\\XCP:1"
-    assert (gi, ci) == (candidate.group_index, candidate.channel_index)
+    assert (gi, ci, meas) == (candidate[1].group_index, candidate[1].channel_index, measurement)
 
 
-def test_resolve_config_signals_near_match_declined_goes_to_not_found(
+def test_resolve_config_signals_for_tabs_near_match_declined_goes_to_not_found(
     window: MainWindow, mock_controller: MagicMock
 ) -> None:
     window._controller = mock_controller
     mock_controller.active_signals = []
-    config = MagicMock(signals=[_signal_config("a\\XCP:1")])
-    candidate = _near_candidate("a\\ETKC:1")
+    tab_config = MagicMock(signals=[_signal_config("a\\XCP:1")], stripes=[])
+    measurement = MagicMock(label="m")
+    candidate = (measurement, _near_candidate("a\\ETKC:1"))
     dlg = _FakeNearMatchDialog([("a\\XCP:1", candidate)])
     dlg.mask = [False]
 
     with patch.object(window, "_classify_signal_name", return_value=("near_single", [candidate])), \
          patch("mdf_viewer.view.near_match_dialog.NearMatchDialog", return_value=dlg):
-        resolved, not_found = window._resolve_config_signals(config)
+        resolved_by_tab, not_found = window._resolve_config_signals_for_tabs(
+            [tab_config], [measurement],
+        )
 
-    assert resolved == []
+    assert resolved_by_tab == {}
     assert not_found == ["a\\XCP:1"]
 
 
-def test_resolve_config_signals_exact_single_unaffected_by_near_match_logic(
+def test_resolve_config_signals_for_tabs_exact_single_unaffected_by_near_match_logic(
     window: MainWindow, mock_controller: MagicMock
 ) -> None:
     window._controller = mock_controller
     mock_controller.active_signals = []
-    config = MagicMock(signals=[_signal_config("plain")])
-    exact = _near_candidate("plain")
+    tab_config = MagicMock(signals=[_signal_config("plain")], stripes=[])
+    measurement = MagicMock(label="m")
+    exact = (measurement, _near_candidate("plain"))
 
     with patch.object(window, "_classify_signal_name", return_value=("exact_single", [exact])):
-        resolved, not_found = window._resolve_config_signals(config)
+        resolved_by_tab, not_found = window._resolve_config_signals_for_tabs(
+            [tab_config], [measurement],
+        )
 
     assert not_found == []
-    assert len(resolved) == 1
+    assert len(resolved_by_tab[0]) == 1
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_resolve_config_signals_for_tabs_passes_group_name_preserving_prior_behavior(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    """The mirror of test_restore_snapshots_ignores_group_name...: this
+    call site DID already pass group_name pre-#106, and the M5/M6 refactor
+    must not silently drop that either."""
+    window._controller = mock_controller
+    mock_controller.active_signals = []
+    tab_config = MagicMock(signals=[_signal_config("Speed", "Engine")], stripes=[])
+    measurement = MagicMock(label="m")
+
+    with patch.object(
+        window, "_classify_signal_name", wraps=window._classify_signal_name
+    ) as spy:
+        measurement.loader.find_signal_by_name.return_value = [_near_candidate("Speed")]
+        window._resolve_config_signals_for_tabs([tab_config], [measurement])
+
+    spy.assert_called_once_with(
+        "Speed", "Engine", measurement_aware=True, measurement=measurement,
+    )
+
+
+@pytest.mark.requirement("REQ-FILE-093")
+def test_resolve_config_signals_for_tabs_scopes_search_to_signals_own_measurement(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    """A signal's saved measurement_index must scope its resolution to
+    that one measurement, not the whole pool (REQ-FILE-093) — verified
+    here by using the real (non-mocked) _classify_signal_name and
+    confirming it only ever queries the measurement at that index."""
+    window._controller = mock_controller
+    mock_controller.active_signals = []
+    tab_config = MagicMock(
+        signals=[_signal_config("Speed", measurement_index=1)], stripes=[],
+    )
+    meas0, meas1 = MagicMock(label="M1"), MagicMock(label="M2")
+    meas1.loader.find_signal_by_name.return_value = [_near_candidate("Speed")]
+
+    resolved_by_tab, not_found = window._resolve_config_signals_for_tabs(
+        [tab_config], [meas0, meas1],
+    )
+
+    meas0.loader.find_signal_by_name.assert_not_called()
+    meas1.loader.find_signal_by_name.assert_called_once_with("Speed")
+    assert not_found == []
+    snap, gi, ci, meas = resolved_by_tab[0][0]
+    assert meas is meas1
+
+
+@pytest.mark.requirement("REQ-FILE-098")
+def test_resolve_config_signals_for_tabs_missing_measurement_folds_into_not_found(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    """A signal whose measurement_index points at a None slot (that
+    measurement failed to load, #106 Phase 1) is folded into not_found
+    without ever attempting name resolution — nothing to search."""
+    window._controller = mock_controller
+    mock_controller.active_signals = []
+    tab_config = MagicMock(
+        signals=[_signal_config("Speed", measurement_index=0)], stripes=[],
+    )
+
+    with patch.object(window, "_classify_signal_name") as spy:
+        resolved_by_tab, not_found = window._resolve_config_signals_for_tabs(
+            [tab_config], [None],
+        )
+
+    spy.assert_not_called()
+    assert resolved_by_tab == {}
+    assert not_found == ["Speed"]
+
+
+# ---------------------------------------------------------------------------
+# Session restore Phase 0 (_reset_to_single_tab) and Phase 1 helpers (#106)
+# ---------------------------------------------------------------------------
+
+def test_reset_to_single_tab_noop_without_controller(window: MainWindow) -> None:
+    window._reset_to_single_tab()  # must not raise
+
+
+def test_reset_to_single_tab_removes_extra_tabs(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired._on_new_tab()
+    wired._on_new_tab()
+    mock_controller.tab_count = 3
+
+    wired._reset_to_single_tab()
+
+    assert wired._real_tab_count() == 1
+    assert mock_controller.remove_tab.call_count == 2
+    mock_controller.remove_all.assert_called_once()
+
+
+def test_reset_to_single_tab_deletes_removed_pages(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired._on_new_tab()
+    mock_controller.tab_count = 2
+    page = wired._tab_widget.widget(1)
+
+    with patch.object(page, "deleteLater") as mock_delete:
+        wired._reset_to_single_tab()
+
+    mock_delete.assert_called_once()
+
+
+def test_reset_to_single_tab_sets_current_index_to_zero(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired._on_new_tab()  # tab 1 becomes current
+    mock_controller.tab_count = 2
+
+    wired._reset_to_single_tab()
+
+    assert wired._tab_widget.currentIndex() == 0
+
+
+def test_reset_to_single_tab_already_single_still_clears_signals(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.tab_count = 1
+
+    wired._reset_to_single_tab()
+
+    mock_controller.remove_tab.assert_not_called()
+    mock_controller.remove_all.assert_called_once()
+
+
+def _make_measurement_config(path: str = "a.mf4", label: str = "M1", offset_s: float = 0.0):
+    from mdf_viewer.model.viewer_config import MeasurementConfig
+    return MeasurementConfig(path=path, label=label, offset_s=offset_s)
+
+
+@pytest.mark.requirement("REQ-FILE-064")
+def test_resolve_saved_measurements_all_found(window: MainWindow, tmp_path) -> None:
+    meas = tmp_path / "a.mf4"
+    meas.touch()
+    configs = [_make_measurement_config(str(meas))]
+
+    resolved, missing = window._resolve_saved_measurements(configs, tmp_path / "session.mvc")
+
+    assert missing == []
+    assert resolved[0].path == str(meas)
+
+
+@pytest.mark.requirement("REQ-FILE-097")
+def test_resolve_saved_measurements_missing_reports_original_path(
+    window: MainWindow, tmp_path
+) -> None:
+    configs = [_make_measurement_config("nope.mf4")]
+
+    resolved, missing = window._resolve_saved_measurements(configs, tmp_path / "session.mvc")
+
+    assert missing == ["nope.mf4"]
+    assert resolved[0].path == "nope.mf4"
+
+
+@pytest.mark.requirement("REQ-FILE-097")
+def test_resolve_saved_measurements_preserves_order_and_index_alignment(
+    window: MainWindow, tmp_path
+) -> None:
+    found = tmp_path / "found.mf4"
+    found.touch()
+    configs = [
+        _make_measurement_config("missing1.mf4", "M1"),
+        _make_measurement_config(str(found), "M2"),
+        _make_measurement_config("missing2.mf4", "M3"),
+    ]
+
+    resolved, missing = window._resolve_saved_measurements(configs, tmp_path / "session.mvc")
+
+    assert len(resolved) == 3
+    assert resolved[0].path == "missing1.mf4"
+    assert resolved[1].path == str(found)
+    assert resolved[2].path == "missing2.mf4"
+    assert missing == ["missing1.mf4", "missing2.mf4"]
+
+
+def test_confirm_missing_measurements_no_missing_returns_true(window: MainWindow) -> None:
+    assert window._confirm_missing_measurements([]) is True
+
+
+@pytest.mark.requirement("REQ-FILE-097")
+def test_confirm_missing_measurements_continue(window: MainWindow) -> None:
+    with patch(
+        "mdf_viewer.view.main_window.QMessageBox.question",
+        return_value=QMessageBox.StandardButton.Yes,
+    ):
+        assert window._confirm_missing_measurements(["a.mf4"]) is True
+
+
+@pytest.mark.requirement("REQ-FILE-097")
+def test_confirm_missing_measurements_cancel(window: MainWindow) -> None:
+    with patch(
+        "mdf_viewer.view.main_window.QMessageBox.question",
+        return_value=QMessageBox.StandardButton.Cancel,
+    ):
+        assert window._confirm_missing_measurements(["a.mf4"]) is False
+
+
+# ---------------------------------------------------------------------------
+# Session restore Phase 2 (_build_tab_skeletons / _build_stripe_skeleton, #106)
+# ---------------------------------------------------------------------------
+
+def _make_tab_config(name="Tab 1", stripes=None, active_stripe_index=0):
+    from mdf_viewer.model.viewer_config import StripeConfig, TabConfig
+    if stripes is None:
+        stripes = [StripeConfig(name="Stripe 1", size=1)]
+    return TabConfig(
+        name=name, stripes=tuple(stripes), active_stripe_index=active_stripe_index,
+        signals=(), x_range=(0.0, 1.0), y_ranges=(), merged_groups=(), synced_groups=(),
+        cursor_mode="HIDDEN", cursor_positions=(0.0, 0.0), selected_signal=None,
+    )
+
+
+@pytest.mark.requirement("REQ-FILE-091")
+def test_build_tab_skeletons_single_tab_renames_existing(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    configs = [_make_tab_config(name="Engine")]
+    wired._build_tab_skeletons(configs)
+    assert wired._tab_widget.tabText(0) == "Engine"
+    assert wired._real_tab_count() == 1
+
+
+@pytest.mark.requirement("REQ-FILE-091")
+def test_build_tab_skeletons_multiple_tabs(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    configs = [_make_tab_config(name="Engine"), _make_tab_config(name="Chassis")]
+    wired._build_tab_skeletons(configs)
+    assert wired._real_tab_count() == 2
+    assert wired._tab_widget.tabText(0) == "Engine"
+    assert wired._tab_widget.tabText(1) == "Chassis"
+
+
+def test_build_tab_skeletons_noop_without_controller(window: MainWindow) -> None:
+    window._build_tab_skeletons([_make_tab_config()])  # must not raise
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_build_tab_skeletons_applies_page_splitter_sizes(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    # Asserts the setSizes() call itself, not a later .sizes() readback —
+    # QSplitter redistributes requested sizes to fit actual widget geometry,
+    # which a headless/offscreen test window may not have settled yet
+    # (same reasoning as the existing _apply_splitter_sizes tests below).
+    import dataclasses
+    config = dataclasses.replace(_make_tab_config(), page_splitter_sizes=(700, 320))
+    page = wired._tab_widget.widget(0)
+    with patch.object(page, "setSizes") as mock_set_sizes:
+        wired._build_tab_skeletons([config])
+    mock_set_sizes.assert_called_once_with([700, 320])
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_build_stripe_skeleton_reuses_existing_first_stripe(wired: MainWindow) -> None:
+    """PlotStripesArea already creates one stripe unconditionally — must
+    be reused, not duplicated (the #106 Plan-review-caught bug)."""
+    from mdf_viewer.model.viewer_config import StripeConfig
+    page = wired._tab_widget.widget(0)
+    stripes = [StripeConfig(name="Vibration", size=300)]
+
+    wired._build_stripe_skeleton(page, stripes, 0)
+
+    plot_stripes = page.plot_area.get_stripes()
+    assert len(plot_stripes) == 1
+    assert plot_stripes[0].name == "Vibration"
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_build_stripe_skeleton_creates_additional_stripes(wired: MainWindow) -> None:
+    from mdf_viewer.model.viewer_config import StripeConfig
+    page = wired._tab_widget.widget(0)
+    stripes = [StripeConfig(name="Vibration", size=300), StripeConfig(name="Temp", size=150)]
+
+    wired._build_stripe_skeleton(page, stripes, 1)
+
+    plot_stripes = page.plot_area.get_stripes()
+    assert [s.name for s in plot_stripes] == ["Vibration", "Temp"]
+    assert page.plot_area.get_active_stripe() is plot_stripes[1]
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_build_stripe_skeleton_sets_sizes(wired: MainWindow) -> None:
+    from mdf_viewer.model.viewer_config import StripeConfig
+    page = wired._tab_widget.widget(0)
+    stripes = [StripeConfig(name="A", size=300), StripeConfig(name="B", size=150)]
+
+    with patch.object(page.plot_area, "set_stripe_sizes") as mock_set_sizes:
+        wired._build_stripe_skeleton(page, stripes, 0)
+
+    mock_set_sizes.assert_called_once_with([300, 150])
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_build_stripe_skeleton_ast_segment_label_updated(wired: MainWindow) -> None:
+    from mdf_viewer.model.viewer_config import StripeConfig
+    page = wired._tab_widget.widget(0)
+    stripes = [StripeConfig(name="Vibration", size=1)]
+
+    wired._build_stripe_skeleton(page, stripes, 0)
+
+    seg = page.active_signals_table._segments[0]
+    assert seg.name_label.text() == "Vibration"
 
 
 # ---------------------------------------------------------------------------
@@ -2169,16 +2530,31 @@ def test_classify_group_name_narrowing_falls_back_when_no_match(
 # ---------------------------------------------------------------------------
 
 def _minimal_config(**overrides):
+    """Build a single-tab ViewerConfig; overrides may name either a
+    TabConfig field or a top-level ViewerConfig field."""
     from mdf_viewer.config_manager import CONFIG_FORMAT_VERSION
-    from mdf_viewer.model.viewer_config import ViewerConfig
-    fields = dict(
-        format_version=CONFIG_FORMAT_VERSION, measurement_path="", signals=(),
-        x_range=(0.0, 1.0), y_ranges={}, merged_groups=(), synced_groups=(),
+    from mdf_viewer.model.viewer_config import StripeConfig, TabConfig, ViewerConfig
+    tab_field_names = {
+        "signals", "x_range", "y_ranges", "merged_groups", "synced_groups",
+        "cursor_mode", "cursor_positions", "selected_signal",
+    }
+    tab_fields = dict(
+        name="Tab 1", stripes=(StripeConfig(name="Stripe 1", size=1),),
+        active_stripe_index=0, signals=(),
+        x_range=(0.0, 1.0), y_ranges=(), merged_groups=(), synced_groups=(),
         cursor_mode="HIDDEN", cursor_positions=(0.0, 0.0), selected_signal=None,
+    )
+    top_fields = dict(
+        format_version=CONFIG_FORMAT_VERSION, measurements=(), primary_measurement_index=0,
+        measurements_synchronized=False, active_tab_index=0,
         display_name_separator=".", display_name_direction="right", display_name_segments=1,
     )
-    fields.update(overrides)
-    return ViewerConfig(**fields)
+    for key, value in overrides.items():
+        if key in tab_field_names:
+            tab_fields[key] = value
+        else:
+            top_fields[key] = value
+    return ViewerConfig(tabs=(TabConfig(**tab_fields),), **top_fields)
 
 
 @pytest.mark.requirement("REQ-FILE-061")
@@ -2295,7 +2671,7 @@ def test_save_config_to_attaches_window_and_splitter_state(
     window._settings = MagicMock()
     window._settings.config_path_mode = "absolute"
     mock_controller.capture_config.return_value = _minimal_config()
-    mock_controller.active_signals = []  # prevent teardown from triggering the real "Save Config?" dialog
+    mock_controller.active_signals = []  # prevent teardown from triggering the real "Save Workspace?" dialog
 
     with patch("mdf_viewer.config_manager.ConfigManager.save") as mock_save:
         window._save_config_to(tmp_path / "session.mvc")
@@ -2315,7 +2691,7 @@ def test_load_config_applies_saved_window_geometry(
     mvc.touch()
     window._controller = mock_controller
     window._settings = MagicMock()
-    mock_controller.active_signals = []  # prevent teardown from triggering the real "Save Config?" dialog
+    mock_controller.active_signals = []  # prevent teardown from triggering the real "Save Workspace?" dialog
     config = _minimal_config(
         window_geometry={"x": 5, "y": 5, "width": 1000, "height": 700, "maximized": False},
     )

@@ -620,8 +620,10 @@ class ActiveSignalsTable(QWidget):
     def _rename_segment(self, seg: _ActiveTable) -> None:
         """Rename seg's stripe (REQ-PLOT-292), mirroring MainWindow's own
         tab-rename pattern exactly: a direct QInputDialog, no controller
-        round-trip — stripe names, like tab names, aren't persisted/model
-        state (REQ-PLOT-294)."""
+        round-trip. Stripe names are captured/restored as part of a saved
+        session (#106, REQ-PLOT-294) — this interactive rename itself
+        still needs no controller round-trip, since nothing besides the
+        eventual capture reads a stripe's name mid-session."""
         stripe = self._stripe_for_segment.get(seg)
         if stripe is None:
             return
@@ -629,9 +631,23 @@ class ActiveSignalsTable(QWidget):
         current_name = getattr(stripe, "name", "")
         name, ok = QInputDialog.getText(self, "Rename Stripe", "Stripe name:", text=current_name)
         if ok and name.strip():
-            stripe.name = name.strip()
-            seg.name_label.setText(stripe.name)
-            seg.name_label.adjustSize()
+            self.rename_stripe_segment(stripe, name.strip())
+
+    def rename_stripe_segment(self, stripe: object, name: str) -> None:
+        """Rename *stripe* and refresh its AST segment's visible label
+        together (#106) — `stripe.name` and the segment's `name_label`
+        aren't live-bound to each other, so a caller that only sets
+        `stripe.name` directly (e.g. bulk session restore, #106) would
+        leave the AST showing a stale name until some unrelated repaint.
+        No-op if *stripe* has no segment (shouldn't happen in practice —
+        every stripe gets one via `add_stripe_segment`).
+        """
+        stripe.name = name
+        for seg in self._segments:
+            if self._stripe_for_segment.get(seg) is stripe:
+                seg.name_label.setText(name)
+                seg.name_label.adjustSize()
+                break
 
     def _add_row_to_segment(self, seg: _ActiveTable, active: ActiveSignal) -> None:
         row = seg.rowCount()
@@ -649,6 +665,20 @@ class ActiveSignalsTable(QWidget):
     def _on_header_column_resized(self, index: int, old_size: int, new_size: int) -> None:
         for seg in self._segments:
             seg.setColumnWidth(index, new_size)
+
+    def column_widths(self) -> list[int]:
+        """Current width of every column, shared header (#106) — every
+        segment already mirrors these via `_on_header_column_resized`."""
+        return [self._header.columnWidth(i) for i in range(self._header.columnCount())]
+
+    def set_column_widths(self, widths: list[int]) -> None:
+        """Restore column widths (#106). Setting them on the shared header
+        alone is enough — `sectionResized` fires regardless of whether the
+        resize was a user drag or programmatic, so `_on_header_column_resized`
+        mirrors each width to every segment automatically."""
+        for i, w in enumerate(widths):
+            if 0 <= i < self._header.columnCount() and w > 0:
+                self._header.setColumnWidth(i, w)
 
     # ------------------------------------------------------------------
     # Slots (private)

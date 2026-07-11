@@ -393,6 +393,35 @@ def test_rename_segment_blank_name_leaves_name_unchanged(table: ActiveSignalsTab
     assert stripe.name == "Stripe 1"
 
 
+@pytest.mark.requirement("REQ-FILE-090")
+def test_rename_stripe_segment_sets_both_name_and_label(table: ActiveSignalsTable) -> None:
+    """#106: stripe.name and the segment's name_label aren't live-bound —
+    a programmatic caller (bulk session restore) must update both."""
+    stripe = _FakeStripe("Stripe 1")
+    seg = table.add_stripe_segment(stripe)
+
+    table.rename_stripe_segment(stripe, "Vibration")
+
+    assert stripe.name == "Vibration"
+    assert seg.name_label.text() == "Vibration"
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_rename_stripe_segment_targets_correct_segment_among_several(
+    table: ActiveSignalsTable,
+) -> None:
+    s1, s2 = _FakeStripe("Stripe 1"), _FakeStripe("Stripe 2")
+    seg1 = table.add_stripe_segment(s1)
+    seg2 = table.add_stripe_segment(s2)
+
+    table.rename_stripe_segment(s2, "Temp")
+
+    assert s1.name == "Stripe 1"
+    assert seg1.name_label.text() != "Temp"
+    assert s2.name == "Temp"
+    assert seg2.name_label.text() == "Temp"
+
+
 @pytest.mark.requirement("REQ-PLOT-293")
 def test_move_to_stripe_submenu_reflects_rename(table: ActiveSignalsTable) -> None:
     s1 = _FakeStripe("Stripe 1")
@@ -624,6 +653,32 @@ def test_header_column_resize_propagates_to_every_segment(
     table._header.setColumnWidth(1, 250)
     assert seg1.columnWidth(1) == 250
     assert seg2.columnWidth(1) == 250
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_column_widths_reflects_header(table: ActiveSignalsTable) -> None:
+    table._header.setColumnWidth(1, 250)
+    widths = table.column_widths()
+    assert widths[1] == 250
+    assert len(widths) == table._header.columnCount()
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_set_column_widths_applies_to_header_and_segments(table: ActiveSignalsTable) -> None:
+    seg1 = table.add_stripe_segment(_FakeStripe("Stripe 1"))
+
+    table.set_column_widths([28, 200, 90, 90, 90])
+
+    assert table._header.columnWidth(1) == 200
+    assert seg1.columnWidth(1) == 200
+
+
+@pytest.mark.requirement("REQ-FILE-090")
+def test_set_column_widths_ignores_extra_and_invalid_entries(table: ActiveSignalsTable) -> None:
+    original = table.column_widths()
+    table.set_column_widths([0, -5] + [999] * 10)  # first two invalid, rest out of range
+    assert table.column_widths()[0] == original[0]
+    assert table.column_widths()[1] == original[1]
 
 
 @pytest.mark.requirement("REQ-PLOT-274")

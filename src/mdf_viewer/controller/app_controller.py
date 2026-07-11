@@ -60,6 +60,17 @@ class ActiveSignalSnapshot:
     enum_display_cursor: bool
     enum_display_yaxis: bool
     group_name: str = ""
+    # Which stripe this signal was in when snapshotted (#106) — empty
+    # string means "no stripe info" (pre-#106 callers, or a signal not
+    # currently in any tracked stripe), matching today's single-stripe
+    # behavior when absent.
+    stripe_name: str = ""
+    # The specific measurement this signal must resolve against on
+    # restore (#106 M6, REQ-FILE-093) — set only by session-config
+    # restore, which knows exactly which saved measurement a signal came
+    # from; left None for the file-reload "keep signals" flow, which has
+    # no such prior knowledge and resolves across the whole pool instead.
+    measurement: "LoadedMeasurement | None" = None
 
 if TYPE_CHECKING:
     from PyQt6.QtGui import QColor
@@ -618,6 +629,66 @@ class AppController:
         self._refresh_measurement_axes()
         self.refresh_display_names()
 
+    def restore_measurements(
+        self,
+        measurement_configs: "list[MeasurementConfig]",
+        primary_index: int,
+        synchronized: bool,
+    ) -> "list[LoadedMeasurement | None]":
+        """Load every saved MeasurementConfig, index-aligned with the saved
+        list (#106 Phase 1) — a failure at position *i* leaves `None` at
+        that same index rather than shifting the rest, unlike
+        `replace_measurements()`, whose `LoadResult.succeeded` drops
+        failed paths and loses positional alignment with the saved list.
+
+        Bypasses `make_label()`/`rename_measurement()` entirely — each
+        measurement's short name and offset come directly from the saved
+        config, not generated or validated against a live pool mid-restore.
+        Confirming what to do about any `None` entries (REQ-FILE-097/098)
+        is the caller's job (`MainWindow`), the same "confirmation is the
+        caller's job, this method always proceeds" split already used by
+        `close_measurement`; call this only with the *final* list to keep
+        (already dropped any the user chose not to continue without).
+
+        Sets Primary from *primary_index* into the resulting pool — if
+        that slot is `None` or out of range, falls back to the
+        first-loaded of whatever succeeded (mirrors `close_measurement`'s
+        own REQ-PLOT-321 reassignment). Sets Synchronized directly from
+        *synchronized*. Resets the load-order naming counter (REQ-FILE-027)
+        to the number of measurements attempted, so a later `add_measurements`
+        never reissues a default name already used by this restore.
+        Refreshes signal browser/info box/measurement axes once at the end.
+
+        Assumes `AppController` is already down to a single, clean tab
+        (Phase 0) — this method only touches the measurement pool.
+        """
+        results: list[LoadedMeasurement | None] = []
+        for mc in measurement_configs:
+            loader = self._loader_factory()
+            try:
+                loader.open(mc.path)
+            except MdfLoadError:
+                results.append(None)
+                continue
+            info = loader.measurement_info()
+            results.append(
+                LoadedMeasurement(loader=loader, info=info, label=mc.label, offset_s=mc.offset_s)
+            )
+
+        self._measurements = [m for m in results if m is not None]
+        self._measurements_synchronized = synchronized
+        self._measurement_load_counter = len(results)
+
+        primary = results[primary_index] if 0 <= primary_index < len(results) else None
+        if primary is None:
+            primary = self._measurements[0] if self._measurements else None
+        self._primary_measurement = primary
+
+        self._refresh_signal_browser()
+        self._refresh_info_box()
+        self._refresh_measurement_axes()
+        return results
+
     def _refresh_info_box(self) -> None:
         """Rebuild the Measurement Info panel's tabs from the full
         measurement pool and current Primary (#103, REQ-PLOT-318).
@@ -1164,6 +1235,7 @@ class AppController:
         snapshots = []
         for active in workspace.active:
             c = active.color
+            stripe = workspace.plot.get_stripe_for_signal(active)
             snapshots.append(ActiveSignalSnapshot(
                 name=active.metadata.name,
                 color=(c.red(), c.green(), c.blue()),
@@ -1176,6 +1248,7 @@ class AppController:
                 enum_display_cursor=active.enum_display_cursor,
                 enum_display_yaxis=active.enum_display_yaxis,
                 group_name=active.metadata.group_name,
+                stripe_name=getattr(stripe, "name", "") if stripe is not None else "",
             ))
         return snapshots
 
@@ -1256,14 +1329,20 @@ class AppController:
         """
         from PyQt6.QtGui import QColor
         current = self.current_workspace
+        stripes = current.plot.get_stripes()
         for entry in resolved:
             if len(entry) == 4:
                 snap, gi, ci, measurement = entry
             else:
                 snap, gi, ci = entry
                 measurement = None
+            stripe = None
+            if snap.stripe_name:
+                stripe = next(
+                    (s for s in stripes if getattr(s, "name", None) == snap.stripe_name), None
+                )
             try:
-                added = self.add_signal(gi, ci, measurement=measurement)
+                added = self.add_signal(gi, ci, stripe=stripe, measurement=measurement)
             except Exception:
                 continue
             if not added:
@@ -1319,69 +1398,54 @@ class AppController:
         finally:
             self._active_tab_index = saved_index
 
-    def capture_config(self, config_path: Path) -> "ViewerConfig":
-        """Capture the current viewer state as a ViewerConfig.
+    def capture_config(
+        self,
+        config_path: Path,
+        tab_names: "list[str] | None" = None,
+        page_splitter_sizes: "list[tuple[int, int]] | None" = None,
+    ) -> "ViewerConfig":
+        """Capture the current viewer state as a ViewerConfig — every tab,
+        each tab's stripe layout and signal placement, and every loaded
+        measurement (#106).
 
         *config_path* is the intended save location — needed to compute
         relative measurement paths later in ConfigManager.save().
-
-        Scoped to the active tab only — ViewerConfig is still the flat,
-        single-workspace format it was before tabs existed. Multi-tab
-        `.mvc` save/load is #106's job (it depends on #99); this is a
-        deliberate provisional scope for #99, not an oversight.
+        *tab_names* supplies each tab's saved name in workspace order
+        (`MainWindow` owns the actual `QTabWidget`, so `AppController` has
+        no other way to know tab titles); a missing or too-short entry
+        defaults to "Tab {n}" by position. *page_splitter_sizes* similarly
+        supplies each tab's plot|AST divider widths (`MainWindow` owns that
+        QSplitter too, #106); a missing or too-short entry defaults to
+        `TabConfig.page_splitter_sizes`'s own default.
         """
-        from mdf_viewer.model.viewer_config import SignalConfig, ViewerConfig
+        from mdf_viewer.model.viewer_config import MeasurementConfig, ViewerConfig
 
-        current = self.current_workspace
-        snapshots = self.snapshot_active_signals()
-        signal_configs = tuple(
-            SignalConfig(
-                name=s.name,
-                group_name=s.group_name,
-                color=s.color,
-                line_width=s.line_width,
-                line_style=s.line_style,
-                display_mode=s.display_mode,
-                marker_shape=s.marker_shape,
-                step_mode=s.step_mode,
-                enum_display_table=s.enum_display_table,
-                enum_display_cursor=s.enum_display_cursor,
-                enum_display_yaxis=s.enum_display_yaxis,
+        tabs = tuple(
+            self._capture_tab(
+                workspace,
+                tab_names[i] if tab_names is not None and i < len(tab_names) else f"Tab {i + 1}",
+                page_splitter_sizes[i]
+                if page_splitter_sizes is not None and i < len(page_splitter_sizes) else None,
             )
-            for s in snapshots
+            for i, workspace in enumerate(self._workspaces)
         )
 
-        zoom = current.plot.get_zoom_state(current.active)
-        x_range = tuple(zoom.x_range)  # type: ignore[arg-type]
-        y_ranges: dict[str, tuple[float, float]] = {}
-        for active, yr in zoom.y_ranges.items():
-            y_ranges[active.metadata.name] = tuple(yr)  # type: ignore[assignment]
-
-        merged_raw, synced_raw = current.plot.get_axis_grouping()
-        merged_groups = tuple(tuple(g) for g in merged_raw)
-        synced_groups = tuple(tuple(g) for g in synced_raw)
-
-        cursor_snap: dict = {}
-        if current.cursor_ctrl is not None:
-            cursor_snap = current.cursor_ctrl.snapshot()
-        cursor_mode = cursor_snap.get("mode", "HIDDEN")
-        cursor_pos_raw = cursor_snap.get("positions", [0.0, 0.0])
-        cursor_positions: tuple[float, float] = (
-            float(cursor_pos_raw[0]),
-            float(cursor_pos_raw[1]),
+        measurements = tuple(
+            MeasurementConfig(
+                path=str(m.loader._path) if m.loader.is_open and m.loader._path is not None else "",
+                label=m.label,
+                offset_s=m.offset_s,
+            )
+            for m in self._measurements
         )
+        if not measurements and self._loader.is_open and self._loader._path is not None:
+            measurements = (
+                MeasurementConfig(path=str(self._loader._path), label="M1", offset_s=0.0),
+            )
 
-        selected_name = (
-            current.selected.metadata.name if current.selected is not None else None
+        primary_index = next(
+            (i for i, m in enumerate(self._measurements) if m is self._primary_measurement), 0
         )
-
-        # .mvc save/restore stays single-measurement scope for #101 (#106's
-        # job to extend it) — always the first pool entry, or the legacy
-        # loader when the pool is empty.
-        meas_loader = self._measurements[0].loader if self._measurements else self._loader
-        meas_path = ""
-        if meas_loader.is_open and meas_loader._path is not None:
-            meas_path = str(meas_loader._path)
 
         if self._settings is not None:
             name_separator = self._settings.display_name_separator
@@ -1393,67 +1457,221 @@ class AppController:
         from mdf_viewer.config_manager import CONFIG_FORMAT_VERSION
         return ViewerConfig(
             format_version=CONFIG_FORMAT_VERSION,
-            measurement_path=meas_path,
-            signals=signal_configs,
+            measurements=measurements,
+            primary_measurement_index=primary_index,
+            measurements_synchronized=self._measurements_synchronized,
+            tabs=tabs,
+            active_tab_index=self._active_tab_index,
+            display_name_separator=name_separator,
+            display_name_direction=name_direction,
+            display_name_segments=name_segments,
+        )
+
+    def _measurement_index(self, measurement) -> int:
+        """Identity-match *measurement* against the current pool (#101/#106) —
+        never `.index()`/`in`, since `LoadedMeasurement` is a plain
+        `@dataclass` with field-equality `__eq__`, so two distinct
+        measurements loaded from the same path/label/offset would
+        otherwise compare equal."""
+        return next((i for i, m in enumerate(self._measurements) if m is measurement), 0)
+
+    def _capture_tab(
+        self,
+        workspace: "TabWorkspace",
+        name: str,
+        page_splitter_sizes: "tuple[int, int] | None" = None,
+    ) -> "TabConfig":
+        """Capture one tab's stripe layout, active signals (with their
+        stripe/measurement placement), zoom, axis grouping, cursor, and
+        selection state (#106)."""
+        from mdf_viewer.model.viewer_config import SignalConfig, SignalRef, StripeConfig, TabConfig
+
+        stripes_view = workspace.plot.get_stripes()
+        stripe_index_of = {stripe: i for i, stripe in enumerate(stripes_view)}
+        stripe_configs = tuple(
+            StripeConfig(name=getattr(stripe, "name", f"Stripe {i + 1}"), size=size)
+            for i, (stripe, size) in enumerate(zip(stripes_view, workspace.plot.get_stripe_sizes()))
+        )
+        active_stripe_index = stripe_index_of.get(workspace.plot.get_active_stripe(), 0)
+
+        snapshots = self._snapshot_signals(workspace)
+        signal_configs = []
+        for snap, active in zip(snapshots, workspace.active):
+            stripe = workspace.plot.get_stripe_for_signal(active)
+            stripe_idx = stripe_index_of.get(stripe, 0)
+            signal_configs.append(SignalConfig(
+                name=snap.name,
+                group_name=snap.group_name,
+                color=snap.color,
+                line_width=snap.line_width,
+                line_style=snap.line_style,
+                display_mode=snap.display_mode,
+                marker_shape=snap.marker_shape,
+                step_mode=snap.step_mode,
+                enum_display_table=snap.enum_display_table,
+                enum_display_cursor=snap.enum_display_cursor,
+                enum_display_yaxis=snap.enum_display_yaxis,
+                stripe_index=stripe_idx,
+                measurement_index=self._measurement_index(active.measurement),
+            ))
+
+        zoom = workspace.plot.get_zoom_state(workspace.active)
+        x_range = tuple(zoom.x_range)  # type: ignore[arg-type]
+        y_ranges = tuple(
+            (
+                SignalRef(name=active.metadata.name, measurement_index=self._measurement_index(active.measurement)),
+                tuple(yr),
+            )
+            for active, yr in zoom.y_ranges.items()
+        )
+
+        merged_raw, synced_raw = workspace.plot.get_axis_grouping()
+        merged_groups = tuple(
+            tuple(SignalRef(name=n, measurement_index=self._measurement_index(m)) for n, m in g)
+            for g in merged_raw
+        )
+        synced_groups = tuple(
+            tuple(SignalRef(name=n, measurement_index=self._measurement_index(m)) for n, m in g)
+            for g in synced_raw
+        )
+
+        cursor_snap: dict = {}
+        if workspace.cursor_ctrl is not None:
+            cursor_snap = workspace.cursor_ctrl.snapshot()
+        cursor_mode = cursor_snap.get("mode", "HIDDEN")
+        cursor_pos_raw = cursor_snap.get("positions", [0.0, 0.0])
+        cursor_positions: tuple[float, float] = (
+            float(cursor_pos_raw[0]),
+            float(cursor_pos_raw[1]),
+        )
+
+        selected_ref = (
+            SignalRef(
+                name=workspace.selected.metadata.name,
+                measurement_index=self._measurement_index(workspace.selected.measurement),
+            )
+            if workspace.selected is not None else None
+        )
+
+        kwargs = dict(
+            name=name,
+            stripes=stripe_configs,
+            active_stripe_index=active_stripe_index,
+            signals=tuple(signal_configs),
             x_range=x_range,  # type: ignore[arg-type]
             y_ranges=y_ranges,
             merged_groups=merged_groups,
             synced_groups=synced_groups,
             cursor_mode=cursor_mode,
             cursor_positions=cursor_positions,
-            selected_signal=selected_name,
-            display_name_separator=name_separator,
-            display_name_direction=name_direction,
-            display_name_segments=name_segments,
+            selected_signal=selected_ref,
+            ast_column_widths=tuple(workspace.table.column_widths()),
         )
+        if page_splitter_sizes is not None:
+            kwargs["page_splitter_sizes"] = page_splitter_sizes
+        return TabConfig(**kwargs)
 
     def restore_config(
         self,
         config: "ViewerConfig",
-        resolved_signals: "list[tuple[ActiveSignalSnapshot, int, int]]",
+        resolved_by_tab: "dict[int, list[tuple[ActiveSignalSnapshot, int, int] | tuple[ActiveSignalSnapshot, int, int, LoadedMeasurement | None]]]",
+        measurements: "list[LoadedMeasurement | None] | None" = None,
     ) -> None:
-        """Restore a saved viewer session after the measurement file is loaded.
+        """Restore a saved viewer session's per-tab display state (#106 M6,
+        Phase 4) — axis grouping, zoom, cursor, and selection for every
+        tab, then the window's active tab and the display-name rule.
 
-        *resolved_signals* is a list of (snapshot, group_index, channel_index)
-        tuples — the caller is responsible for resolving name → indices.
+        Assumes every tab/stripe skeleton already exists (Phase 2,
+        `MainWindow._build_tab_skeletons`) and *resolved_by_tab* already
+        holds each tab's resolved (snapshot, group_index, channel_index[,
+        measurement]) tuples (Phase 3, `_resolve_and_confirm_snapshots`) —
+        this call re-adds the signals themselves (routed into their saved
+        stripe via each snapshot's `stripe_name`, see `restore_signals()`)
+        and restores everything layered on top of them. A `config.tabs`
+        index with nothing in *resolved_by_tab* still gets its
+        grouping/zoom/cursor/selection restored (an empty signal list is a
+        valid — if unusual — starting point, not a reason to skip the rest).
 
-        Restores into the active tab only — see capture_config()'s docstring
-        for why (provisional #99 scope, superseded by #106).
+        *measurements* is Phase 1's index-aligned `restore_measurements()`
+        result (may contain `None` for a measurement that failed to load) —
+        used to resolve each `SignalRef.measurement_index` (y_ranges,
+        merged/synced groups, selection) back to the actual `LoadedMeasurement`
+        those saved names must match against, since a bare name is
+        ambiguous once the same channel name can be active from two
+        different loaded measurements (REQ-FILE-093, found via live-testing
+        #106 M6). Defaults to the current `self._measurements` pool, which
+        is index-identical to Phase 1's result whenever nothing failed to
+        load (the common case, and every pre-#106 test's implicit scope).
         """
-        from PyQt6.QtGui import QColor
         from mdf_viewer.view_model.zoom_state import ZoomState
 
-        current = self.current_workspace
-        self.restore_signals(resolved_signals)
+        if measurements is None:
+            measurements = self._measurements
 
-        # Restore axis grouping — must happen after signals are added
-        merged = [list(g) for g in config.merged_groups]
-        synced = [list(g) for g in config.synced_groups]
-        current.plot.restore_axis_grouping(merged, synced, current.active)
-        self._refresh_table_group_state()
+        def resolve(ref) -> tuple:
+            # Returns (name, measurement) for identity-based use downstream —
+            # LoadedMeasurement is a plain, unhashable @dataclass (mutable,
+            # field-equality __eq__), so callers needing a dict key use
+            # resolve_key() below instead of hashing this tuple directly.
+            target = measurements[ref.measurement_index] if 0 <= ref.measurement_index < len(measurements) else None
+            return (ref.name, target)
 
-        # Restore zoom — must happen after grouping (ViewBoxes may have changed)
-        y_ranges: dict = {}
-        for active in current.active:
-            name = active.metadata.name
-            if name in config.y_ranges:
-                y_ranges[active] = config.y_ranges[name]
-        zoom_state = ZoomState(x_range=config.x_range, y_ranges=y_ranges)
-        current.plot.set_zoom_state(zoom_state, current.active)
+        def resolve_key(ref) -> tuple:
+            name, target = resolve(ref)
+            return (name, id(target))
 
-        # Restore cursor state
-        if current.cursor_ctrl is not None:
-            current.cursor_ctrl.restore({
-                "mode": config.cursor_mode,
-                "positions": list(config.cursor_positions),
-            })
+        for tab_index, tab_config in enumerate(config.tabs):
+            if not (0 <= tab_index < len(self._workspaces)):
+                continue
+            self._active_tab_index = tab_index
+            current = self._workspaces[tab_index]
+            self.restore_signals(resolved_by_tab.get(tab_index, []))
 
-        # Restore selection
-        if config.selected_signal is not None:
+            # Restore axis grouping — must happen after signals are added
+            merged = [[resolve(ref) for ref in g] for g in tab_config.merged_groups]
+            synced = [[resolve(ref) for ref in g] for g in tab_config.synced_groups]
+            current.plot.restore_axis_grouping(merged, synced, current.active)
+            self._refresh_table_group_state()
+
+            # Restore zoom — must happen after grouping (ViewBoxes may have changed)
+            wanted = {resolve_key(ref): rng for ref, rng in tab_config.y_ranges}
+            y_ranges: dict = {}
             for active in current.active:
-                if active.metadata.name == config.selected_signal:
-                    self.set_selected_signal(active)
-                    break
+                key = (active.metadata.name, id(active.measurement))
+                if key in wanted:
+                    y_ranges[active] = wanted[key]
+            zoom_state = ZoomState(x_range=tab_config.x_range, y_ranges=y_ranges)
+            current.plot.set_zoom_state(zoom_state, current.active)
+
+            # Restore cursor state
+            if current.cursor_ctrl is not None:
+                current.cursor_ctrl.restore({
+                    "mode": tab_config.cursor_mode,
+                    "positions": list(tab_config.cursor_positions),
+                })
+
+            # Restore selection
+            if tab_config.selected_signal is not None:
+                wanted_name, wanted_measurement = resolve(tab_config.selected_signal)
+                for active in current.active:
+                    # Identity, not equality — LoadedMeasurement's
+                    # auto-generated field-equality __eq__ would otherwise
+                    # spuriously match two distinct measurements sharing
+                    # the same path/label/offset.
+                    if active.metadata.name == wanted_name and active.measurement is wanted_measurement:
+                        self.set_selected_signal(active)
+                        break
+
+            # Restore active stripe — after signals/grouping so it reflects
+            # the final stripe layout, not a transient one.
+            stripes = current.plot.get_stripes()
+            if 0 <= tab_config.active_stripe_index < len(stripes):
+                current.plot.set_active_stripe(stripes[tab_config.active_stripe_index])
+
+            current.table.set_column_widths(list(tab_config.ast_column_widths))
+
+        if 0 <= config.active_tab_index < len(self._workspaces):
+            self._active_tab_index = config.active_tab_index
 
         # Restore display-name-shortening rule *parameters* used by this
         # session (not whether the rule is enabled — that stays governed

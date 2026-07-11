@@ -135,8 +135,8 @@ All notable changes to MDF-Viewer are documented in this file.
     more than one of the newly-loaded measurements via the existing
     channel-group picker, extended to show which measurement each
     candidate belongs to.
-  - `.mvc` session save/restore is unchanged and stays scoped to a single
-    measurement for now (multi-measurement session support is #106).
+  - `.mvc` session save/restore now covers the full multi-measurement
+    workspace (#106).
   - `docs/requirements/file-handling.md` and `docs/requirements/
     plotting.md` gained new "Multiple Measurements" sections
     (REQ-FILE-010 through 028, REQ-PLOT-300 through 309) and
@@ -149,8 +149,8 @@ All notable changes to MDF-Viewer are documented in this file.
   time axis into a single shared ruler, showing the first-loaded
   measurement's real time. "Un-Sync" restores the separate rows at
   whatever offsets they already had — synchronizing never changes any
-  measurement's offset, only how the rows are displayed. Not saved to
-  `.mvc` yet (multi-measurement session support is #106).
+  measurement's offset, only how the rows are displayed. Now saved to
+  `.mvc` as part of the session workspace (#106).
   - `docs/requirements/plotting.md` gained a "Measurement Synchronization"
     section (REQ-PLOT-310 through 316).
 - Signal Browser multi-measurement unification (#103): once two or more
@@ -185,6 +185,34 @@ All notable changes to MDF-Viewer are documented in this file.
     `plotting.md` gained/amended requirements to describe the flat list,
     short-name editability, and Primary Measurement (REQ-BROWSER-010–054,
     REQ-FILE-027/029, REQ-PLOT-300–322).
+- Workspace/Configuration format extension (#106): saving and loading a
+  `.mvc` session now covers the entire workspace, not just the active
+  tab and first-loaded measurement.
+  - A saved session captures every tab (name, plot|AST divider width,
+    Active Signals Table column widths), every tab's plot-stripe layout
+    (stripe names/sizes/active stripe), every active signal's stripe and
+    measurement placement, and the full loaded-measurement pool (path,
+    short name, time offset, Primary designation, Synchronize
+    Measurements state) — restoring a session replaces the entire
+    application state, the same way opening a `.mvc` file already
+    replaced the single active tab's state before.
+  - "Save Config" / "Save Config As…" renamed to "Save Workspace" /
+    "Save Workspace As…" to reflect the broader scope; the `.mvc` file
+    extension is unchanged.
+  - A session referencing more than one measurement, where one or more
+    can't be found, shows a single combined dialog listing every missing
+    file with the option to continue without them or cancel the whole
+    load, rather than prompting to locate each one individually — a
+    session with exactly one measurement keeps the existing
+    locate-file-interactively behavior.
+  - A session saved before this extension (a single tab, single
+    measurement, flat shape) still loads correctly into one default tab
+    and stripe.
+  - `docs/requirements/file-handling.md` gained a new "Session Scope:
+    Stripes, Tabs, and Multi-Measurement" section (REQ-FILE-090–098,
+    amended after live-testing to also cover the AST divider/column
+    widths and to extend measurement-disambiguation to zoom ranges and
+    axis groups, not just channel resolution).
 
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the

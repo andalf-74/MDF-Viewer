@@ -72,6 +72,21 @@ def _icon_suffix() -> str:
     return "" if scheme == Qt.ColorScheme.Dark else "_light"
 
 
+def _candidate_indices(candidate, measurement_aware: bool) -> tuple:
+    """Unpack one `_classify_signal_name()` candidate into the trailing
+    fields of a resolved-signal tuple (#106 M5 shared-helper extraction).
+
+    `measurement_aware=False` candidates are plain `SignalMetadata` →
+    `(group_index, channel_index)`. `measurement_aware=True` candidates
+    are `(LoadedMeasurement, SignalMetadata)` pairs →
+    `(group_index, channel_index, measurement)`.
+    """
+    if measurement_aware:
+        measurement, meta = candidate
+        return meta.group_index, meta.channel_index, measurement
+    return candidate.group_index, candidate.channel_index
+
+
 from mdf_viewer import __version__
 from mdf_viewer.errors import MdfLoadError
 from mdf_viewer.license.license_info import LicenseInfo
@@ -387,11 +402,11 @@ class MainWindow(QMainWindow):
         )
         self._sync_measurements_action.toggled.connect(self._on_sync_action_toggled)
 
-        self._save_config_action = QAction("Save Config", self)
+        self._save_config_action = QAction("Save Workspace", self)
         self._save_config_action.setShortcut(QKeySequence("Ctrl+S"))
         self._save_config_action.triggered.connect(self._on_save_config)
 
-        self._save_config_as_action = QAction("Save Config As…", self)
+        self._save_config_as_action = QAction("Save Workspace As…", self)
         self._save_config_as_action.triggered.connect(self._on_save_config_as)
 
         self._preferences_action = QAction("Preferences…", self)
@@ -1052,7 +1067,9 @@ class MainWindow(QMainWindow):
             self._restore_snapshots(snapshots)
 
     def _classify_signal_name(
-        self, name: str, group_name: str = "", *, measurement_aware: bool = False,
+        self, name: str, group_name: str = "", *,
+        measurement_aware: bool = False,
+        measurement: "object | None" = None,
     ) -> tuple[str, list]:
         """Classify *name* against the loaded file(s) for signal-restore purposes.
 
@@ -1062,16 +1079,39 @@ class MainWindow(QMainWindow):
         (status, candidates) where status is one of "exact_single",
         "exact_multiple", "near_single", "near_multiple", or "not_found".
 
-        *measurement_aware* selects between two candidate shapes: False
-        (default) returns plain SignalMetadata, searching only against
-        `.mvc` restore's deliberately single-measurement scope (#106).
+        *measurement*, if given, scopes the search to that one
+        `LoadedMeasurement`'s own channel tree only (#106 M6, REQ-FILE-093
+        — a saved session's signal resolves against the same measurement
+        it was captured from, not an arbitrary one), regardless of
+        *measurement_aware*'s value; candidates are still returned as
+        (LoadedMeasurement, SignalMetadata) tuples (always this fixed
+        *measurement*), matching the measurement_aware=True shape.
+
+        Otherwise, *measurement_aware* selects between two candidate
+        shapes: False (default) returns plain SignalMetadata, searching
+        only against `.mvc` restore's pre-M6 single-measurement scope.
         True returns (LoadedMeasurement, SignalMetadata) tuples, searched
         across every loaded measurement — used by the multi-file Replace
         carry-over flow (#101) to disambiguate a name matching in more
         than one loaded measurement, which a bare SignalMetadata result
         can't express.
         """
-        if measurement_aware:
+        if measurement is not None:
+            candidates = [
+                (measurement, meta) for meta in measurement.loader.find_signal_by_name(name)
+            ]
+            is_near = False
+            if not candidates:
+                candidates = [
+                    (measurement, meta)
+                    for meta in measurement.loader.find_similar_signal_by_name(name)
+                ]
+                is_near = True
+            if group_name and candidates:
+                narrowed = [c for c in candidates if c[1].group_name == group_name]
+                if narrowed:
+                    candidates = narrowed
+        elif measurement_aware:
             candidates = self._controller.find_signal_locations_by_name(name)
             is_near = False
             if not candidates:
@@ -1123,6 +1163,97 @@ class MainWindow(QMainWindow):
                 return {}
         return {i: self._controller.snapshot_tab_signals(i) for i in tabs_with_signals}
 
+    def _resolve_and_confirm_snapshots(
+        self,
+        snapshots_by_tab: dict[int, list],
+        *,
+        measurement_aware: bool,
+        use_group_name: bool,
+    ) -> tuple[dict[int, list], list[str]]:
+        """Classify every tab's snapshots by name (REQ-FILE-032/033),
+        batching every near-match across every tab into ONE
+        NearMatchDialog at the end rather than one per tab (REQ-FILE-036)
+        — the shared logic behind both `_restore_snapshots()` (file-reload's
+        "keep signals", already multi-tab, #99 M8) and
+        `_resolve_config_signals()` (session restore, #106); extracted
+        since the two were structurally near-identical (#106 M5).
+
+        *measurement_aware* selects `_classify_signal_name()`'s candidate
+        shape (see its own docstring) — resolved tuples gain a trailing
+        `measurement` element when True. A snapshot carrying its own
+        `.measurement` (#106 M6 session restore, REQ-FILE-093) always
+        gets the same tagged-tuple shape regardless of *measurement_aware*'s
+        value, since its search is scoped to that one measurement rather
+        than the whole pool. *use_group_name* controls whether each
+        snapshot's `group_name` narrows ambiguous matches — kept as an
+        explicit switch rather than always-on specifically to preserve
+        each existing caller's exact prior behavior (`_restore_snapshots`
+        never passed group_name; the old single-tab `_resolve_config_signals`
+        always did) rather than silently changing either one's resolution
+        results as a side effect of this refactor.
+
+        Returns (resolved_by_tab, not_found) — resolved_by_tab maps
+        tab_index to a list of (snapshot, group_index, channel_index[,
+        measurement]) tuples; not_found is every signal name that
+        couldn't be resolved at all (including a declined picker/near-match).
+        Showing `SignalsNotFoundDialog` is each caller's own job, since
+        the two existing callers do it slightly differently (one
+        dedupes/sorts first, one doesn't).
+        """
+        from mdf_viewer.view.near_match_dialog import NearMatchDialog
+        from mdf_viewer.view.signal_group_picker_dialog import SignalGroupPickerDialog
+
+        not_found: list[str] = []
+        resolved_by_tab: dict[int, list] = {}
+        pending_near_matches: list[tuple[int, object, object, bool]] = []
+
+        for tab_index, snapshots in snapshots_by_tab.items():
+            for snap in snapshots:
+                group_name = snap.group_name if use_group_name else ""
+                snap_measurement = getattr(snap, "measurement", None)
+                effective_aware = measurement_aware or snap_measurement is not None
+                status, candidates = self._classify_signal_name(
+                    snap.name, group_name,
+                    measurement_aware=measurement_aware, measurement=snap_measurement,
+                )
+                if status == "exact_single":
+                    resolved_by_tab.setdefault(tab_index, []).append(
+                        (snap, *_candidate_indices(candidates[0], effective_aware))
+                    )
+                elif status == "exact_multiple":
+                    dlg = SignalGroupPickerDialog(snap.name, candidates, self)
+                    if dlg.exec():
+                        resolved_by_tab.setdefault(tab_index, []).append(
+                            (snap, *_candidate_indices(dlg.selected(), effective_aware))
+                        )
+                    else:
+                        not_found.append(snap.name)
+                elif status == "near_single":
+                    pending_near_matches.append((tab_index, snap, candidates[0], effective_aware))
+                elif status == "near_multiple":
+                    dlg = SignalGroupPickerDialog(snap.name, candidates, self)
+                    if dlg.exec():
+                        pending_near_matches.append((tab_index, snap, dlg.selected(), effective_aware))
+                    else:
+                        not_found.append(snap.name)
+                else:  # not_found
+                    not_found.append(snap.name)
+
+        if pending_near_matches:
+            dlg = NearMatchDialog(
+                [(snap.name, candidate) for _, snap, candidate, _ in pending_near_matches], self
+            )
+            checked = dlg.checked_mask() if dlg.exec() else [False] * len(pending_near_matches)
+            for (tab_index, snap, candidate, item_aware), accepted in zip(pending_near_matches, checked):
+                if accepted:
+                    resolved_by_tab.setdefault(tab_index, []).append(
+                        (snap, *_candidate_indices(candidate, item_aware))
+                    )
+                else:
+                    not_found.append(snap.name)
+
+        return resolved_by_tab, not_found
+
     def _restore_snapshots(self, snapshots_by_tab: dict[int, list]) -> None:
         """Resolve each tab's snapshots against the new file and re-add matched signals.
 
@@ -1131,59 +1262,18 @@ class MainWindow(QMainWindow):
         than resolving them inline per tab — see REQ-FILE-036 and
         docs/architecture.md "Near-Match Signal Resolution (#109)".
         """
-        from mdf_viewer.view.near_match_dialog import NearMatchDialog
-        from mdf_viewer.view.signal_group_picker_dialog import SignalGroupPickerDialog
         from mdf_viewer.view.signals_not_found_dialog import SignalsNotFoundDialog
 
-        not_found: list[str] = []
-        resolved_by_tab: dict[int, list] = {}
-        pending_near_matches: list[tuple[int, object, object]] = []
-
-        for tab_index, snapshots in snapshots_by_tab.items():
-            for snap in snapshots:
-                # measurement_aware=True: a multi-file Replace (#101) can load
-                # more than one measurement at once, so candidates must say
-                # which measurement each came from to disambiguate a name
-                # matching in more than one — see _classify_signal_name().
-                status, candidates = self._classify_signal_name(snap.name, measurement_aware=True)
-                if status == "exact_single":
-                    measurement, meta = candidates[0]
-                    resolved_by_tab.setdefault(tab_index, []).append(
-                        (snap, meta.group_index, meta.channel_index, measurement)
-                    )
-                elif status == "exact_multiple":
-                    dlg = SignalGroupPickerDialog(snap.name, candidates, self)
-                    if dlg.exec():
-                        measurement, meta = dlg.selected()
-                        resolved_by_tab.setdefault(tab_index, []).append(
-                            (snap, meta.group_index, meta.channel_index, measurement)
-                        )
-                    else:
-                        not_found.append(snap.name)
-                elif status == "near_single":
-                    pending_near_matches.append((tab_index, snap, candidates[0]))
-                elif status == "near_multiple":
-                    dlg = SignalGroupPickerDialog(snap.name, candidates, self)
-                    if dlg.exec():
-                        pending_near_matches.append((tab_index, snap, dlg.selected()))
-                    else:
-                        not_found.append(snap.name)
-                else:  # not_found
-                    not_found.append(snap.name)
-
-        if pending_near_matches:
-            dlg = NearMatchDialog(
-                [(snap.name, candidate) for _, snap, candidate in pending_near_matches], self
-            )
-            checked = dlg.checked_mask() if dlg.exec() else [False] * len(pending_near_matches)
-            for (tab_index, snap, candidate), accepted in zip(pending_near_matches, checked):
-                if accepted:
-                    measurement, meta = candidate
-                    resolved_by_tab.setdefault(tab_index, []).append(
-                        (snap, meta.group_index, meta.channel_index, measurement)
-                    )
-                else:
-                    not_found.append(snap.name)
+        # measurement_aware=True: a multi-file Replace (#101) can load more
+        # than one measurement at once, so candidates must say which
+        # measurement each came from to disambiguate a name matching in
+        # more than one. use_group_name=False preserves this call site's
+        # long-standing behavior unchanged (see _resolve_and_confirm_snapshots'
+        # own docstring for why this is an explicit switch, not a silent
+        # improvement bundled into the #106 M5 refactor that extracted this).
+        resolved_by_tab, not_found = self._resolve_and_confirm_snapshots(
+            snapshots_by_tab, measurement_aware=True, use_group_name=False,
+        )
 
         for tab_index, resolved in resolved_by_tab.items():
             self._controller.restore_tab_signals(tab_index, resolved)
@@ -1379,12 +1469,12 @@ class MainWindow(QMainWindow):
         if self._should_prompt_save_on_close():
             path = self._controller.current_config_path if self._controller else None
             if path is not None:
-                msg = f"Save updated config '{path.name}'?"
+                msg = f"Save updated workspace '{path.name}'?"
             else:
-                msg = "Save current view as a config file?"
+                msg = "Save current view as a workspace file?"
             reply = QMessageBox.question(
                 self,
-                "Save Config?",
+                "Save Workspace?",
                 msg,
                 QMessageBox.StandardButton.Save
                 | QMessageBox.StandardButton.Discard
@@ -1421,11 +1511,32 @@ class MainWindow(QMainWindow):
         if self._controller is None:
             return
         path_str, _ = QFileDialog.getSaveFileName(
-            self, "Save Config As", "", "MDF Viewer Config (*.mvc);;All Files (*)"
+            self, "Save Workspace As", "", "MDF Viewer Config (*.mvc);;All Files (*)"
         )
         if not path_str:
             return
         self._save_config_to(Path(path_str))
+
+    def _tab_names(self) -> list[str]:
+        """Every real tab's current title, in workspace order (#106) —
+        excludes the pinned "+" placeholder tab."""
+        placeholder_index = self._placeholder_index()
+        return [
+            self._tab_widget.tabText(i)
+            for i in range(self._tab_widget.count())
+            if i != placeholder_index
+        ]
+
+    def _tab_page_splitter_sizes(self) -> list[tuple[int, int]]:
+        """Every real tab's plot|AST divider widths, in workspace order
+        (#106) — `AppController` has no access to these QSplitters
+        (`MainWindow` owns the tab pages), same reasoning as `_tab_names()`."""
+        placeholder_index = self._placeholder_index()
+        return [
+            tuple(self._tab_widget.widget(i).sizes())
+            for i in range(self._tab_widget.count())
+            if i != placeholder_index
+        ]
 
     def _save_config_to(self, path: Path) -> None:
         import dataclasses
@@ -1433,7 +1544,9 @@ class MainWindow(QMainWindow):
         if self._controller is None or self._settings is None:
             return
         try:
-            config = self._controller.capture_config(path)
+            config = self._controller.capture_config(
+                path, self._tab_names(), self._tab_page_splitter_sizes(),
+            )
             config = dataclasses.replace(
                 config,
                 window_geometry=self._capture_window_geometry(),
@@ -1441,19 +1554,149 @@ class MainWindow(QMainWindow):
             )
             ConfigManager.save(config, path, self._settings.config_path_mode)
         except Exception as exc:
-            QMessageBox.critical(self, "Save Config Error", str(exc))
+            QMessageBox.critical(self, "Save Workspace Error", str(exc))
             return
         self._controller.current_config_path = path
         self._settings.add_recent(path)
-        self.show_status(f"Config saved to {path.name}")
+        self.show_status(f"Workspace saved to {path.name}")
+
+    def _reset_to_single_tab(self) -> None:
+        """Tear down every tab but the first, before a full session
+        restore replaces everything (#106 Phase 0).
+
+        `AppController.remove_tab()` only cleans up controller-side state
+        (signals, the `TabWorkspace` itself) — it does not touch the
+        `QTabWidget` page at all. Mirrors `_on_tab_close_requested`'s full
+        teardown (view-side `removeTab()` + `deleteLater()`, #120) for
+        every tab removed here too; neither half alone is safe.
+
+        Relies on the same invariant `_on_tab_close_requested` already
+        assumes: real tab positions in `_tab_widget` align 1:1 with
+        `AppController._workspaces` indices (the pinned "+" placeholder
+        sits after all of them once any transient drag-reorder settles).
+        """
+        if self._controller is None:
+            return
+        for index in range(self._controller.tab_count - 1, 0, -1):
+            page = self._tab_widget.widget(index)
+            self._tab_widget.removeTab(index)
+            page.deleteLater()
+            self._controller.remove_tab(index)
+        if self._tab_widget.currentIndex() != 0:
+            self._tab_widget.setCurrentIndex(0)
+        self._controller.remove_all()
+
+    def _build_tab_skeletons(self, tab_configs: list) -> None:
+        """Build every saved tab's skeleton — the tab itself (renamed)
+        and its stripe layout (renamed/resized) — with no signals yet
+        (#106 Phase 2).
+
+        Assumes `_reset_to_single_tab()` already ran, so exactly one tab
+        exists. Reuses that tab as `tab_configs[0]` (renamed, not
+        recreated) and drives `_on_new_tab()`'s own tab-creation factory
+        for each further `TabConfig` — a deliberate simplification (see
+        `docs/architecture.md`): each call fires `switch_tab()` as a side
+        effect and doesn't reconcile `_tab_counter` against restored
+        names, accepted for this rare bulk operation rather than
+        building a separate non-interactive tab-creation path.
+        """
+        if self._controller is None or not tab_configs:
+            return
+        for _ in range(len(tab_configs) - 1):
+            self._on_new_tab()
+        for index, tab_config in enumerate(tab_configs):
+            self._tab_widget.setTabText(index, tab_config.name)
+            page = self._tab_widget.widget(index)
+            self._build_stripe_skeleton(page, tab_config.stripes, tab_config.active_stripe_index)
+            page.setSizes(list(tab_config.page_splitter_sizes))
+
+    def _build_stripe_skeleton(self, page, stripes: list, active_stripe_index: int) -> None:
+        """Build one tab's stripe layout from saved `StripeConfig`s (#106
+        Phase 2), with no signals placed yet.
+
+        `PlotStripesArea` already creates one stripe unconditionally in
+        its own `__init__` — reused as `stripes[0]` (renamed) rather than
+        creating an extra, un-renamed empty stripe alongside it (a real
+        bug the #106 Plan-review pass caught: `create_stripe()` isn't a
+        no-op to call "just in case", it always appends). Sizes are set
+        once, only after every stripe for this tab exists, since
+        `create_stripe()` itself resets every stripe's size on every call.
+        """
+        plot_area = page.plot_area
+        ast = page.active_signals_table
+        existing = plot_area.get_stripes()
+        for _ in range(len(stripes) - len(existing)):
+            plot_area.create_stripe()
+        all_stripes = plot_area.get_stripes()
+        for stripe, stripe_config in zip(all_stripes, stripes):
+            ast.rename_stripe_segment(stripe, stripe_config.name)
+        plot_area.set_stripe_sizes([s.size for s in stripes])
+        if 0 <= active_stripe_index < len(all_stripes):
+            plot_area.set_active_stripe(all_stripes[active_stripe_index])
+
+    def _resolve_saved_measurements(
+        self, measurement_configs: list, config_path: Path
+    ) -> tuple[list, list[str]]:
+        """Resolve every saved measurement's path against *config_path*'s
+        directory (REQ-FILE-063/064, generalized to N measurements, #106).
+
+        Returns (resolved_configs, missing_paths) — resolved_configs has
+        one entry per input, in the same order: resolved ones get their
+        path replaced with the found absolute path, unresolved ones keep
+        their original (raw, still-unresolved) path string so
+        `AppController.restore_measurements()` fails them again at the
+        same index rather than the list silently shrinking and losing
+        alignment with the saved signals' `measurement_index` (REQ-FILE-093).
+        missing_paths lists the raw saved paths that couldn't be found,
+        for `_confirm_missing_measurements()`.
+        """
+        import dataclasses
+        from mdf_viewer.config_manager import ConfigManager
+
+        resolved = []
+        missing: list[str] = []
+        for mc in measurement_configs:
+            found = ConfigManager.resolve_measurement_path(mc.path, config_path)
+            if found is None:
+                missing.append(mc.path)
+                resolved.append(mc)
+            else:
+                resolved.append(dataclasses.replace(mc, path=str(found)))
+        return resolved, missing
+
+    def _confirm_missing_measurements(self, missing_paths: list[str]) -> bool:
+        """Ask whether to continue without measurements that couldn't be
+        found (REQ-FILE-097/098) — one combined dialog listing every
+        missing path, not an interactive locate-prompt per file (that
+        stays REQ-FILE-065's behavior, unchanged, for a session with
+        exactly one measurement). Returns True to proceed (continuing
+        drops them — `restore_measurements()` will produce `None` at
+        their index regardless, so there's nothing to "undo" here),
+        False to abort the whole session load.
+        """
+        if not missing_paths:
+            return True
+        listing = "\n".join(missing_paths)
+        reply = QMessageBox.question(
+            self,
+            "Measurements Not Found",
+            f"The following measurement(s) could not be found:\n\n{listing}\n\n"
+            "Continue loading the session without them?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return reply == QMessageBox.StandardButton.Yes
 
     def open_config(self, path: Path) -> None:
         """Public entry point for opening a .mvc config file (e.g. from app.py)."""
         self._load_config(path)
 
     def _load_config(self, path: Path) -> None:
+        import dataclasses
         from mdf_viewer.config_manager import ConfigManager
         from mdf_viewer.errors import ConfigLoadError
+        from mdf_viewer.model.viewer_config import MeasurementConfig
+        from mdf_viewer.view.signals_not_found_dialog import SignalsNotFoundDialog
         if self._controller is None or self._settings is None:
             return
 
@@ -1466,115 +1709,150 @@ class MainWindow(QMainWindow):
         self._apply_window_geometry(config.window_geometry)
         self._apply_splitter_sizes(config.splitter_sizes)
 
-        mdf_path = ConfigManager.resolve_measurement_path(config.measurement_path, path)
-        if mdf_path is None:
-            mdf_path_str, _ = QFileDialog.getOpenFileName(
-                self,
-                f"Locate Measurement File for '{path.name}'",
-                "",
-                _MDF_FILE_FILTER,
-            )
-            if not mdf_path_str:
+        measurement_configs = list(config.measurements)
+        if len(measurement_configs) <= 1:
+            # REQ-FILE-065: a session with zero or one measurement still
+            # gets an interactive locate-prompt for a missing file, not
+            # the combined continue/cancel dialog used for 2+ (REQ-FILE-097).
+            mc = measurement_configs[0] if measurement_configs else None
+            raw_path = mc.path if mc is not None else ""
+            found = ConfigManager.resolve_measurement_path(raw_path, path)
+            if found is None:
+                mdf_path_str, _ = QFileDialog.getOpenFileName(
+                    self,
+                    f"Locate Measurement File for '{path.name}'",
+                    "",
+                    _MDF_FILE_FILTER,
+                )
+                if not mdf_path_str:
+                    return
+                found = Path(mdf_path_str)
+            if mc is not None:
+                measurement_configs = [dataclasses.replace(mc, path=str(found))]
+            else:
+                measurement_configs = [MeasurementConfig(path=str(found), label="M1", offset_s=0.0)]
+        else:
+            resolved_configs, missing = self._resolve_saved_measurements(measurement_configs, path)
+            if not self._confirm_missing_measurements(missing):
                 return
-            mdf_path = Path(mdf_path_str)
+            measurement_configs = resolved_configs
 
-        self.show_status(f"Loading {mdf_path.name}…", timeout_ms=0)
+        self.show_status("Loading session…", timeout_ms=0)
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
         QApplication.processEvents()
-        load_ok = True
         try:
-            self._controller.load_file(mdf_path)
-        except MdfLoadError as exc:
-            QMessageBox.critical(self, "Load Error", str(exc))
-            load_ok = False
+            self._reset_to_single_tab()
+            results = self._controller.restore_measurements(
+                measurement_configs, config.primary_measurement_index,
+                config.measurements_synchronized,
+            )
         finally:
             QApplication.restoreOverrideCursor()
             self.statusBar().clearMessage()
 
-        if not load_ok:
+        if measurement_configs and not any(m is not None for m in results):
+            QMessageBox.critical(self, "Load Error", "No measurements could be loaded.")
             return
 
-        resolved, not_found = self._resolve_config_signals(config)
+        self._build_tab_skeletons(list(config.tabs))
+
+        resolved_by_tab, not_found = self._resolve_config_signals_for_tabs(
+            list(config.tabs), results,
+        )
 
         if not_found:
-            from mdf_viewer.view.signals_not_found_dialog import SignalsNotFoundDialog
-            SignalsNotFoundDialog(not_found, self).exec()
+            SignalsNotFoundDialog(sorted(set(not_found)), self).exec()
 
-        if resolved:
-            self._controller.restore_config(config, resolved)
+        self._controller.restore_config(config, resolved_by_tab, results)
+
+        if 0 <= config.active_tab_index < len(config.tabs):
+            self._tab_widget.setCurrentIndex(config.active_tab_index)
 
         self._controller.current_config_path = path
         self._settings.add_recent(path)
 
-    def _resolve_config_signals(self, config) -> tuple[list, list[str]]:
-        """Match SignalConfig entries in *config* to channels in the loaded file.
+    def _signal_config_to_snapshot(
+        self, sig, stripe_name: str = "", measurement: "object | None" = None,
+    ) -> "ActiveSignalSnapshot":
+        """Convert a saved `SignalConfig` into the `ActiveSignalSnapshot`
+        currency `_resolve_and_confirm_snapshots()` operates on (#106) —
+        `_restore_snapshots()`'s snapshots instead come from already-active
+        `ActiveSignal`s (`AppController._snapshot_signals`), since that
+        caller runs on a live session, not saved JSON data.
 
-        Returns (resolved, not_found) where resolved is a list of
-        (ActiveSignalSnapshot, group_index, channel_index) tuples.
-
-        Near-matches (REQ-FILE-032/033) across every signal in *config* are
-        confirmed in one NearMatchDialog after all signals have been
-        classified, rather than resolving them inline one at a time — see
-        REQ-FILE-036.
+        *measurement*, when given, is the live `LoadedMeasurement` this
+        signal was saved against (#106 M6, resolved via `SignalConfig.
+        measurement_index` against `AppController.restore_measurements()`'s
+        result) — scopes this snapshot's later resolution to that one
+        measurement (REQ-FILE-093) instead of the whole pool.
         """
         from mdf_viewer.controller.app_controller import ActiveSignalSnapshot
-        from mdf_viewer.view.near_match_dialog import NearMatchDialog
-        from mdf_viewer.view.signal_group_picker_dialog import SignalGroupPickerDialog
+        return ActiveSignalSnapshot(
+            name=sig.name,
+            color=tuple(sig.color),  # type: ignore[arg-type]
+            line_width=sig.line_width,
+            line_style=sig.line_style,
+            display_mode=sig.display_mode,
+            marker_shape=sig.marker_shape,
+            step_mode=sig.step_mode,
+            enum_display_table=sig.enum_display_table,
+            enum_display_cursor=sig.enum_display_cursor,
+            enum_display_yaxis=sig.enum_display_yaxis,
+            group_name=sig.group_name,
+            stripe_name=stripe_name,
+            measurement=measurement,
+        )
 
-        resolved: list = []
+    def _resolve_config_signals_for_tabs(
+        self, tab_configs: list, measurements: list,
+    ) -> tuple[dict[int, list], list[str]]:
+        """Match every saved tab's SignalConfig entries to channels in the
+        resolved measurement pool (#106 M6, full multi-tab replacement for
+        the old single-tab `_resolve_config_signals`).
+
+        *measurements* is `AppController.restore_measurements()`'s
+        index-aligned result (a `None` entry means that measurement failed
+        to load, per Phase 1) — a signal whose `measurement_index` points
+        at a `None` slot is folded straight into `not_found` without
+        attempting resolution at all, since there's nothing to search
+        (REQ-FILE-098). Every other signal's search is scoped to its own
+        saved measurement (REQ-FILE-093), not the whole pool.
+
+        Returns (resolved_by_tab, not_found) — resolved_by_tab maps tab
+        index to a list of (ActiveSignalSnapshot, group_index,
+        channel_index, measurement) tuples, ready for
+        `AppController.restore_config()`.
+        """
+        snapshots_by_tab: dict[int, list] = {}
         not_found: list[str] = []
-        pending_near_matches: list[tuple[object, object]] = []  # (snap, candidate)
-
-        for sig in config.signals:
-            status, candidates = self._classify_signal_name(sig.name, sig.group_name)
-
-            snap = ActiveSignalSnapshot(
-                name=sig.name,
-                color=tuple(sig.color),  # type: ignore[arg-type]
-                line_width=sig.line_width,
-                line_style=sig.line_style,
-                display_mode=sig.display_mode,
-                marker_shape=sig.marker_shape,
-                step_mode=sig.step_mode,
-                enum_display_table=sig.enum_display_table,
-                enum_display_cursor=sig.enum_display_cursor,
-                enum_display_yaxis=sig.enum_display_yaxis,
-                group_name=sig.group_name,
-            )
-
-            if status == "exact_single":
-                meta = candidates[0]
-                resolved.append((snap, meta.group_index, meta.channel_index))
-            elif status == "exact_multiple":
-                dlg = SignalGroupPickerDialog(sig.name, candidates, self)
-                if dlg.exec():
-                    meta = dlg.selected()
-                    resolved.append((snap, meta.group_index, meta.channel_index))
-                else:
+        for tab_index, tab_config in enumerate(tab_configs):
+            stripe_names = [s.name for s in tab_config.stripes]
+            for sig in tab_config.signals:
+                measurement = (
+                    measurements[sig.measurement_index]
+                    if 0 <= sig.measurement_index < len(measurements) else None
+                )
+                if measurement is None:
                     not_found.append(sig.name)
-            elif status == "near_single":
-                pending_near_matches.append((snap, candidates[0]))
-            elif status == "near_multiple":
-                dlg = SignalGroupPickerDialog(sig.name, candidates, self)
-                if dlg.exec():
-                    pending_near_matches.append((snap, dlg.selected()))
-                else:
-                    not_found.append(sig.name)
-            else:  # not_found
-                not_found.append(sig.name)
+                    continue
+                stripe_name = (
+                    stripe_names[sig.stripe_index]
+                    if 0 <= sig.stripe_index < len(stripe_names) else ""
+                )
+                snapshots_by_tab.setdefault(tab_index, []).append(
+                    self._signal_config_to_snapshot(sig, stripe_name, measurement=measurement)
+                )
 
-        if pending_near_matches:
-            dlg = NearMatchDialog(
-                [(snap.name, candidate) for snap, candidate in pending_near_matches], self
-            )
-            checked = dlg.checked_mask() if dlg.exec() else [False] * len(pending_near_matches)
-            for (snap, candidate), accepted in zip(pending_near_matches, checked):
-                if accepted:
-                    resolved.append((snap, candidate.group_index, candidate.channel_index))
-                else:
-                    not_found.append(snap.name)
-
-        return resolved, not_found
+        # use_group_name=True preserves the old single-tab
+        # _resolve_config_signals' long-standing behavior unchanged (see
+        # _resolve_and_confirm_snapshots' own docstring for why this is an
+        # explicit switch). measurement_aware is moot here since every
+        # snapshot carries its own `.measurement`, but True keeps the call
+        # site's intent explicit.
+        resolved_by_tab, more_not_found = self._resolve_and_confirm_snapshots(
+            snapshots_by_tab, measurement_aware=True, use_group_name=True,
+        )
+        return resolved_by_tab, not_found + more_not_found
 
     def _rebuild_recent_files(self) -> None:
         for action in self._recent_actions:
