@@ -275,6 +275,27 @@ All notable changes to MDF-Viewer are documented in this file.
   drop that state at the OS level, making the following `showMaximized()`
   call a no-op against Qt's stale cached window state; the window is now
   normalized first if it's currently maximized.
+- A newly created tab always showed a single generic "Time" X-axis instead
+  of one per loaded measurement, unlike every other tab (#124).
+  `AppController.create_tab()` registered the new tab's `TabWorkspace` but
+  never pushed the current measurement pool/sync state to it — that only
+  happened on pool-mutation events (load/close/rename/sync-toggle/primary
+  change), which a brand-new tab hadn't been part of. It now pushes that
+  state immediately on creation.
+- Closing the very last open tab, then creating a new one (or loading
+  another measurement), could crash with `RuntimeError: wrapped C/C++
+  object of type AxisItem has been deleted` (#130, found live-testing
+  #124's fix). `AppController.remove_tab()` deliberately keeps the sole
+  remaining `TabWorkspace` alive rather than removing it (`current_workspace`
+  must never resolve to nothing), but `MainWindow` always `deleteLater()`'d
+  the closed tab's widgets regardless — destroying Qt objects the
+  controller still held a live reference to. Closing the last tab now
+  parks its page instead of deleting it, and reuses that exact page on the
+  next "New Tab" rather than registering a duplicate, orphaned workspace.
+  Also fixed: a parked page left un-consumed until the app closes is now
+  explicitly `deleteLater()`'d in `closeEvent()` — otherwise it stayed
+  alive and wired into its signal/slot connections past its own window's
+  teardown, the same orphaned-Qt-object class as #120.
 - `docs/requirements/plotting.md`'s REQ-PLOT-121 incorrectly stated that
   "line only" display mode disables the line style control. It doesn't —
   only the marker shape control is disabled in that mode, which is what

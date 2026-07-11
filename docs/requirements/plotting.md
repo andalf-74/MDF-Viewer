@@ -479,7 +479,11 @@ renamed by double-clicking its label or via a context-menu "Rename"
 action [REQ-PLOT-242]. Tabs can be reordered by dragging a tab to a new
 position in the tab bar; order is cosmetic only and has no functional
 effect [REQ-PLOT-243]. Ctrl+Tab and Ctrl+Shift+Tab cycle to the next
-and previous tab respectively [REQ-PLOT-244].
+and previous tab respectively [REQ-PLOT-244]. A newly created tab's
+bottom-most-stripe axis rows (REQ-PLOT-300) reflect the current
+measurement pool and Synchronized state (REQ-PLOT-310) immediately on
+creation, matching every other open tab, rather than only after the next
+measurement-pool change [REQ-PLOT-245].
 
 ### Closing Tabs
 

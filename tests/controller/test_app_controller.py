@@ -3452,6 +3452,21 @@ def test_create_tab_adds_workspace_and_makes_it_active(ctrl: AppController) -> N
     assert ctrl.current_workspace.table is table2
 
 
+@pytest.mark.requirement("REQ-PLOT-245")
+def test_create_tab_pushes_current_measurement_axes_to_new_tab(deps: dict) -> None:
+    """A newly created tab must show the same per-measurement axis rows as
+    every other open tab immediately, not just after the next pool-mutating
+    event (add/replace/close/rename/sync-toggle/primary-change) happens to
+    fire (#124)."""
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+
+    plot2, table2 = MagicMock(), MagicMock()
+    ctrl2.create_tab(plot2, table2)
+
+    plot2.refresh_measurement_axes.assert_called_with(ctrl2.measurements, False)
+
+
 @pytest.mark.requirement("REQ-PLOT-241")
 def test_create_tab_starts_with_no_active_signals(ctrl: AppController) -> None:
     ctrl.add_signal(0, 1)
@@ -3517,6 +3532,25 @@ def test_switch_tab_out_of_range_is_noop(ctrl: AppController) -> None:
 def test_remove_tab_refuses_when_only_one_tab(ctrl: AppController) -> None:
     ctrl.remove_tab(0)
     assert len(ctrl._workspaces) == 1
+
+
+@pytest.mark.requirement("REQ-PLOT-254")
+def test_remove_tab_clears_signals_even_when_only_one_tab(ctrl: AppController, deps: dict) -> None:
+    """Closing the last tab keeps its TabWorkspace alive (current_workspace
+    must never be empty) rather than dropping it, but "close anyway" must
+    still discard its content — a stale, still-populated workspace left
+    behind here is what caused the view to reuse a widget that, before this
+    fix, still looked "active" even though the tab had supposedly been
+    closed (#130, found live-testing #124)."""
+    sig = ActiveSignal(data=_make_signal_data(), metadata=_make_metadata(), color=QColor(255, 0, 0))
+    ctrl.current_workspace.active.append(sig)
+
+    ctrl.remove_tab(0)
+
+    assert len(ctrl._workspaces) == 1
+    assert ctrl.current_workspace.active == []
+    deps["plot"].remove_signal.assert_called_once_with(sig)
+    deps["table"].clear.assert_called_once()
 
 
 def test_remove_tab_removes_workspace(ctrl: AppController) -> None:

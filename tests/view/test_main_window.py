@@ -160,18 +160,38 @@ def test_closing_last_tab_calls_controller_remove_tab(wired: MainWindow, mock_co
     mock_controller.remove_tab.assert_called_once_with(0)
 
 
-def test_closing_tab_deletes_the_page_widget(wired: MainWindow, mock_controller: MagicMock) -> None:
+def test_closing_non_last_tab_deletes_the_page_widget(wired: MainWindow, mock_controller: MagicMock) -> None:
     """removeTab() alone doesn't delete the page widget (Qt's own docs say so
-    explicitly) — without an explicit deleteLater(), the closed tab's whole
+    explicitly) — without an explicit deleteLater(), a closed tab's whole
     PlotStripesArea (every stripe/curve/ViewBox/axis) and ActiveSignalsTable
     would leak for the rest of the app session (found while scanning for
     the same leak class as the stripe/signal-lifecycle bugs in
     plot_stripe.py, #120)."""
     mock_controller.tab_has_signals.return_value = False
+    wired._on_new_tab()  # now 2 real tabs; closing one is not the last-tab case
     page = wired._tab_widget.widget(0)
     with patch.object(page, "deleteLater") as mock_delete_later:
         wired._on_tab_close_requested(0)
     mock_delete_later.assert_called_once()
+
+
+def test_closing_the_last_tab_parks_rather_than_deletes_the_page_widget(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """Closing the very last real tab must NOT deleteLater() its widgets.
+
+    AppController.remove_tab() deliberately keeps that sole TabWorkspace
+    alive instead of dropping it (current_workspace must never be empty),
+    so destroying its Qt objects here would leave the controller holding a
+    reference to already-deleted widgets — the next thing that touched it
+    (e.g. the next "New Tab") crashed with "wrapped C/C++ object ... has
+    been deleted" (#130, found live-testing #124)."""
+    mock_controller.tab_has_signals.return_value = False
+    page = wired._tab_widget.widget(0)
+    with patch.object(page, "deleteLater") as mock_delete_later:
+        wired._on_tab_close_requested(0)
+    mock_delete_later.assert_not_called()
+    assert wired._parked_page is page
 
 
 def test_new_tab_button_in_empty_placeholder_recreates_tab(wired: MainWindow, mock_controller: MagicMock) -> None:
@@ -180,6 +200,21 @@ def test_new_tab_button_in_empty_placeholder_recreates_tab(wired: MainWindow, mo
     wired._on_new_tab()
     assert wired._real_tab_count() == 1
     assert wired._content_stack.currentWidget() is wired._tab_widget
+
+
+def test_new_tab_after_closing_last_tab_reuses_the_parked_page(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """The parked page's exact plot_area/table are reused (#130) — building
+    a fresh pair instead would register a second TabWorkspace via the tab
+    factory while AppController.remove_tab() already kept the original one
+    alive, silently orphaning it as a never-shown extra workspace."""
+    mock_controller.tab_has_signals.return_value = False
+    parked_page = wired._tab_widget.widget(0)
+    wired._on_tab_close_requested(0)
+    wired._on_new_tab()
+    assert wired._tab_widget.widget(0) is parked_page
+    assert wired._parked_page is None
 
 
 # ---------------------------------------------------------------------------
@@ -1573,6 +1608,28 @@ def test_close_event_accept_when_not_prompted(
     event = QCloseEvent()
     window.closeEvent(event)
     assert event.isAccepted()
+
+
+def test_close_event_deletes_a_live_parked_page(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    """A parked page (#130) left over from closing the last tab without a
+    following "New Tab" is unparented and was never deleteLater()'d.
+    closeEvent() must clean it up — otherwise it's exactly the
+    orphaned-but-alive Qt object #120 warns about, still wired into
+    whatever signal/slot connections it had, surviving past this window's
+    own teardown and crashing something unrelated much later."""
+    from PyQt6.QtGui import QCloseEvent
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # no save prompt
+    mock_controller.tab_has_signals.return_value = False
+    window._on_tab_close_requested(0)
+    parked_page = window._parked_page
+    assert parked_page is not None
+    with patch.object(parked_page, "deleteLater") as mock_delete_later:
+        window.closeEvent(QCloseEvent())
+    mock_delete_later.assert_called_once()
+    assert window._parked_page is None
 
 
 @pytest.mark.requirement("REQ-FILE-071")

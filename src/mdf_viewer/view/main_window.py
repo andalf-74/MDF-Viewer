@@ -492,6 +492,7 @@ class MainWindow(QMainWindow):
         # ── Tabs (#99) — each tab page is one plot area + Active Signals
         # Table pair; the Info/Properties drawer stays outside, shared ──
         self._tab_counter = 1
+        self._parked_page: QSplitter | None = None
         self._tab_widget = QTabWidget()
         self._tab_widget.setTabsClosable(True)
         self._tab_widget.setMovable(True)
@@ -607,16 +608,28 @@ class MainWindow(QMainWindow):
         ]
 
     def _on_new_tab(self) -> None:
-        """Create a new tab: a fresh plot area + Active Signals Table pair (#99)."""
-        plot_area = PlotStripesArea()
-        active_signals_table = ActiveSignalsTable()
-        if self._tab_factory is not None:
-            self._tab_factory(plot_area, active_signals_table)
+        """Create a new tab: a fresh plot area + Active Signals Table pair (#99).
+
+        If a page was parked by closing the previous last tab (#130), reuse
+        it instead of building a fresh pair — AppController keeps that
+        parked page's TabWorkspace alive rather than removing it (since
+        current_workspace must never be empty), so building a fresh pair
+        here would register a second, unrelated workspace and leave the
+        parked one as a permanent, never-shown orphan.
+        """
+        if self._parked_page is not None:
+            page = self._parked_page
+            self._parked_page = None
+        else:
+            plot_area = PlotStripesArea()
+            active_signals_table = ActiveSignalsTable()
+            if self._tab_factory is not None:
+                self._tab_factory(plot_area, active_signals_table)
+            page = self._make_tab_page(plot_area, active_signals_table)
+            self._wire_tab_view(plot_area, active_signals_table)
         self._tab_counter += 1
-        page = self._make_tab_page(plot_area, active_signals_table)
         index = self._placeholder_index()  # insert right before the "+" tab
         self._tab_widget.insertTab(index, page, f"Tab {self._tab_counter}")
-        self._wire_tab_view(plot_area, active_signals_table)
         self._tab_widget.setCurrentIndex(index)
         if self._content_stack.currentWidget() is not self._tab_widget:
             self._content_stack.setCurrentWidget(self._tab_widget)
@@ -696,9 +709,21 @@ class MainWindow(QMainWindow):
         # explicit deleteLater() here, the closed tab's whole PlotStripesArea
         # (every stripe, curve, ViewBox, axis) and ActiveSignalsTable leak for
         # the rest of the app session, never destroyed (#120).
+        #
+        # Exception: closing the very last real tab. AppController.remove_tab()
+        # deliberately keeps that one TabWorkspace alive (current_workspace
+        # must never be empty) instead of dropping it, so deleteLater()-ing
+        # its widgets here would leave the controller holding a reference to
+        # already-destroyed Qt objects — the next thing that touched it
+        # crashed with "wrapped C/C++ object ... has been deleted" (#130).
+        # Park it instead so _on_new_tab() can reuse the very same widgets.
+        was_last_real_tab = self._real_tab_count() == 1
         page = self._tab_widget.widget(index)
         self._tab_widget.removeTab(index)
-        page.deleteLater()
+        if was_last_real_tab:
+            self._parked_page = page
+        else:
+            page.deleteLater()
         if self._controller is not None:
             self._controller.remove_tab(index)
         if self._real_tab_count() == 0:
@@ -1488,6 +1513,14 @@ class MainWindow(QMainWindow):
                     self._save_config_to(path)
                 else:
                     self._on_save_config_as()
+        # A parked page (#130) left over from closing the last tab without a
+        # following "New Tab" is unparented and was never deleteLater()'d —
+        # left alone it's exactly the orphaned-but-alive Qt object #120
+        # warns about, still wired into whatever signal/slot connections it
+        # had, surviving past this window's own teardown.
+        if self._parked_page is not None:
+            self._parked_page.deleteLater()
+            self._parked_page = None
         event.accept()
 
     def _should_prompt_save_on_close(self) -> bool:

@@ -262,10 +262,16 @@ class AppController:
         specific workspace and attaches them via set_cursor_controller()/
         set_zoom_controller(), which target current_workspace and therefore
         this new tab as long as nothing else changes the active tab first.
+
+        Also pushes the current measurement pool/sync state (#101, #102) to
+        the new tab's plot area, so it starts with the same per-measurement
+        axis rows as every other tab (#124) instead of the empty-pool
+        default of a single generic axis.
         """
         workspace = TabWorkspace(plot=plot_area, table=active_signals_table)
         self._workspaces.append(workspace)
         self._active_tab_index = len(self._workspaces) - 1
+        self._refresh_measurement_axes()
         return workspace
 
     def switch_tab(self, index: int) -> None:
@@ -282,7 +288,10 @@ class AppController:
             self._push_selection_to_drawer(self.current_workspace.selected)
 
     def remove_tab(self, index: int) -> None:
-        """Remove the tab at *index*. No-op if it's the only remaining tab.
+        """Remove the tab at *index*, or clear it in place if it's the only
+        remaining one — current_workspace must never resolve to nothing,
+        since dozens of call sites throughout this class assume it always
+        exists.
 
         Runs every one of that tab's active signals through the normal
         remove_signal pipeline first — closing a tab that still has signals
@@ -290,15 +299,14 @@ class AppController:
         just drop the TabWorkspace reference, leaking every curve/ViewBox/
         axis in it (same leak class as the stripe/signal-lifecycle bugs
         fixed in plot_stripe.py, #120, just in the tab-lifecycle path
-        instead).
+        instead). This cleanup always runs, even for the last workspace, so
+        "close anyway" actually discards its content either way.
 
         Does not change which tab is active — the view computes the tab to
         activate next (REQ-PLOT-253: the left neighbor) before this shifts
         list positions, then calls switch_tab() itself. The clamp here is
         just a safety net in case switch_tab() isn't called immediately.
         """
-        if len(self._workspaces) <= 1:
-            return
         workspace = self._workspaces[index]
         if workspace.cursor_ctrl is not None:
             workspace.cursor_ctrl.on_all_signals_cleared()
@@ -307,6 +315,13 @@ class AppController:
             self.events.signal_removed.emit(SignalRemovedEvent(signal=sig, tab=workspace))
         workspace.active.clear()
         workspace.table.clear()
+        if len(self._workspaces) <= 1:
+            # Keep this sole workspace's widgets alive rather than
+            # discarding the TabWorkspace entry — the view mirrors this by
+            # parking (not deleting) the corresponding page and reusing it
+            # on the next "New Tab" instead of registering a duplicate
+            # workspace for a freshly built one (#130).
+            return
         del self._workspaces[index]
         if self._active_tab_index >= len(self._workspaces):
             self._active_tab_index = len(self._workspaces) - 1
