@@ -1,4 +1,4 @@
-"""Tests for SignalBrowser.
+"""Tests for SignalBrowser (#103: flat, cross-measurement channel list).
 
 All tests require a QApplication (provided by pytest-qt's qtbot fixture).
 """
@@ -47,6 +47,20 @@ def sample_groups() -> list[ChannelGroupInfo]:
 
 
 @pytest.fixture()
+def other_groups() -> list[ChannelGroupInfo]:
+    return [
+        ChannelGroupInfo(
+            name="Group 0",
+            index=0,
+            channels=(
+                _make_metadata("sin", "V", 0, 0),  # same name as sample_groups' "sin"
+                _make_metadata("torque", "Nm", 0, 1),
+            ),
+        ),
+    ]
+
+
+@pytest.fixture()
 def browser(qtbot: QtBot) -> SignalBrowser:
     w = SignalBrowser()
     qtbot.addWidget(w)
@@ -55,7 +69,7 @@ def browser(qtbot: QtBot) -> SignalBrowser:
 
 @pytest.fixture()
 def populated_browser(browser: SignalBrowser, sample_groups) -> SignalBrowser:
-    browser.populate(sample_groups)
+    browser.populate_all([("M1", sample_groups)])
     return browser
 
 
@@ -65,11 +79,15 @@ def _px(browser: SignalBrowser, item):
     return browser._proxy.mapFromSource(src)
 
 
+def _row_text(browser: SignalBrowser, row: int) -> str:
+    return browser._proxy.index(row, 0).data()
+
+
 # ---------------------------------------------------------------------------
 # Initial state
 # ---------------------------------------------------------------------------
 
-def test_tree_initially_empty(browser: SignalBrowser) -> None:
+def test_list_initially_empty(browser: SignalBrowser) -> None:
     assert browser._model.rowCount() == 0
 
 
@@ -108,38 +126,44 @@ def test_drag_mode_is_drag_only(browser: SignalBrowser) -> None:
 
 
 # ---------------------------------------------------------------------------
-# populate()
+# populate_all() — single measurement (REQ-BROWSER-010/011)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-BROWSER-010")
-def test_populate_creates_top_level_groups(populated_browser: SignalBrowser) -> None:
-    assert populated_browser._model.rowCount() == 2
+def test_populate_all_creates_one_row_per_channel(populated_browser: SignalBrowser) -> None:
+    # 3 channels in Group 0 + 2 in Group 1 = 5 flat rows, no group nodes.
+    assert populated_browser._model.rowCount() == 5
+
+
+@pytest.mark.requirement("REQ-BROWSER-011")
+def test_populate_all_has_no_child_rows(populated_browser: SignalBrowser) -> None:
+    for row in range(populated_browser._model.rowCount()):
+        assert populated_browser._model.item(row).rowCount() == 0
 
 
 @pytest.mark.requirement("REQ-BROWSER-010")
-def test_populate_group_names(populated_browser: SignalBrowser) -> None:
-    assert populated_browser._model.item(0).text() == "Group 0"
-    assert populated_browser._model.item(1).text() == "Group 1"
-
-
-@pytest.mark.requirement("REQ-BROWSER-010")
-def test_populate_group_0_has_three_children(populated_browser: SignalBrowser) -> None:
-    assert populated_browser._model.item(0).rowCount() == 3
-
-
-@pytest.mark.requirement("REQ-BROWSER-010")
-def test_populate_group_1_has_two_children(populated_browser: SignalBrowser) -> None:
-    assert populated_browser._model.item(1).rowCount() == 2
+def test_single_measurement_has_no_prefix(populated_browser: SignalBrowser) -> None:
+    texts = [populated_browser._model.item(r).text() for r in range(populated_browser._model.rowCount())]
+    assert not any(t.startswith("[") for t in texts)
 
 
 def test_channel_label_includes_unit(populated_browser: SignalBrowser) -> None:
-    sin_item = populated_browser._model.item(0).child(1)
-    assert sin_item.text() == "sin [V]"
+    texts = [populated_browser._model.item(r).text() for r in range(populated_browser._model.rowCount())]
+    assert "sin [V]" in texts
 
 
 def test_channel_label_omits_empty_unit(populated_browser: SignalBrowser) -> None:
-    raw_item = populated_browser._model.item(1).child(1)
-    assert raw_item.text() == "raw_flag"
+    texts = [populated_browser._model.item(r).text() for r in range(populated_browser._model.rowCount())]
+    assert "raw_flag" in texts
+
+
+@pytest.mark.requirement("REQ-BROWSER-013")
+def test_channel_tooltip_shows_group_name(populated_browser: SignalBrowser) -> None:
+    items = [populated_browser._model.item(r) for r in range(populated_browser._model.rowCount())]
+    sin_item = next(i for i in items if i.text() == "sin [V]")
+    assert sin_item.toolTip() == "Group 0"
+    speed_item = next(i for i in items if i.text() == "speed [km/h]")
+    assert speed_item.toolTip() == "Group 1"
 
 
 @pytest.mark.requirement("REQ-BROWSER-032")
@@ -148,10 +172,10 @@ def test_add_button_disabled_after_populate(populated_browser: SignalBrowser) ->
 
 
 @pytest.mark.requirement("REQ-BROWSER-012")
-def test_populate_replaces_previous_content(
+def test_populate_all_replaces_previous_content(
     browser: SignalBrowser, sample_groups
 ) -> None:
-    browser.populate(sample_groups)
+    browser.populate_all([("M1", sample_groups)])
     tiny = [
         ChannelGroupInfo(
             name="Solo",
@@ -159,16 +183,16 @@ def test_populate_replaces_previous_content(
             channels=(_make_metadata("x", "", 0, 0),),
         )
     ]
-    browser.populate(tiny)
+    browser.populate_all([("M1", tiny)])
     assert browser._model.rowCount() == 1
-    assert browser._model.item(0).text() == "Solo"
+    assert browser._model.item(0).text() == "x"
 
 
 @pytest.mark.requirement("REQ-BROWSER-012")
-def test_populate_clears_filter(browser: SignalBrowser, sample_groups) -> None:
-    browser.populate(sample_groups)
+def test_populate_all_clears_filter(browser: SignalBrowser, sample_groups) -> None:
+    browser.populate_all([("M1", sample_groups)])
     browser._filter_edit.setText("sin")
-    browser.populate(sample_groups)
+    browser.populate_all([("M1", sample_groups)])
     assert browser._filter_edit.text() == ""
 
 
@@ -184,8 +208,7 @@ def test_clear_removes_items(populated_browser: SignalBrowser) -> None:
 
 @pytest.mark.requirement("REQ-BROWSER-032")
 def test_clear_disables_add_button(populated_browser: SignalBrowser) -> None:
-    group_item = populated_browser._model.item(0)
-    populated_browser._tree.setCurrentIndex(_px(populated_browser, group_item.child(1)))
+    populated_browser._tree.setCurrentIndex(_px(populated_browser, populated_browser._model.item(1)))
     assert populated_browser._add_btn.isEnabled()
 
     populated_browser.clear()
@@ -208,72 +231,59 @@ def test_add_button_enabled_when_channel_selected(
     populated_browser: SignalBrowser,
 ) -> None:
     populated_browser._tree.setCurrentIndex(
-        _px(populated_browser, populated_browser._model.item(0).child(1))
-    )
-    assert populated_browser._add_btn.isEnabled()
-
-
-@pytest.mark.requirement("REQ-BROWSER-011")
-@pytest.mark.requirement("REQ-BROWSER-032")
-def test_add_button_disabled_when_group_selected(
-    populated_browser: SignalBrowser,
-) -> None:
-    populated_browser._tree.setCurrentIndex(
         _px(populated_browser, populated_browser._model.item(0))
     )
-    assert not populated_browser._add_btn.isEnabled()
+    assert populated_browser._add_btn.isEnabled()
 
 
 # ---------------------------------------------------------------------------
 # add_signals_requested signal — single selection
 # ---------------------------------------------------------------------------
 
+def _item_by_text(browser: SignalBrowser, text: str):
+    for row in range(browser._model.rowCount()):
+        item = browser._model.item(row)
+        if item.text() == text:
+            return item
+    raise AssertionError(f"no item with text {text!r}")
+
+
 @pytest.mark.requirement("REQ-BROWSER-031")
 def test_add_button_emits_correct_indices(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
-    cos_item = populated_browser._model.item(0).child(2)
+    cos_item = _item_by_text(populated_browser, "cos [A]")
     populated_browser._tree.setCurrentIndex(_px(populated_browser, cos_item))
     with qtbot.waitSignal(
         populated_browser.add_signals_requested, timeout=500
     ) as blocker:
         populated_browser._add_btn.click()
-    assert blocker.args == [[(0, 2)]]
+    assert blocker.args == [[(0, 0, 2)]]
 
 
 @pytest.mark.requirement("REQ-BROWSER-031")
 def test_double_click_channel_emits_signal(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
-    sin_item = populated_browser._model.item(0).child(1)
+    sin_item = _item_by_text(populated_browser, "sin [V]")
     with qtbot.waitSignal(
         populated_browser.add_signals_requested, timeout=500
     ) as blocker:
         populated_browser._tree.doubleClicked.emit(_px(populated_browser, sin_item))
-    assert blocker.args == [[(0, 1)]]
-
-
-@pytest.mark.requirement("REQ-BROWSER-011")
-def test_double_click_group_does_not_emit(
-    populated_browser: SignalBrowser, qtbot: QtBot
-) -> None:
-    with qtbot.assertNotEmitted(populated_browser.add_signals_requested):
-        populated_browser._tree.doubleClicked.emit(
-            _px(populated_browser, populated_browser._model.item(0))
-        )
+    assert blocker.args == [[(0, 0, 1)]]
 
 
 @pytest.mark.requirement("REQ-BROWSER-031")
 def test_speed_channel_correct_indices(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
-    speed_item = populated_browser._model.item(1).child(0)
+    speed_item = _item_by_text(populated_browser, "speed [km/h]")
     populated_browser._tree.setCurrentIndex(_px(populated_browser, speed_item))
     with qtbot.waitSignal(
         populated_browser.add_signals_requested, timeout=500
     ) as blocker:
         populated_browser._add_btn.click()
-    assert blocker.args == [[(1, 0)]]
+    assert blocker.args == [[(0, 1, 0)]]
 
 
 # ---------------------------------------------------------------------------
@@ -286,24 +296,15 @@ def test_add_button_emits_all_selected_channels(
     populated_browser: SignalBrowser, qtbot: QtBot
 ) -> None:
     sm = populated_browser._tree.selectionModel()
-    sin_idx = _px(populated_browser, populated_browser._model.item(0).child(1))
-    cos_idx = _px(populated_browser, populated_browser._model.item(0).child(2))
+    sin_idx = _px(populated_browser, _item_by_text(populated_browser, "sin [V]"))
+    cos_idx = _px(populated_browser, _item_by_text(populated_browser, "cos [A]"))
     sm.select(sin_idx, QItemSelectionModel.SelectionFlag.ClearAndSelect)
     sm.select(cos_idx, QItemSelectionModel.SelectionFlag.Select)
     with qtbot.waitSignal(populated_browser.add_signals_requested, timeout=500) as blocker:
         populated_browser._add_btn.click()
     locations = blocker.args[0]
-    assert (0, 1) in locations
-    assert (0, 2) in locations
-
-
-@pytest.mark.requirement("REQ-BROWSER-011")
-def test_selected_locations_excludes_group_items(
-    populated_browser: SignalBrowser,
-) -> None:
-    group_item = populated_browser._model.item(0)
-    populated_browser._tree.setCurrentIndex(_px(populated_browser, group_item))
-    assert populated_browser._selected_locations() == []
+    assert (0, 0, 1) in locations
+    assert (0, 0, 2) in locations
 
 
 @pytest.mark.requirement("REQ-BROWSER-030")
@@ -311,53 +312,35 @@ def test_selected_locations_returns_multiple(
     populated_browser: SignalBrowser,
 ) -> None:
     sm = populated_browser._tree.selectionModel()
-    sin_idx = _px(populated_browser, populated_browser._model.item(0).child(1))
-    cos_idx = _px(populated_browser, populated_browser._model.item(0).child(2))
+    sin_idx = _px(populated_browser, _item_by_text(populated_browser, "sin [V]"))
+    cos_idx = _px(populated_browser, _item_by_text(populated_browser, "cos [A]"))
     sm.select(sin_idx, QItemSelectionModel.SelectionFlag.ClearAndSelect)
     sm.select(cos_idx, QItemSelectionModel.SelectionFlag.Select)
     locs = populated_browser._selected_locations()
     assert len(locs) == 2
-    assert (0, 1) in locs
-    assert (0, 2) in locs
+    assert (0, 0, 1) in locs
+    assert (0, 0, 2) in locs
 
 
 # ---------------------------------------------------------------------------
-# Filter behaviour
+# Filter behaviour (text filter, unaffected in mechanics by #103)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-BROWSER-024")
 def test_filter_is_debounced(populated_browser: SignalBrowser, qtbot) -> None:
     # Typing does not filter immediately...
     populated_browser._filter_edit.setText("sin")
-    assert populated_browser._proxy.rowCount() == 2
+    assert populated_browser._proxy.rowCount() == 5
     # ...but does after the debounce delay elapses.
     qtbot.wait(populated_browser._filter_timer.interval() + 50)
     assert populated_browser._proxy.rowCount() == 1
 
 
 @pytest.mark.requirement("REQ-BROWSER-020")
-def test_filter_hides_non_matching_groups(populated_browser: SignalBrowser) -> None:
-    # "sin" only appears in Group 0 → Group 1 should be hidden
+def test_filter_matches_single_channel(populated_browser: SignalBrowser) -> None:
     populated_browser._filter_edit.setText("sin")
     populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 1
-
-
-@pytest.mark.requirement("REQ-BROWSER-023")
-def test_filter_shows_parent_group_when_child_matches(
-    populated_browser: SignalBrowser,
-) -> None:
-    populated_browser._filter_edit.setText("sin")
-    group0_proxy = populated_browser._proxy.index(0, 0)
-    assert populated_browser._proxy.data(group0_proxy) == "Group 0"
-
-
-@pytest.mark.requirement("REQ-BROWSER-020")
-def test_filter_shows_only_matching_children(populated_browser: SignalBrowser) -> None:
-    populated_browser._filter_edit.setText("sin")
-    populated_browser._apply_filter()
-    group0_proxy = populated_browser._proxy.index(0, 0)
-    assert populated_browser._proxy.rowCount(group0_proxy) == 1
 
 
 @pytest.mark.requirement("REQ-BROWSER-021")
@@ -373,7 +356,7 @@ def test_filter_empty_shows_all(populated_browser: SignalBrowser) -> None:
     populated_browser._apply_filter()
     populated_browser._filter_edit.clear()
     populated_browser._apply_filter()
-    assert populated_browser._proxy.rowCount() == 2
+    assert populated_browser._proxy.rowCount() == 5
 
 
 @pytest.mark.requirement("REQ-BROWSER-020")
@@ -385,12 +368,9 @@ def test_filter_no_match_hides_all(populated_browser: SignalBrowser) -> None:
 
 @pytest.mark.requirement("REQ-BROWSER-022")
 def test_filter_matches_partial_name(populated_browser: SignalBrowser) -> None:
-    # "speed" is in Group 1; "spee" should match it
     populated_browser._filter_edit.setText("spee")
     populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 1
-    group1_proxy = populated_browser._proxy.index(0, 0)
-    assert "Group 1" in populated_browser._proxy.data(group1_proxy)
 
 
 # ---------------------------------------------------------------------------
@@ -399,36 +379,33 @@ def test_filter_matches_partial_name(populated_browser: SignalBrowser) -> None:
 
 @pytest.mark.requirement("REQ-BROWSER-022")
 def test_filter_wildcard_star_prefix(populated_browser: SignalBrowser) -> None:
-    # "*flag" should match "raw_flag" (ends with "flag")
     populated_browser._filter_edit.setText("*flag")
     populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 1
-    assert "Group 1" in populated_browser._proxy.data(populated_browser._proxy.index(0, 0))
 
 
 @pytest.mark.requirement("REQ-BROWSER-022")
 def test_filter_wildcard_star_suffix(populated_browser: SignalBrowser) -> None:
-    # "raw*" should match "raw_flag" (starts with "raw")
     populated_browser._filter_edit.setText("raw*")
     populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 1
 
 
 @pytest.mark.requirement("REQ-BROWSER-022")
-def test_filter_wildcard_star_matches_multiple_groups(populated_browser: SignalBrowser) -> None:
-    # "s*" matches "sin [V]" (Group 0) and "speed [km/h]" (Group 1)
+def test_filter_wildcard_star_matches_multiple(populated_browser: SignalBrowser) -> None:
+    # Unanchored substring match (pre-existing behavior, unchanged by #103):
+    # "s*" matches any text containing "s" — "time [s]", "sin [V]",
+    # "cos [A]", and "speed [km/h]" (not "raw_flag", no "s").
     populated_browser._filter_edit.setText("s*")
     populated_browser._apply_filter()
-    assert populated_browser._proxy.rowCount() == 2
+    assert populated_browser._proxy.rowCount() == 4
 
 
 @pytest.mark.requirement("REQ-BROWSER-022")
 def test_filter_wildcard_question_mark(populated_browser: SignalBrowser) -> None:
-    # "s?n*" matches "sin [V]" (s-i-n-…) but not "speed [km/h]" (third char is 'e', not 'n')
     populated_browser._filter_edit.setText("s?n*")
     populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 1
-    assert "Group 0" in populated_browser._proxy.data(populated_browser._proxy.index(0, 0))
 
 
 @pytest.mark.requirement("REQ-BROWSER-022")
@@ -448,85 +425,153 @@ def test_filter_wildcard_case_insensitive(populated_browser: SignalBrowser) -> N
 
 @pytest.mark.requirement("REQ-BROWSER-022")
 def test_filter_plain_text_still_does_substring_match(populated_browser: SignalBrowser) -> None:
-    # Without wildcards, "raw" still matches "raw_flag" as a substring
     populated_browser._filter_edit.setText("raw")
     populated_browser._apply_filter()
     assert populated_browser._proxy.rowCount() == 1
 
 
 # ---------------------------------------------------------------------------
-# Multiple Measurements (#101, REQ-BROWSER-050/051/052)
+# Multiple Measurements (#103, REQ-BROWSER-010/013/050-054)
 # ---------------------------------------------------------------------------
 
 @pytest.mark.requirement("REQ-BROWSER-050")
-def test_selector_hidden_with_one_measurement(browser: SignalBrowser) -> None:
-    browser.set_measurements(["run1"])
-    assert browser._measurement_combo.isHidden() is True
+def test_no_prefix_and_no_filter_with_one_measurement(populated_browser: SignalBrowser) -> None:
+    texts = [populated_browser._model.item(r).text() for r in range(populated_browser._model.rowCount())]
+    assert all(not t.startswith("[") for t in texts)
+    assert populated_browser._measurement_filter_combo.isHidden() is True
 
 
 @pytest.mark.requirement("REQ-BROWSER-050")
-def test_selector_hidden_with_zero_measurements(browser: SignalBrowser) -> None:
-    browser.set_measurements([])
-    assert browser._measurement_combo.isHidden() is True
+def test_two_measurements_prefixes_every_row(
+    browser: SignalBrowser, sample_groups, other_groups
+) -> None:
+    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    texts = [browser._model.item(r).text() for r in range(browser._model.rowCount())]
+    assert "[M1] sin [V]" in texts
+    assert "[M2] sin [V]" in texts
+    assert "[M2] torque [Nm]" in texts
 
 
 @pytest.mark.requirement("REQ-BROWSER-050")
-def test_selector_shown_with_multiple_measurements(browser: SignalBrowser) -> None:
-    browser.set_measurements(["run1", "run2"])
-    assert browser._measurement_combo.isHidden() is False
-    assert browser._measurement_combo.count() == 2
-    assert browser._measurement_combo.itemText(0) == "run1"
-    assert browser._measurement_combo.itemText(1) == "run2"
-
-
-def test_current_measurement_index_defaults_to_zero(browser: SignalBrowser) -> None:
-    assert browser.current_measurement_index() == 0
+def test_measurement_filter_combo_shown_only_with_multiple(
+    browser: SignalBrowser, sample_groups, other_groups
+) -> None:
+    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    assert browser._measurement_filter_combo.isHidden() is False
+    assert browser._measurement_filter_combo.count() == 3  # "All", M1, M2
+    assert browser._measurement_filter_combo.itemText(0) == "All"
+    assert browser._measurement_filter_combo.itemText(1) == "M1"
+    assert browser._measurement_filter_combo.itemText(2) == "M2"
 
 
 @pytest.mark.requirement("REQ-BROWSER-051")
-def test_switching_selector_emits_measurement_selected(
-    browser: SignalBrowser, qtbot: QtBot
+def test_sort_groups_identically_named_channels_from_different_measurements(
+    browser: SignalBrowser, sample_groups, other_groups
 ) -> None:
-    browser.set_measurements(["run1", "run2"])
-    with qtbot.waitSignal(browser.measurement_selected) as blocker:
-        browser._measurement_combo.setCurrentIndex(1)
-    assert blocker.args == [1]
-    assert browser.current_measurement_index() == 1
-
-
-@pytest.mark.requirement("REQ-BROWSER-051")
-def test_switching_selector_clears_active_filter(
-    browser: SignalBrowser, sample_groups, qtbot: QtBot
-) -> None:
-    browser.set_measurements(["run1", "run2"])
-    browser.populate(sample_groups)
-    browser._filter_edit.setText("sin")
-    browser._apply_filter()
-    assert browser._proxy.rowCount() == 1
-
-    browser._measurement_combo.setCurrentIndex(1)
-    browser.populate(sample_groups)  # caller's responsibility, mirroring _on_measurement_selected
-
-    assert browser._filter_edit.text() == ""
-
-
-def test_clear_hides_selector_and_resets_index(browser: SignalBrowser) -> None:
-    browser.set_measurements(["run1", "run2"])
-    browser._measurement_combo.setCurrentIndex(1)
-    browser.clear()
-    assert browser._measurement_combo.isHidden() is True
-    assert browser.current_measurement_index() == 0
+    """Sorting is keyed on the bare channel name, not the prefix, so
+    "[M1] sin" and "[M2] sin" land adjacent despite the prefix ordering."""
+    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    texts = [_row_text(browser, r) for r in range(browser._proxy.rowCount())]
+    sin_positions = [i for i, t in enumerate(texts) if "sin" in t]
+    assert sin_positions == [sin_positions[0], sin_positions[0] + 1]
+    assert texts[sin_positions[0]] == "[M1] sin [V]"
+    assert texts[sin_positions[0] + 1] == "[M2] sin [V]"
 
 
 @pytest.mark.requirement("REQ-BROWSER-052")
-def test_add_signals_requested_unaffected_by_selector_state(
-    populated_browser: SignalBrowser, qtbot: QtBot
+def test_measurement_filter_narrows_to_one_measurement(
+    browser: SignalBrowser, sample_groups, other_groups
 ) -> None:
-    """add_signals_requested itself still carries only (group_index,
-    channel_index) pairs — which measurement they belong to is read
-    separately via current_measurement_index() by the caller."""
-    populated_browser.set_measurements(["run1", "run2"])
-    time_item = populated_browser._model.item(0).child(0)
-    with qtbot.waitSignal(populated_browser.add_signals_requested, timeout=500) as blocker:
-        populated_browser._tree.doubleClicked.emit(_px(populated_browser, time_item))
-    assert blocker.args == [[(0, 0)]]
+    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser._measurement_filter_combo.setCurrentIndex(2)  # M2
+    texts = [_row_text(browser, r) for r in range(browser._proxy.rowCount())]
+    assert texts == ["[M2] sin [V]", "[M2] torque [Nm]"]
+
+
+@pytest.mark.requirement("REQ-BROWSER-052")
+def test_measurement_filter_defaults_to_all(
+    browser: SignalBrowser, sample_groups, other_groups
+) -> None:
+    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    assert browser._measurement_filter_combo.currentIndex() == 0
+    assert browser._proxy.rowCount() == 7  # 5 + 2
+
+
+@pytest.mark.requirement("REQ-BROWSER-053")
+def test_text_filter_and_measurement_filter_compose(
+    browser: SignalBrowser, sample_groups, other_groups
+) -> None:
+    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser._measurement_filter_combo.setCurrentIndex(1)  # M1 only
+    browser._filter_edit.setText("sin")
+    browser._apply_filter()
+    texts = [_row_text(browser, r) for r in range(browser._proxy.rowCount())]
+    assert texts == ["[M1] sin [V]"]
+
+
+@pytest.mark.requirement("REQ-BROWSER-052")
+def test_repopulate_preserves_measurement_filter_by_label(
+    browser: SignalBrowser, sample_groups, other_groups
+) -> None:
+    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser._measurement_filter_combo.setCurrentIndex(2)  # M2
+
+    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+
+    assert browser._measurement_filter_combo.currentIndex() == 2
+    texts = [_row_text(browser, r) for r in range(browser._proxy.rowCount())]
+    assert texts == ["[M2] sin [V]", "[M2] torque [Nm]"]
+
+
+@pytest.mark.requirement("REQ-BROWSER-052")
+def test_repopulate_resets_filter_to_all_when_filtered_measurement_gone(
+    browser: SignalBrowser, sample_groups, other_groups
+) -> None:
+    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser._measurement_filter_combo.setCurrentIndex(2)  # M2
+
+    # M2 closed — only M1 remains.
+    browser.populate_all([("M1", sample_groups)])
+
+    assert browser._measurement_filter_combo.currentIndex() == 0
+    assert browser._proxy.rowCount() == 5
+
+
+def test_clear_hides_measurement_filter(
+    browser: SignalBrowser, sample_groups, other_groups
+) -> None:
+    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser.clear()
+    assert browser._measurement_filter_combo.isHidden() is True
+
+
+@pytest.mark.requirement("REQ-BROWSER-054")
+def test_add_signals_requested_carries_each_rows_own_measurement(
+    browser: SignalBrowser, sample_groups, other_groups, qtbot: QtBot
+) -> None:
+    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    torque_item = _item_by_text(browser, "[M2] torque [Nm]")
+    with qtbot.waitSignal(browser.add_signals_requested, timeout=500) as blocker:
+        browser._tree.doubleClicked.emit(_px(browser, torque_item))
+    assert blocker.args == [[(1, 0, 1)]]
+
+
+@pytest.mark.requirement("REQ-BROWSER-054")
+def test_add_signals_requested_can_span_measurements(
+    browser: SignalBrowser, sample_groups, other_groups, qtbot: QtBot
+) -> None:
+    """A single multi-selection can legally span rows from different
+    measurements (#103) — confirmed with the user for the mixed-measurement
+    drag case; the same underlying _selected_locations() feeds both drag
+    and the Add Signal button."""
+    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    sm = browser._tree.selectionModel()
+    m1_sin = _px(browser, _item_by_text(browser, "[M1] sin [V]"))
+    m2_torque = _px(browser, _item_by_text(browser, "[M2] torque [Nm]"))
+    sm.select(m1_sin, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+    sm.select(m2_torque, QItemSelectionModel.SelectionFlag.Select)
+    with qtbot.waitSignal(browser.add_signals_requested, timeout=500) as blocker:
+        browser._add_btn.click()
+    locations = blocker.args[0]
+    assert (0, 0, 1) in locations
+    assert (1, 0, 1) in locations

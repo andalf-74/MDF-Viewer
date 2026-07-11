@@ -747,36 +747,29 @@ def test_icon_suffix_light_or_unknown_scheme_uses_light_icons(
 def test_add_signal_connects_after_set_controller(
     wired: MainWindow, mock_controller: MagicMock, qtbot: QtBot
 ) -> None:
-    wired.signal_browser.add_signals_requested.emit([(2, 5)])
+    wired.signal_browser.add_signals_requested.emit([(0, 2, 5)])
     mock_controller.add_signal.assert_called_once_with(
         2, 5, measurement=mock_controller.measurement_at.return_value
     )
+
+
+@pytest.mark.requirement("REQ-BROWSER-031")
+def test_add_signals_mixed_measurements_resolves_each_own_measurement(
+    wired: MainWindow, mock_controller: MagicMock, qtbot: QtBot
+) -> None:
+    """A single add-signal request can span multiple measurements (#103) —
+    each item resolves its own measurement rather than sharing one."""
+    wired.signal_browser.add_signals_requested.emit([(0, 2, 5), (1, 3, 0)])
+    mock_controller.measurement_at.assert_any_call(0)
+    mock_controller.measurement_at.assert_any_call(1)
+    assert mock_controller.add_signal.call_count == 2
 
 
 def test_add_signal_not_called_before_set_controller(
     window: MainWindow, qtbot: QtBot
 ) -> None:
     # Emit before set_controller — must not crash
-    window.signal_browser.add_signals_requested.emit([(0, 1)])
-
-
-@pytest.mark.requirement("REQ-BROWSER-051")
-def test_measurement_selected_repopulates_browser(
-    wired: MainWindow, mock_controller: MagicMock
-) -> None:
-    groups = [MagicMock()]
-    mock_controller.channel_tree_for_measurement.return_value = groups
-    with patch.object(wired.signal_browser, "populate") as mock_populate:
-        wired.signal_browser.measurement_selected.emit(1)
-    mock_controller.channel_tree_for_measurement.assert_called_once_with(1)
-    mock_populate.assert_called_once_with(groups)
-
-
-def test_measurement_selected_not_called_before_set_controller(
-    window: MainWindow, qtbot: QtBot
-) -> None:
-    # Emit before set_controller — must not crash
-    window.signal_browser.measurement_selected.emit(0)
+    window.signal_browser.add_signals_requested.emit([(0, 0, 1)])
 
 
 # ---------------------------------------------------------------------------
@@ -788,7 +781,7 @@ def test_signals_dropped_on_stripe_calls_add_signal_with_stripe(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
     stripe = MagicMock()
-    wired.plot_area.signals_dropped_on_stripe.emit([(2, 5)], stripe, 0)
+    wired.plot_area.signals_dropped_on_stripe.emit([(0, 2, 5)], stripe)
     mock_controller.add_signal.assert_called_once_with(
         2, 5, stripe=stripe, measurement=mock_controller.measurement_at.return_value
     )
@@ -799,19 +792,31 @@ def test_ast_segment_drop_calls_add_signal_with_that_segments_stripe(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
     stripe2 = wired.plot_area.create_stripe()
-    wired.active_signals_table.signals_dropped_on_stripe.emit([(2, 5)], stripe2, 0)
+    wired.active_signals_table.signals_dropped_on_stripe.emit([(0, 2, 5)], stripe2)
     mock_controller.add_signal.assert_called_once_with(
         2, 5, stripe=stripe2, measurement=mock_controller.measurement_at.return_value
     )
 
 
-@pytest.mark.requirement("REQ-FILE-031")
-def test_signals_dropped_on_stripe_resolves_measurement_index(
+@pytest.mark.requirement("REQ-BROWSER-031")
+def test_signals_dropped_on_stripe_resolves_each_items_own_measurement(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
     stripe = MagicMock()
-    wired.plot_area.signals_dropped_on_stripe.emit([(2, 5)], stripe, 3)
+    wired.plot_area.signals_dropped_on_stripe.emit([(3, 2, 5)], stripe)
     mock_controller.measurement_at.assert_called_once_with(3)
+
+
+@pytest.mark.requirement("REQ-BROWSER-031")
+def test_signals_dropped_on_stripe_mixed_measurements_resolves_each(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """A single drop can span rows from different measurements (#103)."""
+    stripe = MagicMock()
+    wired.plot_area.signals_dropped_on_stripe.emit([(0, 2, 5), (1, 3, 0)], stripe)
+    mock_controller.measurement_at.assert_any_call(0)
+    mock_controller.measurement_at.assert_any_call(1)
+    assert mock_controller.add_signal.call_count == 2
 
 
 def test_set_controller_wires_stripe_providers(
@@ -1082,7 +1087,7 @@ def test_add_signal_error_shows_message_box(
 ) -> None:
     mock_controller.add_signal.side_effect = MdfLoadError("non-numeric channel")
     with patch("mdf_viewer.view.main_window.QMessageBox.critical") as mock_crit:
-        wired.signal_browser.add_signals_requested.emit([(0, 1)])
+        wired.signal_browser.add_signals_requested.emit([(0, 0, 1)])
     mock_crit.assert_called_once()
     assert "non-numeric channel" in mock_crit.call_args[0][2]
 
@@ -1165,6 +1170,87 @@ def test_open_recent_error_shows_message_box(
 
 
 # ---------------------------------------------------------------------------
+# Close Measurement menu (#103, REQ-FILE-029)
+# ---------------------------------------------------------------------------
+
+def test_close_measurement_menu_disabled_without_controller(window: MainWindow) -> None:
+    window._file_menu.aboutToShow.emit()
+    assert window._close_measurement_menu.isEnabled() is False
+    assert window._close_measurement_menu.actions() == []
+
+
+def test_close_measurement_menu_disabled_with_no_measurements(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.measurements = []
+    wired._file_menu.aboutToShow.emit()
+    assert wired._close_measurement_menu.isEnabled() is False
+
+
+@pytest.mark.requirement("REQ-FILE-029")
+def test_close_measurement_menu_lists_every_measurement_by_short_name(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    m1, m2 = MagicMock(label="M1"), MagicMock(label="M2")
+    mock_controller.measurements = [m1, m2]
+    wired._file_menu.aboutToShow.emit()
+    assert wired._close_measurement_menu.isEnabled() is True
+    actions = wired._close_measurement_menu.actions()
+    assert [a.text() for a in actions] == ["M1", "M2"]
+
+
+@pytest.mark.requirement("REQ-FILE-029")
+def test_close_measurement_menu_rebuilt_on_each_show(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.measurements = [MagicMock(label="M1")]
+    wired._file_menu.aboutToShow.emit()
+    mock_controller.measurements = [MagicMock(label="M1"), MagicMock(label="M2")]
+    wired._file_menu.aboutToShow.emit()
+    assert len(wired._close_measurement_menu.actions()) == 2
+
+
+@pytest.mark.requirement("REQ-FILE-028")
+def test_close_measurement_no_confirmation_without_active_signals(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    m1 = MagicMock(label="M1")
+    mock_controller.measurements = [m1]
+    mock_controller.measurement_has_signals.return_value = False
+    wired._file_menu.aboutToShow.emit()
+    wired._close_measurement_menu.actions()[0].trigger()
+    mock_controller.close_measurement.assert_called_once_with(m1)
+
+
+@pytest.mark.requirement("REQ-FILE-028")
+def test_close_measurement_confirmed_closes(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    m1 = MagicMock(label="M1")
+    mock_controller.measurements = [m1]
+    mock_controller.measurement_has_signals.return_value = True
+    wired._file_menu.aboutToShow.emit()
+    with patch("mdf_viewer.view.main_window.QMessageBox.question") as mock_q:
+        mock_q.return_value = QMessageBox.StandardButton.Yes
+        wired._close_measurement_menu.actions()[0].trigger()
+    mock_controller.close_measurement.assert_called_once_with(m1)
+
+
+@pytest.mark.requirement("REQ-FILE-028")
+def test_close_measurement_cancelled_does_not_close(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    m1 = MagicMock(label="M1")
+    mock_controller.measurements = [m1]
+    mock_controller.measurement_has_signals.return_value = True
+    wired._file_menu.aboutToShow.emit()
+    with patch("mdf_viewer.view.main_window.QMessageBox.question") as mock_q:
+        mock_q.return_value = QMessageBox.StandardButton.Cancel
+        wired._close_measurement_menu.actions()[0].trigger()
+    mock_controller.close_measurement.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Status bar
 # ---------------------------------------------------------------------------
 
@@ -1186,11 +1272,22 @@ def test_on_add_signals_calls_add_signal_for_each(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
     mock_controller.add_signal.return_value = True
-    wired._on_add_signals([(0, 1), (1, 2)])
+    wired._on_add_signals([(0, 0, 1), (0, 1, 2)])
     assert mock_controller.add_signal.call_count == 2
     measurement = mock_controller.measurement_at.return_value
     mock_controller.add_signal.assert_any_call(0, 1, measurement=measurement)
     mock_controller.add_signal.assert_any_call(1, 2, measurement=measurement)
+
+
+@pytest.mark.requirement("REQ-BROWSER-031")
+def test_on_add_signals_mixed_measurements_resolves_each_own_measurement(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """A single request can span multiple measurements (#103)."""
+    mock_controller.add_signal.return_value = True
+    wired._on_add_signals([(0, 0, 1), (2, 3, 0)])
+    mock_controller.measurement_at.assert_any_call(0)
+    mock_controller.measurement_at.assert_any_call(2)
 
 
 @pytest.mark.requirement("REQ-BROWSER-040")
@@ -1198,7 +1295,7 @@ def test_on_add_signals_shows_status_when_skipped(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
     mock_controller.add_signal.return_value = False
-    wired._on_add_signals([(0, 1), (0, 2)])
+    wired._on_add_signals([(0, 0, 1), (0, 0, 2)])
     msg = wired.statusBar().currentMessage()
     assert "2 signals already active" in msg
 
@@ -1208,7 +1305,7 @@ def test_on_add_signals_skipped_singular(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
     mock_controller.add_signal.return_value = False
-    wired._on_add_signals([(0, 1)])
+    wired._on_add_signals([(0, 0, 1)])
     msg = wired.statusBar().currentMessage()
     assert "1 signal already active" in msg
 
@@ -1218,7 +1315,7 @@ def test_on_add_signals_no_status_when_none_skipped(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
     mock_controller.add_signal.return_value = True
-    wired._on_add_signals([(0, 1)])
+    wired._on_add_signals([(0, 0, 1)])
     assert wired.statusBar().currentMessage() == ""
 
 

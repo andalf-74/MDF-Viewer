@@ -10,24 +10,25 @@ from mdf_viewer.model.measurement import MeasurementInfo
 
 
 @pytest.mark.requirement("REQ-FILE-027")
-def test_make_label_uses_file_stem() -> None:
-    assert make_label("C:/data/run1.mf4", []) == "run1"
+def test_make_label_uses_load_order_position() -> None:
+    assert make_label(0, []) == "M1"
+    assert make_label(1, []) == "M2"
 
 
 @pytest.mark.requirement("REQ-FILE-027")
 def test_make_label_disambiguates_collision() -> None:
-    assert make_label("C:/data/run1.mf4", ["run1"]) == "run1 (2)"
+    assert make_label(0, ["M1"]) == "M1 (2)"
 
 
 @pytest.mark.requirement("REQ-FILE-027")
 def test_make_label_disambiguates_multiple_collisions() -> None:
-    label = make_label("run1.mf4", ["run1", "run1 (2)", "run1 (3)"])
-    assert label == "run1 (4)"
+    label = make_label(0, ["M1", "M1 (2)", "M1 (3)"])
+    assert label == "M1 (4)"
 
 
 @pytest.mark.requirement("REQ-FILE-027")
 def test_make_label_ignores_unrelated_existing_labels() -> None:
-    assert make_label("run1.mf4", ["other", "another"]) == "run1"
+    assert make_label(0, ["other", "another"]) == "M1"
 
 
 def test_offset_defaults_to_zero() -> None:

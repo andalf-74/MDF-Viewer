@@ -45,10 +45,11 @@ class PlotStripesArea(QWidget):
     file_dropped = pyqtSignal(object)
     range_changed = pyqtSignal()
     signal_clicked = pyqtSignal(object)
-    # list of (group_index, channel_index), target PlotStripe, and which
-    # loaded measurement (#101) they belong to — a signal drag from the
-    # Signal Browser was dropped onto a specific stripe.
-    signals_dropped_on_stripe = pyqtSignal(list, object, int)
+    # list of (measurement_index, group_index, channel_index) triples (#103)
+    # and the target PlotStripe — a signal drag from the Signal Browser was
+    # dropped onto a specific stripe; a single drag can span rows from
+    # different loaded measurements, so each item carries its own index.
+    signals_dropped_on_stripe = pyqtSignal(list, object)
     # set of id(ActiveSignal), and target PlotStripe — an already-active
     # signal was dragged from the Active Signals Table and dropped onto a
     # stripe's plot area (#116).
@@ -331,7 +332,7 @@ class PlotStripesArea(QWidget):
         stripe.range_changed.connect(self.range_changed)
         stripe.signal_clicked.connect(lambda active, s=stripe: self._on_signal_clicked(s, active))
         stripe.signals_dropped.connect(
-            lambda locs, midx, s=stripe: self.signals_dropped_on_stripe.emit(locs, s, midx)
+            lambda locs, s=stripe: self.signals_dropped_on_stripe.emit(locs, s)
         )
         stripe.active_signals_dropped.connect(
             lambda ids, s=stripe: self.active_signals_dropped_on_stripe.emit(ids, s)

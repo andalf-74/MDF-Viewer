@@ -39,6 +39,7 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -130,7 +131,10 @@ class MainWindow(QMainWindow):
         self._controller = controller
         controller.set_cursor_mode_callback(self._on_cursor_mode_changed)
         self.signal_browser.add_signals_requested.connect(self._on_add_signals)
-        self.signal_browser.measurement_selected.connect(self._on_measurement_selected)
+        self.measurement_info_box.primary_change_requested.connect(
+            controller.set_primary_measurement
+        )
+        self.measurement_info_box.rename_requested.connect(controller.rename_measurement)
         self._wire_tab_view(self.plot_area, self.active_signals_table)
         self.signal_info_box.display_mode_requested.connect(
             controller.on_display_mode_requested
@@ -407,6 +411,8 @@ class MainWindow(QMainWindow):
         self._file_menu.addAction(self._load_action)
         self._file_menu.addAction(self._save_config_action)
         self._file_menu.addAction(self._save_config_as_action)
+        self._close_measurement_menu = QMenu("Close Measurement", self)
+        self._file_menu.addMenu(self._close_measurement_menu)
         self._file_menu.addSeparator()
         self._exit_action = QAction("Exit", self)
         self._exit_action.setShortcut(QKeySequence("Ctrl+Q"))
@@ -415,6 +421,7 @@ class MainWindow(QMainWindow):
         self._file_menu.addSeparator()
         self._file_menu.addAction(self._exit_action)
         self._file_menu.aboutToShow.connect(self._rebuild_recent_files)
+        self._file_menu.aboutToShow.connect(self._rebuild_close_measurement_menu)
 
         self._edit_menu = self.menuBar().addMenu("&Edit")
         self._edit_menu.addAction(self._new_tab_action)
@@ -853,18 +860,19 @@ class MainWindow(QMainWindow):
     # Slots
     # ------------------------------------------------------------------
 
-    def _on_measurement_selected(self, index: int) -> None:
-        """The Signal Browser's measurement selector changed (#101, REQ-BROWSER-051)."""
-        if self._controller is None:
-            return
-        self.signal_browser.populate(self._controller.channel_tree_for_measurement(index))
-
     def _on_add_signals(self, locations: list) -> None:
+        """A Signal Browser add-signal request — double-click or "Add Signal"
+        button (#103, REQ-BROWSER-031). *locations* is a list of
+        (measurement_index, group_index, channel_index) triples; a single
+        request can span multiple measurements since the browser is now one
+        unified cross-measurement list, so each item resolves its own
+        measurement rather than sharing one for the whole batch.
+        """
         if self._controller is None:
             return
-        measurement = self._controller.measurement_at(self.signal_browser.current_measurement_index())
         skipped = 0
-        for gi, ci in locations:
+        for mi, gi, ci in locations:
+            measurement = self._controller.measurement_at(mi)
             try:
                 if not self._controller.add_signal(gi, ci, measurement=measurement):
                     skipped += 1
@@ -874,12 +882,19 @@ class MainWindow(QMainWindow):
             noun = "signal" if skipped == 1 else "signals"
             self.show_status(f"{skipped} {noun} already active, skipped.")
 
-    def _on_add_signals_to_stripe(self, locations: list, stripe, measurement_index: int = 0) -> None:
+    def _on_add_signals_to_stripe(self, locations: list, stripe) -> None:
+        """A drag-and-drop of one or more channels from the Signal Browser
+        onto *stripe* (#103). *locations* is a list of (measurement_index,
+        group_index, channel_index) triples — a single drag gesture can
+        legally span rows from different measurements, so each item
+        resolves its own measurement rather than sharing one for the whole
+        drop.
+        """
         if self._controller is None:
             return
-        measurement = self._controller.measurement_at(measurement_index)
         skipped = 0
-        for gi, ci in locations:
+        for mi, gi, ci in locations:
+            measurement = self._controller.measurement_at(mi)
             try:
                 if not self._controller.add_signal(gi, ci, stripe=stripe, measurement=measurement):
                     skipped += 1
@@ -1582,6 +1597,39 @@ class MainWindow(QMainWindow):
             self._file_menu.insertAction(self._preferences_action, action)
             self._recent_actions.append(action)
         self._recent_sep = self._file_menu.insertSeparator(self._preferences_action)
+
+    def _rebuild_close_measurement_menu(self) -> None:
+        """Rebuild the File ▸ Close Measurement submenu (REQ-FILE-029).
+
+        Rebuilt every time the File menu opens, the same way
+        _rebuild_recent_files() is, so a rename (#103) is always reflected
+        and a just-closed measurement never lingers as a stale entry.
+        """
+        self._close_measurement_menu.clear()
+        measurements = [] if self._controller is None else self._controller.measurements
+        self._close_measurement_menu.setEnabled(bool(measurements))
+        for measurement in measurements:
+            action = self._close_measurement_menu.addAction(measurement.label)
+            action.triggered.connect(
+                lambda checked=False, m=measurement: self._on_close_measurement_requested(m)
+            )
+
+    def _on_close_measurement_requested(self, measurement) -> None:
+        """Close *measurement*, warning first if it still has active signals
+        (REQ-FILE-028), mirroring the tab/stripe-close confirmation pattern."""
+        if self._controller is None:
+            return
+        if self._controller.measurement_has_signals(measurement):
+            reply = QMessageBox.question(
+                self,
+                "Close Measurement",
+                f'"{measurement.label}" still has signals in it. Close anyway?',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+        self._controller.close_measurement(measurement)
 
     def _on_open_recent(self, path: Path) -> None:
         if Path(path).suffix.lower() == ".mvc":

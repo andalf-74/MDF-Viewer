@@ -123,7 +123,9 @@ All notable changes to MDF-Viewer are documented in this file.
     a measurement has been panned.
   - The Signal Browser gains a measurement selector above the channel
     tree once more than one measurement is loaded, so signals from any
-    loaded measurement can be added to any stripe or tab.
+    loaded measurement can be added to any stripe or tab (superseded by
+    #103's unified flat list before release, within this same
+    unreleased cycle).
   - Once two or more measurements are loaded, every active signal's
     displayed name (Active Signals Table, Signal Info Box) is prefixed
     with its measurement's label so identically-named channels from
@@ -151,6 +153,38 @@ All notable changes to MDF-Viewer are documented in this file.
   `.mvc` yet (multi-measurement session support is #106).
   - `docs/requirements/plotting.md` gained a "Measurement Synchronization"
     section (REQ-PLOT-310 through 316).
+- Signal Browser multi-measurement unification (#103): once two or more
+  measurements are loaded, the Signal Browser is now a single flat,
+  alphabetically-sorted list of every loaded measurement's channels,
+  replacing the previous one-measurement-at-a-time selector.
+  - Each channel is prefixed with its measurement's short name (e.g.
+    `[M1] Drehzahl`, `[M2] Drehzahl`) once 2+ measurements are loaded;
+    sorting is keyed on the channel name itself, so identically-named
+    channels from different measurements land next to each other. A
+    channel's channel-group is now shown as a hover tooltip instead of
+    organizing the list into a tree.
+  - A measurement filter above the list narrows it to "All" or one
+    specific measurement, composing with the existing text filter rather
+    than overriding it. A selection (or a single drag) can span channels
+    from different measurements at once.
+  - Each loaded measurement now has an editable short name (defaults
+    "M1", "M2", ... by load order; rejects a name already in use by
+    another loaded measurement) instead of a fixed file-derived label,
+    editable from the Measurement Info Box.
+  - The Measurement Info Box is now always tabbed, one tab per loaded
+    measurement (even with only one loaded), each with the short-name
+    editor and a new "Primary Measurement" checkbox — exactly one
+    measurement is Primary at all times. The Primary measurement's X-axis
+    row is always drawn topmost, and is the reference measurement for
+    Sync Measurements; closing the Primary measurement reassigns it to
+    the first-loaded of whatever remains automatically.
+  - File ▸ Close Measurement is a new submenu listing every loaded
+    measurement by its short name; selecting one closes it, warning first
+    if it still has active signals.
+  - `docs/requirements/signal-browser.md`, `file-handling.md`, and
+    `plotting.md` gained/amended requirements to describe the flat list,
+    short-name editability, and Primary Measurement (REQ-BROWSER-010–054,
+    REQ-FILE-027/029, REQ-PLOT-300–322).
 
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the

@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 if TYPE_CHECKING:
     from PyQt6.QtGui import QColor
     from mdf_viewer.controller.cursor_controller import CursorMode
-    from mdf_viewer.model.measurement import MeasurementInfo
+    from mdf_viewer.model.loaded_measurement import LoadedMeasurement
     from mdf_viewer.model.mdf_loader import ChannelGroupInfo
     from mdf_viewer.model.signal_metadata import SignalMetadata
     from mdf_viewer.view_model.active_signal import ActiveSignal
@@ -28,9 +28,8 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 class SignalBrowserProtocol(Protocol):
-    def populate(self, groups: list[ChannelGroupInfo]) -> None: ...
+    def populate_all(self, measurements: list[tuple[str, list[ChannelGroupInfo]]]) -> None: ...
     def clear(self) -> None: ...
-    def set_measurements(self, labels: list[str]) -> None: ...
 
 
 class PlotAreaProtocol(Protocol):
@@ -93,7 +92,9 @@ class SignalTableProtocol(Protocol):
 
 
 class MeasurementInfoProtocol(Protocol):
-    def set_info(self, info: MeasurementInfo) -> None: ...
+    def set_measurements(
+        self, measurements: list[LoadedMeasurement], primary: LoadedMeasurement | None
+    ) -> None: ...
     def clear(self) -> None: ...
 
 

@@ -781,8 +781,8 @@ def test_first_ever_miss_click_is_forwarded(area: PlotStripesArea, qtbot: QtBot)
 def test_signals_dropped_on_stripe_carries_target_stripe(area: PlotStripesArea, qtbot: QtBot) -> None:
     s2 = area.create_stripe()
     with qtbot.waitSignal(area.signals_dropped_on_stripe, timeout=1000) as blocker:
-        s2.signals_dropped.emit([(0, 1)], 2)
-    assert blocker.args == [[(0, 1)], s2, 2]
+        s2.signals_dropped.emit([(2, 0, 1)])
+    assert blocker.args == [[(2, 0, 1)], s2]
 
 
 @pytest.mark.requirement("REQ-PLOT-281")

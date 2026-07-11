@@ -1,30 +1,50 @@
-"""MeasurementInfoBox — bottom-left panel showing file-level MDF metadata.
+"""MeasurementInfoBox — left panel showing file-level MDF metadata.
 
-Displays a MeasurementInfo: file name, MDF version, author, recording
-date/time, duration, comment, and any extra fields. Read-only.
+Always tabbed (#103, REQ-PLOT-318), one tab per loaded measurement, even
+when only one is loaded — the tab structure doesn't change as measurements
+are added or removed. Each tab shows: a header row with a "Primary
+Measurement" checkbox (REQ-PLOT-317) and an editable short-name field
+(REQ-FILE-027), then the existing read-only metadata form (file name, MDF
+version, author, recording date/time, duration, comment, extra fields).
 """
 
 from __future__ import annotations
 
 import re
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QButtonGroup,
+    QCheckBox,
     QFormLayout,
     QFrame,
+    QHBoxLayout,
     QLabel,
+    QLineEdit,
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
 
+from mdf_viewer.model.loaded_measurement import LoadedMeasurement
 from mdf_viewer.model.measurement import MeasurementInfo
 
 
 class MeasurementInfoBox(QWidget):
-    """Read-only display of file-level measurement metadata."""
+    """Tabbed, read-mostly display of every loaded measurement's metadata."""
+
+    # LoadedMeasurement whose "Primary Measurement" checkbox was checked by
+    # the user — AppController.set_primary_measurement() decides whether/how
+    # to apply it and pushes the result back via set_measurements().
+    primary_change_requested = pyqtSignal(object)
+    # LoadedMeasurement, new short name — AppController.rename_measurement()
+    # decides whether to accept it; a rejected rename is reverted by the
+    # next set_measurements() call, which always reflects the model's own
+    # current label.
+    rename_requested = pyqtSignal(object, str)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -39,6 +59,94 @@ class MeasurementInfoBox(QWidget):
         placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._stack.addWidget(placeholder)  # index 0
 
+        self._tabs = QTabWidget()
+        self._stack.addWidget(self._tabs)  # index 1
+
+        self._button_group = QButtonGroup(self)
+        self._button_group.setExclusive(True)
+        self._pages: list[tuple[LoadedMeasurement, _MeasurementInfoPage]] = []
+
+    def set_measurements(
+        self, measurements: list[LoadedMeasurement], primary: LoadedMeasurement | None
+    ) -> None:
+        """Rebuild the tabs from every loaded measurement (#103).
+
+        Always tabbed, even with exactly one measurement loaded
+        (REQ-PLOT-318). Every call fully tears down and rebuilds every
+        tab — including the case where only one measurement's short name
+        or Primary status changed — so the teardown discipline
+        (button-group detach, removeTab, deleteLater) always runs through
+        one code path rather than risking a partial/incremental update
+        forgetting a step.
+        """
+        current_index = self._tabs.currentIndex()
+        self._teardown_pages()
+        for measurement in measurements:
+            page = _MeasurementInfoPage()
+            page.set_info(measurement.info)
+            page.set_name(measurement.label)
+            page.set_primary(measurement is primary)
+            page.primary_checked.connect(
+                lambda m=measurement: self.primary_change_requested.emit(m)
+            )
+            page.rename_committed.connect(
+                lambda text, m=measurement: self.rename_requested.emit(m, text)
+            )
+            self._button_group.addButton(page.checkbox)
+            self._tabs.addTab(page, measurement.label)
+            self._pages.append((measurement, page))
+        if measurements:
+            self._stack.setCurrentIndex(1)
+            if 0 <= current_index < self._tabs.count():
+                self._tabs.setCurrentIndex(current_index)
+        else:
+            self._stack.setCurrentIndex(0)
+
+    def clear(self) -> None:
+        """Remove every tab and show the placeholder."""
+        self._teardown_pages()
+        self._stack.setCurrentIndex(0)
+
+    def _teardown_pages(self) -> None:
+        """Detach and destroy every existing tab page.
+
+        Mirrors the #120 teardown discipline for a new (plain-QWidget,
+        not PyQtGraph) site: QTabWidget.removeTab() detaches a page but
+        does not destroy it, so deleteLater() is required too. Removing
+        from the button group first avoids a moment where an
+        about-to-be-destroyed checkbox is still counted toward exclusivity.
+        """
+        while self._pages:
+            _, page = self._pages.pop()
+            self._button_group.removeButton(page.checkbox)
+            index = self._tabs.indexOf(page)
+            if index >= 0:
+                self._tabs.removeTab(index)
+            page.deleteLater()
+
+
+class _MeasurementInfoPage(QWidget):
+    """One tab's content: Primary checkbox + short-name edit, then the form."""
+
+    # Emitted only when the checkbox becomes checked — unchecking happens
+    # only as a side effect of another tab's checkbox becoming checked
+    # (QButtonGroup exclusivity), which is never a request to act on.
+    primary_checked = pyqtSignal()
+    rename_committed = pyqtSignal(str)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(4, 4, 4, 4)
+
+        header = QHBoxLayout()
+        self._primary_checkbox = QCheckBox("Primary Measurement")
+        header.addWidget(self._primary_checkbox)
+        header.addWidget(QLabel("Name:"))
+        self._name_edit = QLineEdit()
+        header.addWidget(self._name_edit)
+        layout.addLayout(header)
+
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
@@ -48,22 +156,34 @@ class MeasurementInfoBox(QWidget):
             QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow
         )
         scroll.setWidget(self._content)
-        self._stack.addWidget(scroll)  # index 1
+        layout.addWidget(scroll)
+
+        self._primary_checkbox.toggled.connect(self._on_toggled)
+        self._name_edit.editingFinished.connect(self._on_editing_finished)
+
+    @property
+    def checkbox(self) -> QCheckBox:
+        return self._primary_checkbox
 
     def set_info(self, info: MeasurementInfo) -> None:
-        """Populate the form from a MeasurementInfo and show it."""
-        _clear_form(self._form)
         for label, value in _measurement_rows(info):
             if label == "Comment":
                 _add_wrapped_row(self._form, label, value)
             else:
                 _add_row(self._form, label, value)
-        self._stack.setCurrentIndex(1)
 
-    def clear(self) -> None:
-        """Remove all rows and show the placeholder."""
-        _clear_form(self._form)
-        self._stack.setCurrentIndex(0)
+    def set_name(self, name: str) -> None:
+        self._name_edit.setText(name)
+
+    def set_primary(self, is_primary: bool) -> None:
+        self._primary_checkbox.setChecked(is_primary)
+
+    def _on_toggled(self, checked: bool) -> None:
+        if checked:
+            self.primary_checked.emit()
+
+    def _on_editing_finished(self) -> None:
+        self.rename_committed.emit(self._name_edit.text())
 
 
 # ---------------------------------------------------------------------------

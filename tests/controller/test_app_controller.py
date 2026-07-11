@@ -16,6 +16,7 @@ from PyQt6.QtGui import QColor
 
 from mdf_viewer.controller.app_controller import AppController, _COLOR_PALETTE
 from mdf_viewer.errors import MdfLoadError
+from mdf_viewer.model.loaded_measurement import LoadedMeasurement
 from mdf_viewer.model.measurement import MeasurementInfo
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
@@ -94,7 +95,7 @@ def test_load_file_populates_browser(ctrl: AppController, deps: dict) -> None:
     groups = [MagicMock()]
     deps["loader"].channel_tree.return_value = groups
     ctrl.load_file("test.mf4")
-    deps["browser"].populate.assert_called_once_with(groups)
+    deps["browser"].populate_all.assert_called_once_with([("M1", groups)])
 
 
 @pytest.mark.requirement("REQ-FILE-012")
@@ -102,7 +103,8 @@ def test_load_file_updates_info_box(ctrl: AppController, deps: dict) -> None:
     info = _make_measurement_info()
     deps["loader"].measurement_info.return_value = info
     ctrl.load_file("test.mf4")
-    deps["info_box"].set_info.assert_called_once_with(info)
+    (measurement,) = ctrl.measurements
+    deps["info_box"].set_measurements.assert_called_once_with([measurement], measurement)
 
 
 @pytest.mark.requirement("REQ-FILE-012")
@@ -121,7 +123,7 @@ def test_load_file_clears_info_box_first(ctrl: AppController, deps: dict) -> Non
     ctrl.load_file("test.mf4")
     info_box = deps["info_box"]
     clear_pos = [i for i, c in enumerate(info_box.mock_calls) if c == call.clear()]
-    set_pos = [i for i, c in enumerate(info_box.mock_calls) if "set_info" in str(c)]
+    set_pos = [i for i, c in enumerate(info_box.mock_calls) if "set_measurements" in str(c)]
     assert clear_pos and set_pos
     assert clear_pos[0] < set_pos[0]
 
@@ -1527,11 +1529,46 @@ def test_replace_measurements_populates_pool(deps: dict) -> None:
 
 
 @pytest.mark.requirement("REQ-FILE-027")
-def test_replace_measurements_disambiguates_duplicate_labels(deps: dict) -> None:
+def test_replace_measurements_uses_load_order_short_names(deps: dict) -> None:
     ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
     result = ctrl2.replace_measurements(["run.mf4", "sub/run.mf4"])
     labels = [m.label for m in result.succeeded]
-    assert labels == ["run", "run (2)"]
+    assert labels == ["M1", "M2"]
+
+
+@pytest.mark.requirement("REQ-FILE-027")
+def test_add_after_close_never_reuses_a_vacated_default_name(deps: dict) -> None:
+    """Regression: closing measurements used to let their default names get
+    reused, colliding with a still-loaded one (found live-testing #103)."""
+    ctrl2 = _make_ctrl_with_loaders(
+        deps,
+        [_make_pool_loader(), _make_pool_loader(), _make_pool_loader(),
+         _make_pool_loader(), _make_pool_loader()],
+    )
+    ctrl2.replace_measurements(["a.mf4", "b.mf4", "c.mf4"])  # M1, M2, M3
+    m1, m2, m3 = ctrl2.measurements
+    ctrl2.rename_measurement(m1, "Bla")
+    ctrl2.close_measurement(m1)  # only m2 (M2), m3 (M3) remain
+    ctrl2.close_measurement(m2)  # only m3 (M3) remains
+
+    result = ctrl2.add_measurements(["d.mf4", "e.mf4"])
+
+    labels = [m.label for m in result.succeeded]
+    assert labels == ["M4", "M5"]
+
+
+@pytest.mark.requirement("REQ-FILE-027")
+def test_load_order_counter_resets_on_replace(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(
+        deps, [_make_pool_loader(), _make_pool_loader(), _make_pool_loader()],
+    )
+    ctrl2.replace_measurements(["a.mf4", "b.mf4"])  # M1, M2
+    ctrl2.close_measurement(ctrl2.measurements[0])
+
+    result = ctrl2.replace_measurements(["c.mf4"])  # fresh start
+
+    labels = [m.label for m in result.succeeded]
+    assert labels == ["M1"]
 
 
 @pytest.mark.requirement("REQ-FILE-021")
@@ -1588,6 +1625,33 @@ def test_add_measurements_failure_does_not_affect_existing_pool(deps: dict) -> N
     result = ctrl2.add_measurements(["bad.mf4"])
     assert len(result.failed) == 1
     assert ctrl2.measurement_count == 1
+
+
+@pytest.mark.requirement("REQ-FILE-028")
+def test_measurement_has_signals_true_when_active(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    ctrl2.add_signal(0, 1, measurement=m1)
+    assert ctrl2.measurement_has_signals(m1) is True
+
+
+@pytest.mark.requirement("REQ-FILE-028")
+def test_measurement_has_signals_false_when_none_active(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    assert ctrl2.measurement_has_signals(m1) is False
+
+
+@pytest.mark.requirement("REQ-FILE-028")
+def test_measurement_has_signals_scoped_to_its_own_measurement(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+    ctrl2.add_signal(0, 1, measurement=m1)
+    assert ctrl2.measurement_has_signals(m2) is False
 
 
 @pytest.mark.requirement("REQ-FILE-028")
@@ -1715,35 +1779,28 @@ def test_measurement_at_out_of_range_returns_none(deps: dict) -> None:
     assert ctrl2.measurement_at(-1) is None
 
 
-@pytest.mark.requirement("REQ-BROWSER-051")
-def test_channel_tree_for_measurement_delegates_to_loader(deps: dict) -> None:
-    loader = _make_pool_loader()
-    groups = [object()]
-    loader.channel_tree.return_value = groups
-    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
-    ctrl2.replace_measurements(["a.mf4"])
-    assert ctrl2.channel_tree_for_measurement(0) == groups
-
-
-def test_channel_tree_for_measurement_out_of_range_returns_empty(deps: dict) -> None:
-    ctrl2 = _make_ctrl_with_loaders(deps, [])
-    assert ctrl2.channel_tree_for_measurement(5) == []
-
-
-@pytest.mark.requirement("REQ-BROWSER-050")
-def test_replace_measurements_sets_browser_measurements(deps: dict) -> None:
-    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+@pytest.mark.requirement("REQ-BROWSER-010")
+def test_replace_measurements_populates_browser_with_every_measurement(deps: dict) -> None:
+    loader_a, loader_b = _make_pool_loader(), _make_pool_loader()
+    groups_a, groups_b = [object()], [object()]
+    loader_a.channel_tree.return_value = groups_a
+    loader_b.channel_tree.return_value = groups_b
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
     ctrl2.replace_measurements(["run1.mf4", "run2.mf4"])
-    deps["browser"].set_measurements.assert_called_once_with(["run1", "run2"])
+    deps["browser"].populate_all.assert_called_with([("M1", groups_a), ("M2", groups_b)])
 
 
-@pytest.mark.requirement("REQ-BROWSER-050")
-def test_add_measurements_updates_browser_measurements(deps: dict) -> None:
-    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+@pytest.mark.requirement("REQ-BROWSER-010")
+def test_add_measurements_repopulates_browser_with_every_measurement(deps: dict) -> None:
+    loader_a, loader_b = _make_pool_loader(), _make_pool_loader()
+    groups_a, groups_b = [object()], [object()]
+    loader_a.channel_tree.return_value = groups_a
+    loader_b.channel_tree.return_value = groups_b
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
     ctrl2.replace_measurements(["run1.mf4"])
-    deps["browser"].set_measurements.reset_mock()
+    deps["browser"].populate_all.reset_mock()
     ctrl2.add_measurements(["run2.mf4"])
-    deps["browser"].set_measurements.assert_called_once_with(["run1", "run2"])
+    deps["browser"].populate_all.assert_called_once_with([("M1", groups_a), ("M2", groups_b)])
 
 
 @pytest.mark.requirement("REQ-FILE-028")
@@ -1759,21 +1816,19 @@ def test_close_measurement_updates_browser_to_remaining_measurement(deps: dict) 
 
     ctrl2.close_measurement(m1)
 
-    deps["browser"].set_measurements.assert_called_with([m2.label])
-    # populate() falls back to the first remaining measurement's tree.
-    deps["browser"].populate.assert_called_with(groups_b)
+    deps["browser"].populate_all.assert_called_with([(m2.label, groups_b)])
 
 
 @pytest.mark.requirement("REQ-FILE-028")
-def test_close_last_measurement_clears_browser(deps: dict) -> None:
+def test_close_last_measurement_empties_browser(deps: dict) -> None:
     ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
     ctrl2.replace_measurements(["a.mf4"])
     (m1,) = ctrl2.measurements
-    deps["browser"].clear.reset_mock()
+    deps["browser"].populate_all.reset_mock()
 
     ctrl2.close_measurement(m1)
 
-    deps["browser"].clear.assert_called()
+    deps["browser"].populate_all.assert_called_with([])
 
 
 @pytest.mark.requirement("REQ-PLOT-301")
@@ -1817,6 +1872,156 @@ def test_close_measurement_refreshes_axes_on_every_tab(deps: dict) -> None:
 
     deps["plot"].refresh_measurement_axes.assert_called_with([], False)
     plot2.refresh_measurement_axes.assert_called_with([], False)
+
+
+# ---------------------------------------------------------------------------
+# Primary Measurement and rename (#103)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-317")
+def test_primary_measurement_defaults_to_first_loaded(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4", "b.mf4"])
+    m1, m2 = ctrl2.measurements
+    assert ctrl2.primary_measurement is m1
+
+
+@pytest.mark.requirement("REQ-PLOT-317")
+def test_primary_measurement_none_when_nothing_loaded(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [])
+    assert ctrl2.primary_measurement is None
+
+
+@pytest.mark.requirement("REQ-PLOT-319")
+def test_set_primary_measurement_reorders_axis_push(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4", "b.mf4"])
+    m1, m2 = ctrl2.measurements
+
+    ctrl2.set_primary_measurement(m2)
+
+    assert ctrl2.primary_measurement is m2
+    deps["plot"].refresh_measurement_axes.assert_called_with([m2, m1], False)
+
+
+@pytest.mark.requirement("REQ-PLOT-317")
+def test_set_primary_measurement_ignores_unknown_measurement(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    foreign = LoadedMeasurement(loader=_make_pool_loader(), info=_make_measurement_info(), label="X")
+
+    ctrl2.set_primary_measurement(foreign)
+
+    assert ctrl2.primary_measurement is m1
+
+
+@pytest.mark.requirement("REQ-PLOT-321")
+def test_close_measurement_reassigns_primary_to_first_loaded_remainder(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(
+        deps, [_make_pool_loader(), _make_pool_loader(), _make_pool_loader()],
+    )
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4", "c.mf4"])
+    m1, m2, m3 = ctrl2.measurements
+    assert ctrl2.primary_measurement is m1
+
+    ctrl2.close_measurement(m1)
+
+    assert ctrl2.primary_measurement is m2
+
+
+@pytest.mark.requirement("REQ-PLOT-321")
+def test_close_last_measurement_leaves_no_primary(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+
+    ctrl2.close_measurement(m1)
+
+    assert ctrl2.primary_measurement is None
+
+
+@pytest.mark.requirement("REQ-PLOT-321")
+def test_closing_non_primary_measurement_leaves_primary_unchanged(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+
+    ctrl2.close_measurement(m2)
+
+    assert ctrl2.primary_measurement is m1
+
+
+@pytest.mark.requirement("REQ-PLOT-322")
+def test_replace_measurements_resets_primary_to_first_of_new_set(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(
+        deps, [_make_pool_loader(), _make_pool_loader(), _make_pool_loader()],
+    )
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+    ctrl2.set_primary_measurement(m2)
+    assert ctrl2.primary_measurement is m2
+
+    ctrl2.replace_measurements(["c.mf4"])
+
+    (m3,) = ctrl2.measurements
+    assert ctrl2.primary_measurement is m3
+
+
+@pytest.mark.requirement("REQ-PLOT-322")
+def test_add_measurements_does_not_change_existing_primary(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+
+    ctrl2.add_measurements(["b.mf4"])
+
+    assert ctrl2.primary_measurement is m1
+
+
+@pytest.mark.requirement("REQ-PLOT-317")
+def test_add_measurements_establishes_primary_when_pool_was_empty(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    assert ctrl2.primary_measurement is None
+
+    ctrl2.add_measurements(["a.mf4"])
+
+    (m1,) = ctrl2.measurements
+    assert ctrl2.primary_measurement is m1
+
+
+@pytest.mark.requirement("REQ-FILE-027")
+def test_rename_measurement_succeeds(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+
+    assert ctrl2.rename_measurement(m1, "Engine Run") is True
+    assert m1.label == "Engine Run"
+
+
+@pytest.mark.requirement("REQ-FILE-027")
+def test_rename_measurement_rejects_duplicate(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+
+    assert ctrl2.rename_measurement(m2, "M1") is False
+    assert m2.label == "M2"
+
+
+@pytest.mark.requirement("REQ-FILE-027")
+def test_rename_measurement_allows_renaming_to_its_own_current_name(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+
+    assert ctrl2.rename_measurement(m1, "M1") is True
+    assert m1.label == "M1"
 
 
 # ---------------------------------------------------------------------------

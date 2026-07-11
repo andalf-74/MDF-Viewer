@@ -1,15 +1,18 @@
-"""SignalBrowser — left panel TreeView of the full MDF channel hierarchy.
+"""SignalBrowser — left panel: flat, cross-measurement channel list.
 
 Emits add_signals_requested(list) when the user wants to add one or more
-signals (double-click a channel node, select + "Add Signal" button, or drag).
+signals (double-click a channel, select + "Add Signal" button, or drag).
 Holds no model data itself; populated by the controller, reports intent out.
 
-When more than one measurement is loaded (#101), a small selector above the
-tree lets the user pick which loaded measurement's channels the tree
-currently shows (REQ-BROWSER-050/051); hidden entirely with exactly one
-measurement loaded. All three ways to request adding a signal (double-click,
-"Add Signal" button, drag) implicitly target whichever measurement the
-selector currently shows.
+Every channel from every loaded measurement is one flat, alphabetically
+sorted row (#103, REQ-BROWSER-010/011) — there is no channel-group tree.
+When more than one measurement is loaded, each row is prefixed with its
+measurement's short name (e.g. "[M1] Drehzahl", REQ-BROWSER-050) and a
+measurement filter above the list narrows it to one measurement or "All"
+(REQ-BROWSER-052); with exactly one measurement loaded, no prefix and no
+filter are shown, identical to today. Each row's original channel-group
+name is preserved as a hover tooltip rather than as list structure
+(REQ-BROWSER-013).
 """
 
 from __future__ import annotations
@@ -36,11 +39,18 @@ from PyQt6.QtWidgets import (
 from mdf_viewer.model.mdf_loader import ChannelGroupInfo
 from mdf_viewer.view._mime import SIGNAL_MIME_TYPE, encode_signal_payload
 
-# Stores (group_index, channel_index) tuple on channel items; None on group items.
+# Stores (measurement_index, group_index, channel_index) on every row.
 _LOCATION_ROLE = Qt.ItemDataRole.UserRole + 1
+# Bare channel name (no measurement prefix) — the primary sort key, so
+# identically-named channels from different measurements sort adjacent to
+# each other rather than grouped by measurement (REQ-BROWSER-051).
+_SORT_ROLE = Qt.ItemDataRole.UserRole + 2
+
+# Index into the measurement filter combo meaning "show every measurement".
+_ALL_MEASUREMENTS = -1
 
 # Delay before applying the filter after the user stops typing. Recursive
-# filtering over a large channel tree is expensive, so re-filtering on every
+# filtering over a large channel list is expensive, so re-filtering on every
 # keystroke makes typing feel sluggish.
 _FILTER_DELAY_MS = 250
 
@@ -48,16 +58,15 @@ _FILTER_DELAY_MS = 250
 class _DragTreeView(QTreeView):
     """QTreeView that encodes selected signal locations as MIME data on drag."""
 
-    def __init__(self, get_locations, get_measurement_index, parent=None):
+    def __init__(self, get_locations, parent=None):
         super().__init__(parent)
         self._get_locations = get_locations
-        self._get_measurement_index = get_measurement_index
 
     def startDrag(self, supported_actions):
         locations = self._get_locations()
         if not locations:
             return
-        data = encode_signal_payload(self._get_measurement_index(), locations)
+        data = encode_signal_payload(locations)
         mime = QMimeData()
         mime.setData(SIGNAL_MIME_TYPE, QByteArray(data))
         drag = QDrag(self)
@@ -65,19 +74,43 @@ class _DragTreeView(QTreeView):
         drag.exec(Qt.DropAction.CopyAction)
 
 
-class SignalBrowser(QWidget):
-    """Channel-group / channel hierarchy tree with a filter field and Add Signal button."""
-
-    # Emits a list of (group_index, channel_index) tuples — one or many.
-    add_signals_requested = pyqtSignal(list)
-    # Emitted when the user picks a different measurement in the selector
-    # (#101) — the caller (AppController via MainWindow) re-populates the
-    # tree with that measurement's channel_tree() via populate().
-    measurement_selected = pyqtSignal(int)
+class _FlatSignalProxy(QSortFilterProxyModel):
+    """Text filter (inherited) ANDed with a measurement filter, sorted on
+    the bare channel name with measurement index as a tiebreak (#103).
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._current_measurement_index = 0
+        self._measurement_filter: int = _ALL_MEASUREMENTS
+
+    def set_measurement_filter(self, measurement_index: int) -> None:
+        self._measurement_filter = measurement_index
+        self.invalidateFilter()
+
+    def filterAcceptsRow(self, source_row, source_parent) -> bool:
+        if not super().filterAcceptsRow(source_row, source_parent):
+            return False
+        if self._measurement_filter == _ALL_MEASUREMENTS:
+            return True
+        index = self.sourceModel().index(source_row, 0, source_parent)
+        location = index.data(_LOCATION_ROLE)
+        return location is not None and location[0] == self._measurement_filter
+
+    def lessThan(self, left, right) -> bool:
+        left_key = (left.data(_SORT_ROLE), left.data(_LOCATION_ROLE)[0])
+        right_key = (right.data(_SORT_ROLE), right.data(_LOCATION_ROLE)[0])
+        return left_key < right_key
+
+
+class SignalBrowser(QWidget):
+    """Flat, cross-measurement channel list with a filter field and Add Signal button."""
+
+    # Emits a list of (measurement_index, group_index, channel_index) triples.
+    add_signals_requested = pyqtSignal(list)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._labels: list[str] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -85,17 +118,18 @@ class SignalBrowser(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        self._measurement_combo = QComboBox()
-        self._measurement_combo.setVisible(False)
-        layout.addWidget(self._measurement_combo)
+        self._measurement_filter_combo = QComboBox()
+        self._measurement_filter_combo.setVisible(False)
+        layout.addWidget(self._measurement_filter_combo)
 
         self._filter_edit = QLineEdit()
         self._filter_edit.setPlaceholderText("Filter signals… (* and ? wildcards)")
         self._filter_edit.setClearButtonEnabled(True)
         layout.addWidget(self._filter_edit)
 
-        self._tree = _DragTreeView(self._selected_locations, self._get_current_measurement_index)
+        self._tree = _DragTreeView(self._selected_locations)
         self._tree.setHeaderHidden(True)
+        self._tree.setRootIsDecorated(False)
         self._tree.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
         self._tree.setSelectionMode(QTreeView.SelectionMode.ExtendedSelection)
         self._tree.setUniformRowHeights(True)
@@ -109,11 +143,11 @@ class SignalBrowser(QWidget):
 
         self._model = QStandardItemModel(self)
 
-        self._proxy = QSortFilterProxyModel(self)
+        self._proxy = _FlatSignalProxy(self)
         self._proxy.setSourceModel(self._model)
         self._proxy.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self._proxy.setRecursiveFilteringEnabled(True)
         self._proxy.setFilterKeyColumn(0)
+        self._proxy.setSortRole(_SORT_ROLE)
         self._tree.setModel(self._proxy)
 
         self._filter_timer = QTimer(self)
@@ -124,60 +158,50 @@ class SignalBrowser(QWidget):
         self._tree.doubleClicked.connect(self._on_double_click)
         self._tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._add_btn.clicked.connect(self._on_add_clicked)
-        self._measurement_combo.currentIndexChanged.connect(self._on_measurement_combo_changed)
+        self._measurement_filter_combo.currentIndexChanged.connect(
+            self._on_measurement_filter_changed
+        )
 
     # ------------------------------------------------------------------
     # Public API (called by the controller)
     # ------------------------------------------------------------------
 
-    def set_measurements(self, labels: list[str]) -> None:
-        """Rebuild the measurement selector from *labels* (REQ-BROWSER-050).
+    def populate_all(self, measurements: list[tuple[str, list[ChannelGroupInfo]]]) -> None:
+        """Rebuild the flat list from every loaded measurement's channels.
 
-        Hidden entirely with 0 or 1 measurement loaded — the selector only
-        matters once there's something to disambiguate. Does not itself
-        change which measurement's channels the tree shows; the caller
-        follows up with populate() for whichever index should be current.
+        *measurements* is a (short_name, channel_groups) pair per loaded
+        measurement, in load order (REQ-BROWSER-010/011). Clears the text
+        filter (REQ-BROWSER-012); the measurement filter is preserved by
+        short name across the rebuild, resetting to "All" only if the
+        measurement it was set to is no longer present.
         """
-        self._measurement_combo.blockSignals(True)
-        self._measurement_combo.clear()
-        self._measurement_combo.addItems(labels)
-        self._measurement_combo.blockSignals(False)
-        self._measurement_combo.setVisible(len(labels) > 1)
-        if self._current_measurement_index >= len(labels):
-            self._current_measurement_index = 0
-
-    def current_measurement_index(self) -> int:
-        """Index of the measurement whose channels the tree currently shows."""
-        return self._current_measurement_index
-
-    def populate(self, groups: list[ChannelGroupInfo]) -> None:
-        """Rebuild the tree from a channel hierarchy.
-
-        Clears the filter so all signals in the new file are immediately visible.
-        Groups are expanded by default.
-        """
+        previous_filter_label = self._current_filter_label()
         self._clear_filter()
         self._model.clear()
-        for group in groups:
-            group_item = _make_group_item(group.name)
-            for ch in group.channels:
-                label = f"{ch.name} [{ch.unit}]" if ch.unit else ch.name
-                ch_item = _make_channel_item(label, ch.group_index, ch.channel_index)
-                group_item.appendRow(ch_item)
-            self._model.appendRow(group_item)
-        self._tree.expandAll()
+        self._labels = [label for label, _ in measurements]
+        show_prefix = len(self._labels) > 1
+
+        for mi, (label, groups) in enumerate(measurements):
+            for group in groups:
+                for ch in group.channels:
+                    self._model.appendRow(
+                        _make_channel_item(ch, mi, label if show_prefix else None, group.name)
+                    )
+        self._proxy.sort(0)
+        self._rebuild_measurement_filter_combo(previous_filter_label)
         self._add_btn.setEnabled(False)
 
     def clear(self) -> None:
-        """Remove all tree items, clear the filter, and disable the Add Signal button."""
+        """Remove all rows, clear both filters, and disable the Add Signal button."""
         self._clear_filter()
         self._model.clear()
+        self._labels = []
         self._add_btn.setEnabled(False)
-        self._current_measurement_index = 0
-        self._measurement_combo.blockSignals(True)
-        self._measurement_combo.clear()
-        self._measurement_combo.blockSignals(False)
-        self._measurement_combo.setVisible(False)
+        self._measurement_filter_combo.blockSignals(True)
+        self._measurement_filter_combo.clear()
+        self._measurement_filter_combo.blockSignals(False)
+        self._measurement_filter_combo.setVisible(False)
+        self._proxy.set_measurement_filter(_ALL_MEASUREMENTS)
 
     # ------------------------------------------------------------------
     # Slots (private)
@@ -191,7 +215,7 @@ class SignalBrowser(QWidget):
             self._proxy.setFilterFixedString(text)
 
     def _clear_filter(self) -> None:
-        """Clear the filter field and apply the empty filter immediately."""
+        """Clear the text filter field and apply the empty filter immediately."""
         self._filter_timer.stop()
         self._filter_edit.clear()
         self._proxy.setFilterFixedString("")
@@ -199,14 +223,11 @@ class SignalBrowser(QWidget):
     def _on_selection_changed(self) -> None:
         self._add_btn.setEnabled(bool(self._selected_locations()))
 
-    def _on_measurement_combo_changed(self, index: int) -> None:
+    def _on_measurement_filter_changed(self, index: int) -> None:
         if index < 0:
             return
-        self._current_measurement_index = index
-        self.measurement_selected.emit(index)
-
-    def _get_current_measurement_index(self) -> int:
-        return self._current_measurement_index
+        measurement_index = index - 1  # index 0 is "All"
+        self._proxy.set_measurement_filter(measurement_index)
 
     def _on_add_clicked(self) -> None:
         locs = self._selected_locations()
@@ -226,8 +247,8 @@ class SignalBrowser(QWidget):
     # Helpers
     # ------------------------------------------------------------------
 
-    def _selected_locations(self) -> list[tuple[int, int]]:
-        """Return [(group_index, channel_index), ...] for all selected channel items."""
+    def _selected_locations(self) -> list[tuple[int, int, int]]:
+        """Return [(measurement_index, group_index, channel_index), ...] for the selection."""
         locations = []
         for idx in self._tree.selectedIndexes():
             src = self._proxy.mapToSource(idx)
@@ -238,20 +259,42 @@ class SignalBrowser(QWidget):
                     locations.append(loc)
         return locations
 
+    def _current_filter_label(self) -> str | None:
+        """The short name the measurement filter is currently set to, or None for "All"."""
+        index = self._measurement_filter_combo.currentIndex()
+        if index <= 0:
+            return None
+        return self._measurement_filter_combo.itemText(index)
+
+    def _rebuild_measurement_filter_combo(self, previous_filter_label: str | None) -> None:
+        self._measurement_filter_combo.blockSignals(True)
+        self._measurement_filter_combo.clear()
+        self._measurement_filter_combo.addItem("All")
+        self._measurement_filter_combo.addItems(self._labels)
+        self._measurement_filter_combo.setVisible(len(self._labels) > 1)
+        if previous_filter_label is not None and previous_filter_label in self._labels:
+            new_index = 1 + self._labels.index(previous_filter_label)
+            self._measurement_filter_combo.setCurrentIndex(new_index)
+            self._proxy.set_measurement_filter(new_index - 1)
+        else:
+            self._measurement_filter_combo.setCurrentIndex(0)
+            self._proxy.set_measurement_filter(_ALL_MEASUREMENTS)
+        self._measurement_filter_combo.blockSignals(False)
+
 
 # ---------------------------------------------------------------------------
-# Item factories
+# Item factory
 # ---------------------------------------------------------------------------
 
-def _make_group_item(name: str) -> QStandardItem:
-    item = QStandardItem(name)
+def _make_channel_item(
+    ch, measurement_index: int, prefix: str | None, group_name: str
+) -> QStandardItem:
+    base = f"{ch.name} [{ch.unit}]" if ch.unit else ch.name
+    text = f"[{prefix}] {base}" if prefix else base
+    item = QStandardItem(text)
     item.setEditable(False)
-    item.setData(None, _LOCATION_ROLE)
-    return item
-
-
-def _make_channel_item(label: str, group_index: int, channel_index: int) -> QStandardItem:
-    item = QStandardItem(label)
-    item.setEditable(False)
-    item.setData((group_index, channel_index), _LOCATION_ROLE)
+    item.setData((measurement_index, ch.group_index, ch.channel_index), _LOCATION_ROLE)
+    item.setData(ch.name, _SORT_ROLE)
+    if group_name:
+        item.setToolTip(group_name)
     return item

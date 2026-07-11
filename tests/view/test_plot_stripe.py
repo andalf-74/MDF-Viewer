@@ -199,14 +199,14 @@ def test_set_show_x_axis_ticks_also_hides_time_label(plot: PlotStripe) -> None:
 
 def test_drag_enter_signal_mime_shows_highlight(plot: PlotStripe) -> None:
     mime = QMimeData()
-    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(0, [(0, 0)])))
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload([(0, 0, 0)])))
     plot.eventFilter(plot._pw.viewport(), _drag_enter_event(mime))
     assert plot._drag_hover_active is True
 
 
 def test_drag_leave_clears_highlight(plot: PlotStripe) -> None:
     mime = QMimeData()
-    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(0, [(0, 0)])))
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload([(0, 0, 0)])))
     plot.eventFilter(plot._pw.viewport(), _drag_enter_event(mime))
     assert plot._drag_hover_active is True
 
@@ -218,7 +218,7 @@ def test_drag_leave_clears_highlight(plot: PlotStripe) -> None:
 
 def test_drop_clears_highlight(plot: PlotStripe) -> None:
     mime = QMimeData()
-    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(0, [(0, 0)])))
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload([(0, 0, 0)])))
     plot.eventFilter(plot._pw.viewport(), _drag_enter_event(mime))
     assert plot._drag_hover_active is True
 
@@ -689,22 +689,22 @@ def test_set_enum_display_yaxis_merged_any_on_rule(plot: PlotStripe) -> None:
 
 @pytest.mark.requirement("REQ-BROWSER-031")
 def test_signals_dropped_emitted_on_signal_mime(plot: PlotStripe, qtbot: QtBot) -> None:
-    locs = [(0, 1), (1, 2)]
+    locs = [(0, 0, 1), (0, 1, 2)]
     mime = QMimeData()
-    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(0, locs)))
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(locs)))
     with qtbot.waitSignal(plot.signals_dropped) as blocker:
         plot.eventFilter(plot._pw.viewport(), _drop_event(mime))
-    assert blocker.args[0] == [(0, 1), (1, 2)]
-    assert blocker.args[1] == 0
+    assert blocker.args[0] == [(0, 0, 1), (0, 1, 2)]
 
 
-@pytest.mark.requirement("REQ-FILE-031")
-def test_signals_dropped_carries_measurement_index(plot: PlotStripe, qtbot: QtBot) -> None:
+@pytest.mark.requirement("REQ-BROWSER-031")
+def test_signals_dropped_carries_mixed_measurement_items(plot: PlotStripe, qtbot: QtBot) -> None:
+    """A single drop can span rows from different measurements (#103)."""
     mime = QMimeData()
-    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(2, [(0, 1)])))
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload([(0, 0, 1), (2, 3, 0)])))
     with qtbot.waitSignal(plot.signals_dropped) as blocker:
         plot.eventFilter(plot._pw.viewport(), _drop_event(mime))
-    assert blocker.args[1] == 2
+    assert blocker.args[0] == [(0, 0, 1), (2, 3, 0)]
 
 
 @pytest.mark.requirement("REQ-BROWSER-031")

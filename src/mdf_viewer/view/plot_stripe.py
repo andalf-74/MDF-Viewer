@@ -299,9 +299,10 @@ class PlotStripe(QWidget):
     # Emitted when an MDF file is dropped onto the plot.
     file_dropped = pyqtSignal(object)  # Path
     # Emitted when signals are dragged from the Signal Browser and dropped:
-    # list of (group_index, channel_index), and which loaded measurement
-    # (#101) they belong to (index into AppController.measurements).
-    signals_dropped = pyqtSignal(list, int)
+    # list of (measurement_index, group_index, channel_index) triples (#103)
+    # — a single drag can span rows from different loaded measurements, so
+    # each item carries its own measurement_index.
+    signals_dropped = pyqtSignal(list)
     # Emitted when an already-active signal is dragged from the Active
     # Signals Table and dropped onto this stripe's plot area (#116): the set
     # of id(ActiveSignal) being moved — resolved back to actual ActiveSignal
@@ -1646,8 +1647,8 @@ class PlotStripe(QWidget):
         mime = event.mimeData()
         if mime.hasFormat(SIGNAL_MIME_TYPE):
             data = bytes(mime.data(SIGNAL_MIME_TYPE))
-            measurement_index, locs = decode_signal_payload(data)
-            self.signals_dropped.emit(locs, measurement_index)
+            locs = decode_signal_payload(data)
+            self.signals_dropped.emit(locs)
             event.acceptProposedAction()
         elif mime.hasFormat(ROW_MIME_TYPE):
             data = bytes(mime.data(ROW_MIME_TYPE))

@@ -63,16 +63,29 @@ plot stripes and tabs [REQ-FILE-025]. A newly added measurement always
 starts with its X-axis offset at zero, i.e. its own raw recorded time; no
 automatic alignment between measurements is attempted — manual alignment
 is a deliberate user action (see `plotting.md`) [REQ-FILE-026]. Each
-loaded measurement has a user-facing label derived from its file name,
-used to identify its X-axis row and to prefix its signals' displayed
-names (see `plotting.md`); if two loaded measurements would otherwise
-produce the same label, a disambiguating suffix is appended so labels
-stay unique [REQ-FILE-027]. Closing a measurement that has no active
-signals in any tab or stripe removes it immediately with no confirmation;
-closing one with at least one active signal shows a warning offering
-"Close anyway" or "Cancel", mirroring stripe and tab close (REQ-PLOT-194,
-REQ-PLOT-252) — confirming removes that measurement's X-axis row and
-every one of its signals from every tab and stripe [REQ-FILE-028].
+loaded measurement has a user-facing short name, defaulting to "M1",
+"M2", ... in load order, used to identify its X-axis row and to prefix
+its signals' displayed names (see `plotting.md`, `signal-browser.md`); it
+is user-editable via the Measurement Info panel, and an edit that would
+duplicate another currently-loaded measurement's short name is rejected,
+reverting to the name it held before the edit, so short names stay
+unique at all times. The load-order position behind this default is
+never reused just because closing a measurement freed it up — it only
+resets when every measurement is replaced at once (REQ-FILE-021), the
+same fresh-start point that already resets every measurement's offset
+and Synchronized state; closing one measurement and then adding another
+therefore continues from the next never-yet-used default rather than
+reissuing a name a still-loaded or since-renamed measurement might
+collide with [REQ-FILE-027]. Closing a measurement that has no
+active signals in any tab or stripe removes it immediately with no
+confirmation; closing one with at least one active signal shows a
+warning offering "Close anyway" or "Cancel", mirroring stripe and tab
+close (REQ-PLOT-194, REQ-PLOT-252) — confirming removes that
+measurement's X-axis row and every one of its signals from every tab and
+stripe [REQ-FILE-028]. A File ▸ Close Measurement submenu lists every
+currently loaded measurement by its short name (REQ-FILE-027); selecting
+one closes that specific measurement through the same flow as any other
+close (REQ-FILE-028) [REQ-FILE-029].
 
 ## Active Signals When Replacing a File
 

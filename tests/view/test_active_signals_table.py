@@ -1004,14 +1004,13 @@ def test_signals_dropped_emitted_on_valid_mime(
 ) -> None:
     stripe = _FakeStripe("Stripe 1")
     table.add_stripe_segment(stripe)
-    locs = [(0, 1), (1, 2)]
+    locs = [(0, 0, 1), (1, 1, 2)]
     mime = QMimeData()
-    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(0, locs)))
+    mime.setData(SIGNAL_MIME_TYPE, QByteArray(encode_signal_payload(locs)))
     with qtbot.waitSignal(table.signals_dropped_on_stripe) as blocker:
         table.eventFilter(table._segments[0].viewport(), _drop_event(mime))
-    assert blocker.args[0] == [(0, 1), (1, 2)]
+    assert blocker.args[0] == [(0, 0, 1), (1, 1, 2)]
     assert blocker.args[1] is stripe
-    assert blocker.args[2] == 0
 
 
 @pytest.mark.requirement("REQ-PLOT-143")

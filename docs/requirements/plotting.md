@@ -519,7 +519,7 @@ interacted with inside the plot area itself.
 ### X-Axis Per Measurement
 
 Each loaded measurement gets its own X-axis row, labeled with that
-measurement's file-derived label (REQ-FILE-027), stacked below the
+measurement's short name (REQ-FILE-027), stacked below the
 bottom-most stripe [REQ-PLOT-300]. Only the bottom-most stripe's area
 shows these X-axis rows; every other stripe shows none, the same way a
 single stripe's X-axis was hidden before multi-measurement support
@@ -553,10 +553,11 @@ space.
 ### Signal Identity and Naming
 
 Once two or more measurements are loaded, every active signal's
-displayed name is prefixed with its measurement's label (REQ-FILE-027)
-in the Active Signals Table and the Signal Info Box, so identically-named
-channels from different measurements stay distinguishable; with only one
-measurement loaded, no prefix is shown [REQ-PLOT-306]. Cursor value
+displayed name is prefixed with its measurement's short name
+(REQ-FILE-027) in the Active Signals Table and the Signal Info Box — the
+same prefixing convention used in the Signal Browser (`signal-browser.md`
+REQ-BROWSER-050); with only one measurement loaded, no prefix is shown
+[REQ-PLOT-306]. Cursor value
 labels are unaffected — they show only a bare value (REQ-PLOT-080–084),
 never a signal name, regardless of measurement count. The measurement
 prefix affects only how a signal's name is displayed — the underlying
@@ -583,8 +584,9 @@ axis rows are displayed — it does not change any measurement's offset
 (REQ-PLOT-304), a signal's `display_timestamps`, or how a cursor's value
 is looked up (REQ-PLOT-305); every measurement's curves stay exactly
 where their own offset already placed them [REQ-PLOT-311]. The merged
-ruler shows the real recorded time of one reference measurement, always
-the first-loaded one, under that measurement's own existing label
+ruler shows the real recorded time of one reference measurement — the
+designated Primary measurement (REQ-PLOT-317), which defaults to the
+first-loaded one — under that measurement's own existing short name
 [REQ-PLOT-312]. Synchronizing applies to every loaded measurement at
 once — there is no state where only some measurements are merged into
 the ruler while others keep their own separate row [REQ-PLOT-313]. An
@@ -606,3 +608,28 @@ Aligning measurements by matching a signal's value between them (rather
 than by manually dragging) is out of scope here — split into its own
 follow-up issue, since it depends on the signal-value-search mechanism
 being built for #110.
+
+### Primary Measurement
+
+Exactly one loaded measurement is always designated Primary, defaulting
+to the first-loaded one; it is selected via a checkbox in that
+measurement's tab of the Measurement Info panel, and checking a
+different measurement's checkbox un-checks the previous Primary, since
+only one measurement can hold the designation at a time [REQ-PLOT-317].
+The Measurement Info panel shows one tab per loaded measurement at all
+times, including when only one measurement is loaded, so its structure
+does not change as measurements are added or removed [REQ-PLOT-318]. The
+Primary measurement's X-axis row is always drawn topmost among the
+per-measurement rows (REQ-PLOT-300) [REQ-PLOT-319]. Changing which
+measurement is Primary while Synchronized (REQ-PLOT-310) immediately
+re-collapses the merged ruler onto the new Primary's own real recorded
+time (REQ-PLOT-312) [REQ-PLOT-320]. Closing the Primary measurement
+(`file-handling.md` REQ-FILE-028) automatically designates the
+first-loaded of the remaining measurements as the new Primary,
+preserving the invariant that exactly one measurement is Primary
+whenever at least one is loaded (REQ-PLOT-317) [REQ-PLOT-321]. Replacing
+every loaded measurement (`file-handling.md` REQ-FILE-021) resets
+Primary to the first-loaded of the new set, the same as every
+measurement's offset (REQ-FILE-026) and Synchronized state already reset
+on Replace; adding a measurement (REQ-FILE-022) never changes which
+measurement is currently Primary [REQ-PLOT-322].

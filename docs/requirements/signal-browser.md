@@ -13,16 +13,23 @@ future `plotting.md`); exact widget/panel layout (`docs/ui.md`).
 
 ---
 
-## Tree Structure
+## Signal List Structure
 
-When a measurement is loaded, every channel group and every channel
-within it (per `mdf-support.md` REQ-MDF-020) is shown in the browser —
-none are hidden or omitted at load time — and all groups start expanded
-[REQ-BROWSER-010]. Only individual channels are selectable/addable
-targets; group nodes exist purely for organization and are not
-themselves an addable item [REQ-BROWSER-011]. Loading a new measurement
-replaces the browser's contents entirely and clears any active filter, so
-the new file's full channel set is immediately visible [REQ-BROWSER-012].
+When one or more measurements are loaded, every channel across every
+channel group in every loaded measurement (per `mdf-support.md`
+REQ-MDF-020) is shown in the browser as a single flat list, sorted
+alphabetically by channel name — none are hidden or omitted at load time
+[REQ-BROWSER-010]. Channel-group membership is not used to organize the
+list — there are no group nodes, collapsible or otherwise; every row is
+an individually selectable/addable channel [REQ-BROWSER-011]. Replacing
+the loaded measurement(s) (`file-handling.md` REQ-FILE-021) rebuilds the
+flat list from scratch; adding a measurement (REQ-FILE-022) appends its
+channels into the existing list — either way, any active text filter is
+cleared, so the currently available channel set is immediately visible
+[REQ-BROWSER-012]. The channel group a row belongs to, and any other
+per-channel metadata not otherwise shown, is available as a tooltip on
+hover, even though it plays no role in organizing the list
+[REQ-BROWSER-013].
 
 ## Filtering
 
@@ -54,18 +61,29 @@ active in another tab at the same time (see "Main Widget Tabs" in
 channels were skipped for this reason [REQ-BROWSER-040]. When adding
 multiple channels at once, a failure reading one channel's samples is
 reported to the user without aborting the remaining requested channels
-[REQ-BROWSER-041].
+[REQ-BROWSER-041]. The "already active" check (REQ-BROWSER-040)
+considers a channel's specific measurement, not just its name — the
+same-named channel from a different measurement is a distinct addable
+channel [REQ-BROWSER-042].
 
 ## Multiple Measurements
 
 When more than one measurement is loaded (`file-handling.md`
-"Multiple Measurements"), a selector above the channel tree lets the
-user pick which loaded measurement's channels the tree currently
-displays; with exactly one measurement loaded, no selector is shown and
-the tree simply shows that measurement's channels as today
-[REQ-BROWSER-050]. Switching the selector replaces the tree's contents
-with the selected measurement's channel hierarchy and clears any active
-filter, the same as loading a new measurement does today
-(REQ-BROWSER-012) [REQ-BROWSER-051]. An add-signal request always adds
-the channel from whichever measurement is currently selected in the tree
-(REQ-BROWSER-050) [REQ-BROWSER-052].
+"Multiple Measurements"), every channel in the flat list (REQ-BROWSER-010)
+is prefixed with its measurement's short name (`file-handling.md`
+REQ-FILE-027) in brackets, e.g. `[M1] Drehzahl`, so identically-named
+channels from different measurements stay distinguishable; with exactly
+one measurement loaded, no prefix is shown [REQ-BROWSER-050]. The list's
+alphabetical sort (REQ-BROWSER-010) is keyed on the channel name itself,
+not the prefix, so identically-named channels from different
+measurements land adjacent to each other in the list [REQ-BROWSER-051].
+A measurement filter above the list lets the user narrow it to "All" or
+one specific loaded measurement; it is shown only when more than one
+measurement is loaded, and defaults to "All" [REQ-BROWSER-052]. The text
+filter (REQ-BROWSER-020) and the measurement filter (REQ-BROWSER-052)
+compose: typing a search term narrows further within whichever
+measurement(s) the measurement filter currently selects, rather than one
+control overriding the other [REQ-BROWSER-053]. An add-signal request
+always adds the specific channel shown in its row, from that row's own
+measurement, even when another row with the same channel name exists for
+a different measurement [REQ-BROWSER-054].

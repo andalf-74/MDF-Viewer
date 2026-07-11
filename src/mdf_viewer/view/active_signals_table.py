@@ -221,13 +221,14 @@ class ActiveSignalsTable(QWidget):
     color_change_requested = pyqtSignal(list, QColor)
     # list[ActiveSignal], bool enabled — emitted from context menu step-mode actions
     step_mode_set_requested = pyqtSignal(list, bool)
-    # list of (group_index, channel_index), target stripe, and which loaded
-    # measurement (#101) they belong to — emitted when signals are dropped
-    # from the Signal Browser onto a specific segment; they're added to
-    # that segment's stripe (REQ-PLOT-277), the same way
+    # list of (measurement_index, group_index, channel_index) triples (#103)
+    # and target stripe — emitted when signals are dropped from the Signal
+    # Browser onto a specific segment; they're added to that segment's
+    # stripe (REQ-PLOT-277), the same way
     # PlotStripesArea.signals_dropped_on_stripe works for drops onto a
-    # stripe directly in the plot area.
-    signals_dropped_on_stripe = pyqtSignal(list, object, int)
+    # stripe directly in the plot area. A single drop can span rows from
+    # different loaded measurements, so each item carries its own index.
+    signals_dropped_on_stripe = pyqtSignal(list, object)
     # list[ActiveSignal] in new order — emitted after a row drag-and-drop reorder
     order_changed = pyqtSignal(list)
     # str (selected signal name) — emitted when "Display Name Rule…" is chosen from context menu
@@ -870,9 +871,9 @@ class ActiveSignalsTable(QWidget):
             mime = event.mimeData()
             if mime.hasFormat(SIGNAL_MIME_TYPE):
                 data = bytes(mime.data(SIGNAL_MIME_TYPE))
-                measurement_index, locs = decode_signal_payload(data)
+                locs = decode_signal_payload(data)
                 stripe = self._stripe_for_segment.get(seg)
-                self.signals_dropped_on_stripe.emit(locs, stripe, measurement_index)
+                self.signals_dropped_on_stripe.emit(locs, stripe)
                 event.acceptProposedAction()
                 return True
             if mime.hasFormat(ROW_MIME_TYPE):

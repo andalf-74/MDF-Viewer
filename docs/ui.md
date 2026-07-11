@@ -5,17 +5,17 @@
 ```
 +---------------------------+-----------------------------------------------+------------------+
 | ‹ (pin/collapse button)   |  [Tab 1] [Tab 2] [+]                           |                  |
-| Signal Browser (TreeView) |  +---------------------+----------------+      |  Signal Info /   |
-| + measurement selector    |  | Plot Stripe 1        | Active Signals |      |  Properties      |
+| Signal Browser (flat list)|  +---------------------+----------------+      |  Signal Info /   |
+| + measurement filter      |  | Plot Stripe 1        | Active Signals |      |  Properties      |
 | (2+ measurements loaded)  |  +---------------------+ Table (per-    |      |  drawer          |
 |                           |  | Plot Stripe 2 (opt.) | stripe         |      |  (pin/collapse   |
-| Measurement Info Box      |  +---------------------+ segments)      |      |   button ›)      |
+| Measurement Info (tabbed) |  +---------------------+ segments)      |      |   button ›)      |
 +---------------------------+-----------------------------------------------+------------------+
 ```
 
 - **Left panel** (`DockablePanel`, pinned or hover-reveal overlay) – vertical splitter:
-  - **Top** – Signal Browser (channel tree + measurement selector once 2+ measurements are loaded)
-  - **Bottom** – Measurement Info Box
+  - **Top** – Signal Browser (flat, cross-measurement channel list + measurement filter once 2+ measurements are loaded, #103)
+  - **Bottom** – Measurement Info Box (always tabbed, one tab per loaded measurement, #103)
   - Pin-toggle chevron button collapses the panel to a hidden drawer that slides out on hovering near the window's left edge
 - **Center** – one `QTabWidget` (tabs #99), each tab holding an independent workspace: a horizontal splitter of `[Plot Stripes | Active Signals Table]`. A "+" tab pinned at the end creates a new tab; closing the last tab shows a "No tabs open" placeholder with its own "New Tab" button.
   - Each tab's plot area can itself be split into multiple vertically-stacked **stripes** (#97) — see "Plot Area (Stripes)" below.
@@ -27,8 +27,9 @@
 
 - **File**
   - Open… (Ctrl+O; opens file dialog; accepts measurement file(s) and `.mvc` configs; loading with a measurement already open prompts Replace vs. Add)
-  - Recently opened files (up to 4; shown between Open… and Preferences when non-empty)
   - Save Config (Ctrl+S) / Save Config As… — saves the active tab's session (active signals, colors, axis grouping, zoom, cursor state, window/splitter layout) to a `.mvc` file
+  - Close Measurement — submenu listing every loaded measurement by its short name (#103); selecting one closes it, warning first if it still has active signals; disabled/empty when nothing is loaded
+  - Recently opened files (up to 4; shown between Open… and Preferences when non-empty)
   - Preferences… (opens Preferences dialog)
   - Exit (Ctrl+Q)
 - **Edit**
@@ -66,7 +67,7 @@ A per-stripe "Sync"/"Un-Sync" button also floats in the corner of the measuremen
 - Double-click a tab to rename it; right-click for a context menu; drag to reorder (the "+" tab stays pinned last).
 - Closing a tab that still has active signals asks for confirmation first; closing the last tab shows the "No tabs open" placeholder.
 - Ctrl+Tab / Ctrl+Shift+Tab cycle through tabs.
-- The measurement pool (loaded MDF files) and the Sync Measurements state are global, shared across every tab — only the plot/signal/zoom state above is per-tab.
+- The measurement pool (loaded MDF files), the Sync Measurements state, and which measurement is Primary (#103) are global, shared across every tab — only the plot/signal/zoom state above is per-tab.
 
 ---
 
@@ -77,7 +78,7 @@ A per-stripe "Sync"/"Un-Sync" button also floats in the corner of the measuremen
 - Clicking inside a stripe makes it the active one (colored marker on its left edge) — Swimlanes, box-zoom, and (when "All Stripes" is off) Zoom to Fit/Zoom Y to View all act on the active stripe only.
 - Each active signal gets its own Y-axis on the right, colored to match its curve; dragging a Y-axis pans/zooms that signal alone. Signals can be merged (one shared Y-axis) or synced (separate axes, ranges kept in lockstep) via the Active Signals Table's context menu.
 - Accepts drag-and-drop: MDF/`.mvc` files, and signals dragged from the Signal Browser or between Active Signals Table segments (dropping directly onto a stripe's plot area moves/adds to that stripe).
-- **Multiple measurements** (#101): once 2+ measurement files are loaded, each gets its own X-axis row stacked below the bottom-most stripe, showing that measurement's real recorded time; dragging a measurement's own row pans its curves independently (wheel/box zoom always stays shared across every measurement). "Sync Measurements" (#102) collapses these rows into one shared ruler (the first-loaded measurement's) once they've been manually aligned; "Un-Sync" restores the separate rows.
+- **Multiple measurements** (#101): once 2+ measurement files are loaded, each gets its own X-axis row stacked below the bottom-most stripe (the **Primary** measurement's row always topmost, #103), showing that measurement's real recorded time; dragging a measurement's own row pans its curves independently (wheel/box zoom always stays shared across every measurement). "Sync Measurements" (#102) collapses these rows into one shared ruler (the **Primary** measurement's, defaulting to first-loaded — set/changed via its checkbox in the Measurement Info Box) once they've been manually aligned; "Un-Sync" restores the separate rows.
 
 ---
 
@@ -92,16 +93,28 @@ A per-stripe "Sync"/"Un-Sync" button also floats in the corner of the measuremen
 
 ---
 
-## Signal Browser (Left Panel)
+## Signal Browser (Left Panel) (#103)
 
-- TreeView reflecting the full channel-group hierarchy of the currently-selected loaded measurement.
-- A measurement selector combo box appears above the tree once 2+ measurements are loaded (hidden with 0 or 1); picking one repopulates the tree with that measurement's channels. All three ways of adding a signal below implicitly target whichever measurement the selector currently shows.
-- A wildcard filter field (`*`/`?`) above the tree narrows the currently-shown tree by name.
+- A single flat, alphabetically-sorted list of every channel from every loaded measurement — no channel-group tree. A channel's original channel-group name is still shown as a hover tooltip.
+- Once 2+ measurements are loaded, each row is prefixed with its measurement's short name (e.g. `[M1] Drehzahl`, `[M2] Drehzahl`) — sorting is keyed on the bare channel name, not the prefix, so identically-named channels from different measurements land next to each other. With exactly one measurement loaded, no prefix is shown.
+- A measurement filter combo ("All" / one short name per measurement) appears above the list once 2+ measurements are loaded (hidden with 0 or 1); it narrows the list without reloading anything, and composes with the text filter below (both narrow together).
+- A wildcard filter field (`*`/`?`) above the list narrows it further by name.
 - Signals can be added to the plot via:
-  - Double-click on a signal node
+  - Double-click on a channel
   - Select (highlight) + click "Add Signal" button below the list
-  - Drag one or more selected signals onto a Plot Stripe or the Active Signals Table
-- Multi-select: `ExtendedSelection` mode — Ctrl+click (individual), Shift+click (range); all three add paths emit all selected channels at once.
+  - Drag one or more selected channels onto a Plot Stripe or the Active Signals Table
+- Multi-select: `ExtendedSelection` mode — Ctrl+click (individual), Shift+click (range); a selection (and a single drag gesture) can span rows from different measurements — each channel resolves its own measurement rather than sharing one for the whole request.
+
+---
+
+## Measurement Info Box (Left Panel) (#103)
+
+Below the Signal Browser in the same left panel. Always tabbed, one tab per loaded measurement — even with only one loaded, so the panel's structure doesn't change as measurements are added or removed. Each tab shows:
+
+- A header row with a **Primary Measurement** checkbox (exactly one measurement is Primary at all times; checking a different tab's box unchecks the previous one) and an editable **short name** field (defaults "M1", "M2", ... by load order; rejects a name already used by another loaded measurement, reverting the edit).
+- The existing read-only metadata below: File, MDF version, Author, Recorded, Duration, Comment, and any other MDF metadata fields present.
+
+The Primary measurement's X-axis row is always drawn topmost in the plot area, and is the reference measurement when Sync Measurements is active. Closing the Primary measurement reassigns Primary to the first-loaded of the remaining measurements automatically.
 
 ---
 
@@ -112,7 +125,7 @@ Divided into one segment per stripe, stacked top-to-bottom in the same order as 
 | # | Column | Description |
 |---|--------|--------------|
 | 1 | Color swatch | Small colored rectangle; clicking opens a color picker and updates curve + Y-axis color |
-| 2 | Signal name | Display name from MDF metadata (prefixed with its measurement's label once 2+ measurements are loaded) |
+| 2 | Signal name | Display name from MDF metadata (prefixed with its measurement's short name once 2+ measurements are loaded) |
 | 3 | Cursor 1 value | Current value at Cursor 1 position (shown only when cursor is active) |
 | 4 | Cursor 2 value | Current value at Cursor 2 position (shown only when cursor is active) |
 | 5 | Delta | Difference between Cursor 2 and Cursor 1 values |

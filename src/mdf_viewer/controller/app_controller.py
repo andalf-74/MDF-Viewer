@@ -136,6 +136,17 @@ class AppController:
         # collapsed into one shared ruler (#102) — global, not per-tab,
         # matching the measurement pool's own global-across-tabs scope.
         self._measurements_synchronized: bool = False
+        # Exactly one measurement is "Primary" whenever any are loaded
+        # (#103, REQ-PLOT-317) — an object reference, not a bool field on
+        # LoadedMeasurement itself, so "exactly one" is structural rather
+        # than something that can drift out of sync.
+        self._primary_measurement: LoadedMeasurement | None = None
+        # Monotonic — only ever reset by a fresh Replace (or the legacy
+        # single-file load_file), never decremented by closing a
+        # measurement, so a default short name is never reused within the
+        # same "session" just because it happens to be free again
+        # (REQ-FILE-027).
+        self._measurement_load_counter: int = 0
         self._browser = signal_browser
         self._info_box = measurement_info_box
         self._signal_info = signal_info_box
@@ -176,10 +187,48 @@ class AppController:
             return self._measurements[index]
         return None
 
-    def channel_tree_for_measurement(self, index: int) -> list:
-        """The channel_tree() for the measurement at *index* (REQ-BROWSER-051), or [] if out of range."""
-        measurement = self.measurement_at(index)
-        return measurement.loader.channel_tree() if measurement is not None else []
+    @property
+    def primary_measurement(self) -> LoadedMeasurement | None:
+        """The measurement currently designated Primary (REQ-PLOT-317), or None if none loaded."""
+        return self._primary_measurement
+
+    def set_primary_measurement(self, measurement: LoadedMeasurement) -> None:
+        """Designate *measurement* as Primary (REQ-PLOT-317), a user-driven change.
+
+        No-op if *measurement* isn't currently loaded. Pushes the new
+        ordering to every tab's axis rows (REQ-PLOT-319) and, if
+        Synchronized, the new Sync reference (REQ-PLOT-312/320), and
+        rebuilds the Measurement Info tabs so the checkbox that's actually
+        checked always matches (REQ-PLOT-317).
+        """
+        if measurement not in self._measurements:
+            return
+        self._primary_measurement = measurement
+        self._refresh_measurement_axes()
+        self._refresh_info_box()
+
+    def rename_measurement(self, measurement: LoadedMeasurement, new_name: str) -> bool:
+        """Rename *measurement*'s short name to *new_name* (REQ-FILE-027).
+
+        Rejects (returns False, leaves the name unchanged) a name that
+        collides with another currently-loaded measurement's short name,
+        so short names stay unique at all times. Either way, rebuilds the
+        Measurement Info tabs: on success to show the new name everywhere
+        else it's displayed, on rejection to revert the edit box's stale
+        rejected text back to the still-current label — the same
+        set_measurements() call does both, since it always renders
+        whatever self._measurements/self._primary_measurement currently
+        are, regardless of which branch is taken.
+        """
+        if any(m is not measurement and m.label == new_name for m in self._measurements):
+            self._refresh_info_box()
+            return False
+        measurement.label = new_name
+        self._refresh_signal_browser()
+        self.refresh_display_names()
+        self._refresh_measurement_axes()
+        self._refresh_info_box()
+        return True
 
     @property
     def current_workspace(self) -> TabWorkspace:
@@ -407,16 +456,18 @@ class AppController:
         self._info_box.clear()
         self.current_workspace.color_index = 0
         self._measurements_synchronized = False
+        self._measurement_load_counter = 0
 
         self._loader.open(path)  # raises MdfLoadError on failure
 
-        groups = self._loader.channel_tree()
         info = self._loader.measurement_info()
         self._measurements = [
-            LoadedMeasurement(loader=self._loader, info=info, label=make_label(path, []))
+            LoadedMeasurement(loader=self._loader, info=info, label=make_label(0, []))
         ]
-        self._browser.populate(groups)
-        self._info_box.set_info(info)
+        self._measurement_load_counter = 1
+        self._primary_measurement = self._measurements[0]
+        self._refresh_signal_browser()
+        self._refresh_info_box()
         if self.current_workspace.cursor_ctrl is not None:
             self.current_workspace.cursor_ctrl.reset()
         if self.current_workspace.zoom_ctrl is not None:
@@ -433,16 +484,17 @@ class AppController:
         Measurement Info Box, then opens every path in *paths* as a fresh
         measurement (each via its own loader_factory()-built MdfLoader).
         Files that fail to open are collected into the returned LoadResult
-        rather than aborting the whole operation (REQ-FILE-023); the
-        Signal Browser/Info Box are populated from the first successfully
-        opened measurement, with the rest reachable via the browser's own
-        measurement selector (REQ-BROWSER-050).
+        rather than aborting the whole operation (REQ-FILE-023); the Signal
+        Browser shows every successfully opened measurement's channels at
+        once (REQ-BROWSER-010), and the Measurement Info Box is populated
+        from the first.
         """
         self.remove_all()
         self._browser.clear()
         self._info_box.clear()
         self.current_workspace.color_index = 0
         self._measurements_synchronized = False
+        self._measurement_load_counter = 0
 
         result = LoadResult()
         new_measurements: list[LoadedMeasurement] = []
@@ -455,7 +507,8 @@ class AppController:
                 result.failed.append((str(path), exc))
                 continue
             info = loader.measurement_info()
-            label = make_label(path, labels)
+            label = make_label(self._measurement_load_counter, labels)
+            self._measurement_load_counter += 1
             labels.append(label)
             measurement = LoadedMeasurement(loader=loader, info=info, label=label)
             new_measurements.append(measurement)
@@ -464,14 +517,16 @@ class AppController:
                 self._settings.add_recent(path)
 
         self._measurements = new_measurements
-        self._browser.set_measurements([m.label for m in new_measurements])
+        # Primary always resets to the first-loaded of the new set on
+        # Replace, the same as offset_s/Synchronized state already reset
+        # here (REQ-PLOT-322) — a fresh set of files has no relationship
+        # to whichever measurement was Primary before.
+        self._primary_measurement = new_measurements[0] if new_measurements else None
+        self._refresh_signal_browser()
+        self._refresh_info_box()
         self._refresh_measurement_axes()
         self.refresh_display_names()
 
-        if new_measurements:
-            first = new_measurements[0]
-            self._browser.populate(first.loader.channel_tree())
-            self._info_box.set_info(first.info)
         if self.current_workspace.cursor_ctrl is not None:
             self.current_workspace.cursor_ctrl.reset()
         if self.current_workspace.zoom_ctrl is not None:
@@ -502,7 +557,8 @@ class AppController:
                 result.failed.append((str(path), exc))
                 continue
             info = loader.measurement_info()
-            label = make_label(path, labels)
+            label = make_label(self._measurement_load_counter, labels)
+            self._measurement_load_counter += 1
             labels.append(label)
             measurement = LoadedMeasurement(loader=loader, info=info, label=label)
             self._measurements.append(measurement)
@@ -510,10 +566,25 @@ class AppController:
             if self._settings is not None:
                 self._settings.add_recent(path)
         if result.succeeded:
-            self._browser.set_measurements([m.label for m in self._measurements])
+            # Adding never disturbs an existing Primary (REQ-PLOT-322); the
+            # only exception is establishing one at all when the pool was
+            # previously empty (REQ-PLOT-317's "exactly one whenever at
+            # least one is loaded" invariant still applies here).
+            if self._primary_measurement is None:
+                self._primary_measurement = self._measurements[0]
+            self._refresh_signal_browser()
+            self._refresh_info_box()
             self._refresh_measurement_axes()
             self.refresh_display_names()
         return result
+
+    def measurement_has_signals(self, measurement: LoadedMeasurement) -> bool:
+        """Whether *measurement* has any active signals in any tab (REQ-FILE-028)."""
+        return any(
+            a.measurement is measurement
+            for workspace in self._workspaces
+            for a in workspace.active
+        )
 
     def close_measurement(self, measurement: LoadedMeasurement) -> None:
         """Remove *measurement* and every one of its active signals from every tab (REQ-FILE-028).
@@ -536,13 +607,42 @@ class AppController:
         # is a mutable dataclass with no custom __eq__, so two structurally
         # matching-but-distinct instances could otherwise compare equal.
         self._measurements = [m for m in self._measurements if m is not measurement]
-        self._browser.set_measurements([m.label for m in self._measurements])
-        if self._measurements:
-            self._browser.populate(self._measurements[0].loader.channel_tree())
-        else:
-            self._browser.clear()
+        # Reassign Primary *before* the axes/browser refresh below, not
+        # after — REQ-PLOT-321. Must run here, between the list mutation
+        # and the existing tail calls, or the axes push once against a
+        # stale/removed Primary with no second refresh to correct it.
+        if self._primary_measurement is measurement:
+            self._primary_measurement = self._measurements[0] if self._measurements else None
+        self._refresh_signal_browser()
+        self._refresh_info_box()
         self._refresh_measurement_axes()
         self.refresh_display_names()
+
+    def _refresh_info_box(self) -> None:
+        """Rebuild the Measurement Info panel's tabs from the full
+        measurement pool and current Primary (#103, REQ-PLOT-318).
+
+        Called from every mutation site of self._measurements or
+        self._primary_measurement, mirroring _refresh_signal_browser()'s
+        centralization — including a bare Primary change with no
+        measurement added/removed, since MeasurementInfoBox always fully
+        rebuilds its tabs rather than needing a separate incremental sync
+        path (see its own docstring for why).
+        """
+        self._info_box.set_measurements(self._measurements, self._primary_measurement)
+
+    def _refresh_signal_browser(self) -> None:
+        """Rebuild the Signal Browser's flat, cross-measurement channel list
+        from the full measurement pool (#103, REQ-BROWSER-010).
+
+        Centralized here and called from every mutation site of
+        self._measurements (replace_measurements, add_measurements,
+        close_measurement, rename_measurement) so none of them can
+        silently skip repopulating it — add_measurements previously never
+        did under the old switcher, a real gap caught during the
+        architecture review.
+        """
+        self._browser.populate_all([(m.label, m.loader.channel_tree()) for m in self._measurements])
 
     def _refresh_measurement_axes(self) -> None:
         """Push the current measurement pool and sync state to every tab's
@@ -551,12 +651,19 @@ class AppController:
         Measurements (and whether they're synchronized) are a single global
         state shared across tabs, so every tab's bottom-most-stripe axis
         rows (REQ-PLOT-301/313) must reflect it, not just the currently
-        active tab.
+        active tab. The Primary measurement (#103) is always reordered to
+        the front here — the only place this ordering happens — so that
+        both the topmost axis row (REQ-PLOT-319) and the Sync reference
+        (REQ-PLOT-312), which both just use "whichever measurement is
+        first," automatically reflect Primary with no changes needed in
+        PlotStripesArea/PlotStripe themselves.
         """
+        ordered = self._measurements
+        primary = self._primary_measurement
+        if primary is not None and primary in self._measurements:
+            ordered = [primary] + [m for m in self._measurements if m is not primary]
         for workspace in self._workspaces:
-            workspace.plot.refresh_measurement_axes(
-                self._measurements, self._measurements_synchronized,
-            )
+            workspace.plot.refresh_measurement_axes(ordered, self._measurements_synchronized)
 
     @property
     def is_measurements_synchronized(self) -> bool:
