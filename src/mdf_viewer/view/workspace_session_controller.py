@@ -151,6 +151,55 @@ class WorkspaceSessionController:
         )
         return reply == QMessageBox.StandardButton.Yes
 
+    def build_tab_skeletons(self, tab_configs: list) -> None:
+        """Build every saved tab's skeleton — the tab itself (renamed)
+        and its stripe layout (renamed/resized) — with no signals yet
+        (#106 Phase 2).
+
+        Assumes `reset_to_single_tab()` already ran, so exactly one tab
+        exists. Reuses that tab as `tab_configs[0]` (renamed, not
+        recreated) and drives `on_new_tab()`'s own tab-creation factory
+        for each further `TabConfig` — a deliberate simplification (see
+        `docs/architecture.md`): each call fires `switch_tab()` as a side
+        effect and doesn't reconcile `_tab_counter` against restored
+        names, accepted for this rare bulk operation rather than
+        building a separate non-interactive tab-creation path.
+        """
+        controller = self._get_controller()
+        if controller is None or not tab_configs:
+            return
+        for _ in range(len(tab_configs) - 1):
+            self._on_new_tab()
+        for index, tab_config in enumerate(tab_configs):
+            self._tab_widget.setTabText(index, tab_config.name)
+            page = self._tab_widget.widget(index)
+            self.build_stripe_skeleton(page, tab_config.stripes, tab_config.active_stripe_index)
+            page.setSizes(list(tab_config.page_splitter_sizes))
+
+    def build_stripe_skeleton(self, page, stripes: list, active_stripe_index: int) -> None:
+        """Build one tab's stripe layout from saved `StripeConfig`s (#106
+        Phase 2), with no signals placed yet.
+
+        `PlotStripesArea` already creates one stripe unconditionally in
+        its own `__init__` — reused as `stripes[0]` (renamed) rather than
+        creating an extra, un-renamed empty stripe alongside it (a real
+        bug the #106 Plan-review pass caught: `create_stripe()` isn't a
+        no-op to call "just in case", it always appends). Sizes are set
+        once, only after every stripe for this tab exists, since
+        `create_stripe()` itself resets every stripe's size on every call.
+        """
+        plot_area = page.plot_area
+        ast = page.active_signals_table
+        existing = plot_area.get_stripes()
+        for _ in range(len(stripes) - len(existing)):
+            plot_area.create_stripe()
+        all_stripes = plot_area.get_stripes()
+        for stripe, stripe_config in zip(all_stripes, stripes):
+            ast.rename_stripe_segment(stripe, stripe_config.name)
+        plot_area.set_stripe_sizes([s.size for s in stripes])
+        if 0 <= active_stripe_index < len(all_stripes):
+            plot_area.set_active_stripe(all_stripes[active_stripe_index])
+
     def signal_config_to_snapshot(
         self, sig, stripe_name: str = "", measurement: "object | None" = None,
     ) -> "ActiveSignalSnapshot":
