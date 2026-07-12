@@ -42,12 +42,25 @@ together. No layer constructs another's object graph.
 
 ## Module map
 
+Updated 2026-07-12 (#135) — was still listing the pre-#97 `plot_area` file and
+omitted nearly every module added since.
+
 ```
-model/        signal_data, signal_metadata, measurement, mdf_loader
-view_model/   active_signal
-controller/   app_controller, cursor_controller, interfaces
-view/         main_window, signal_browser, active_signals_table, plot_area,
-              cursors, measurement_info_box, signal_info_box, widgets/
+model/        signal_data, signal_metadata, measurement, loaded_measurement,
+              mdf_loader, interpolate, viewer_config
+view_model/   active_signal, zoom_state
+controller/   app_controller, cursor_controller, zoom_controller, events,
+              interfaces
+view/         main_window, workspace_session_controller, signal_browser,
+              active_signals_table, plot_stripe, plot_stripes_area, cursors,
+              dockable_panel, measurement_info_box, measurement_mapping_dialog,
+              near_match_dialog, signal_group_picker_dialog,
+              signal_display_name_dialog, signals_not_found_dialog,
+              signal_info_box, preferences_dialog, license_dialog,
+              _display_name_controls, _mime, widgets/
+license/      license_info, license_manager
+(top level)   app.py, config_manager.py, errors.py, settings.py,
+              update_checker.py
 ```
 
 ---
@@ -82,13 +95,15 @@ Grouped by topic; most-recent entries at the bottom of each group.
 - **Duplicate signal prevention:** `AppController.add_signal` checks `(group_index, channel_index)` against active signals' metadata before loading; returns `False` on duplicates (callers use the return value to count skips for the status bar message).
 - **Single controller contact point for `MainWindow` (#48):** `MainWindow` no longer holds a reference to `CursorController`. All cursor actions (`toggle_cursor`, `press_cursor1`, `press_cursor2`, `zoom_to_cursors`, `set_cursor_mode_callback`) are proxy methods on `AppController`, which delegates to `_cursor_ctrl`. `set_controller(ctrl)` has no `cursor_ctrl` parameter.
 
-### Plot area
+### Plot area — per-stripe patterns (originally `PlotArea`, renamed `PlotStripe` by #97)
 
-- **`PlotArea` multi-axis pattern:** `pi.vb` (main ViewBox) is the X-axis host only — no curves added to it. Each signal gets its own `ViewBox` with `setXLink(pi)` for shared X, and an `AxisItem('right')` placed at the next layout column. `pi.vb.sigResized` → `_update_view_geometries()` keeps extra ViewBoxes geometrically aligned.
-- **`PlotArea` zoom_to_fit:** computes X bounds from `active.data.timestamps` across all signals, calls `pi.vb.setXRange` (propagates via XLink), then `vb.autoRange()` per signal for independent Y reset.
-- **Curve downsampling:** each `PlotDataItem` in `PlotArea.add_signal` has `setClipToView(True)` and `setDownsampling(auto=True, method="peak")`. The curve is constructed without data, added to its `ViewBox` via `vb.addItem(curve)`, and only then given data via `curve.setData(...)` — calling `setData` before the curve has a parent `ViewBox` made pyqtgraph fall back to the `PlotWidget` for `getViewBox()`, which raised `AttributeError: autoRangeEnabled` once downsampling was enabled.
+**Superseded class name, current content:** the #97 Plot Stripes refactor split the single `PlotArea` class into `PlotStripe`/`PlotStripesArea` (see "Plot Stripes (#97)" below) — every pattern in this section still applies today, just per-`PlotStripe` instance rather than to one app-wide plot area. Renamed in place below rather than left under the old class name, per #135.
+
+- **`PlotStripe` multi-axis pattern:** `pi.vb` (main ViewBox) is the X-axis host only — no curves added to it. Each signal gets its own `ViewBox` with `setXLink(pi)` for shared X, and an `AxisItem('right')` placed at the next layout column. `pi.vb.sigResized` → `_update_view_geometries()` keeps extra ViewBoxes geometrically aligned.
+- **`PlotStripe.zoom_to_fit`:** computes X bounds from `active.data.timestamps` across all signals, calls `pi.vb.setXRange` (propagates via XLink), then `vb.autoRange()` per signal for independent Y reset.
+- **Curve downsampling:** each `PlotDataItem` in `PlotStripe.add_signal` has `setClipToView(True)` and `setDownsampling(auto=True, method="peak")`. The curve is constructed without data, added to its `ViewBox` via `vb.addItem(curve)`, and only then given data via `curve.setData(...)` — calling `setData` before the curve has a parent `ViewBox` made pyqtgraph fall back to the `PlotWidget` for `getViewBox()`, which raised `AttributeError: autoRangeEnabled` once downsampling was enabled.
 - **Y-axis tick formatting:** `_SignalAxisItem` subclasses `pg.AxisItem`; float signals use `:.6g` (strips floating-point noise like "256.000000007"); integer signals snap ticks to integer positions and format as plain integers.
-- **Drag-and-drop MIME type:** `application/x-mdf-viewer-signals` (defined in `view/_mime.py`); payload is a JSON-encoded list of `[group_index, channel_index]` pairs. Event filters installed on `_pw.viewport()` (PlotArea) and `_table.viewport()` (ActiveSignalsTable) handle DragEnter/DragMove/Drop without subclassing PyQtGraph or QTableWidget.
+- **Drag-and-drop MIME types (`view/_mime.py`):** `SIGNAL_MIME_TYPE` (`application/x-mdf-viewer-signals`) carries the Signal Browser's drag payload — a JSON-encoded list of `(measurement_index, group_index, channel_index)` triples (not bare `[group_index, channel_index]` pairs — flattened to include `measurement_index` by #103, since one drag/multi-selection can span multiple measurements in the now-unified browser list). `ROW_MIME_TYPE` (`application/x-mdf-viewer-active-signal-move`, added by #116) separately carries an already-active signal being dragged between Active Signals Table segments/stripes — just each dragged `ActiveSignal`'s `id()`. Event filters installed on `_pw.viewport()` (`PlotStripe`) and `_table.viewport()` (`ActiveSignalsTable`) handle DragEnter/DragMove/Drop for both, without subclassing PyQtGraph or QTableWidget.
 
 ### Plot Stripes (#97)
 

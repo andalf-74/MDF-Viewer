@@ -8,18 +8,24 @@
 | `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` |
 | `model/loaded_measurement.py` | `LoadedMeasurement` dataclass — one measurement in the global multi-measurement pool (#101); `.label` is the user-facing, user-editable short name (#103); `make_label(index, existing_labels)` derives the "M1"/"M2"... default from load-order position |
 | `model/signal_data.py` | `SignalData` dataclass |
+| `model/signal_metadata.py` | `SignalMetadata` dataclass — descriptive channel metadata (name, unit, comment, min/max, group/channel index, raster, enum map); no samples |
+| `model/measurement.py` | `MeasurementInfo` dataclass — file-level MDF metadata (file name, version, author, recorded-at, duration, comment) for the Measurement Info Box |
 | `model/interpolate.py` | `interpolate(active, x)` — shared linear interpolation helper used by `CursorController` and `CursorStripesView` |
 | `model/viewer_config.py` | `ViewerConfig`/`TabConfig`/`StripeConfig`/`SignalConfig`/`MeasurementConfig`/`SignalRef` — pure-data snapshot of a saved workspace session (#106): every tab, every tab's stripe layout, every active signal, every loaded measurement |
 | `config_manager.py` | `ConfigManager` — save/load `.mvc` JSON files; `CONFIG_FORMAT_VERSION`; migrates a pre-#106 flat single-tab/single-measurement file on load |
 | `view/_mime.py` | Shared MIME type constants for drag-and-drop: `SIGNAL_MIME_TYPE` (Signal Browser → plot/AST; payload is a flat list of `(measurement_index, group_index, channel_index)` triples, #103) and `ROW_MIME_TYPE` (AST-internal row moves, #100/#116), plus their encode/decode helpers |
 | `view/signal_browser.py` | `SignalBrowser` — flat, alphabetically-sorted, cross-measurement channel list (no tree), multi-select, Add Signal button, drag; measurement filter combo once 2+ measurements are loaded (#103) |
 | `view/main_window.py` | `MainWindow` — tabs (#99), menu/toolbar, status bar, per-tab wiring |
+| `view/workspace_session_controller.py` | `WorkspaceSessionController` — owns `MainWindow`'s `.mvc` save/load/apply orchestration (#136); view-layer despite the name (shows dialogs, manipulates `QTabWidget` pages) — see its own section below |
 | `view/dockable_panel.py` | `DockablePanel` — pin/hover collapsible panel shell for a window edge (left or right); used for both the Signal Browser/Measurement Info panel and the Info/Properties drawer (#98) |
+| `view/signal_display_name_dialog.py` | `SignalDisplayNameDialog` — small dialog (opened from the Active Signals Table context menu) wrapping `DisplayNameRuleControls` for editing the display-name-shortening rule |
+| `view/_display_name_controls.py` | `DisplayNameRuleControls` — shared `QWidget` (checkbox, separator, direction, segment count, live preview) embedded in both `PreferencesDialog` and `SignalDisplayNameDialog` |
 | `view/measurement_info_box.py` | `MeasurementInfoBox` — always-tabbed (one tab per loaded measurement, #103), each tab: Primary checkbox + short-name edit header, then read-only file metadata (QFormLayout) |
 | `view/signal_info_box.py` | `SignalInfoBox` — Info section (metadata, incl. raster) + Properties section (display mode, marker shape), stacked vertically in a resizable inner splitter (#98) |
 | `view/widgets/color_swatch.py` | `ColorSwatch` — flat `QPushButton` color indicator; reusable across views |
 | `view/widgets/icons.py` | `_load_icon(name)` / `_icon_suffix()` / `_ICONS_DIR` — shared light/dark-aware icon loading (#133); moved out of `main_window.py` so `active_signals_table.py` can use them too without a circular import |
 | `view/widgets/visibility_toggle_button.py` | `VisibilityToggleButton` — flat, icon-based eye button (open/closed) toggling a signal's visibility in the Active Signals Table (#133) |
+| `view/widgets/splitter.py` | `make_splitter(orientation)` — a `QSplitter` with a thin, visible handle line (`setHandleWidth(3)` + palette-colored stylesheet), used everywhere a `QSplitter` is built directly |
 | `view/active_signals_table.py` | `ActiveSignalsTable` — facade over one shared header + per-stripe segments (#100); drag-to-move rows, context menu, multi-select, per-row visibility toggle (#133) |
 | `view/near_match_dialog.py` | `NearMatchDialog` — batches every near-match signal (different source/protocol) into one confirmation dialog (#109) |
 | `view/measurement_mapping_dialog.py` | `MeasurementMappingDialog` — one combo box per saved config measurement slot, mapping it onto an already-loaded measurement or "None"; enforces a 1:1 mapping (#105) |
@@ -42,6 +48,7 @@
 | `view/license_dialog.py` | `LicenseDialog` — import mode (browse/drop) + view mode (details + expiry notice + Retrieve License button); on successful import shows a "restart required" message and closes |
 | `view/preferences_dialog.py` | `PreferencesDialog` — tabbed `QDialog`; General tab with "Check for updates on startup" checkbox and "Undo steps" spinbox (1–100); Cursors tab with mode, persistent, 4 cursor color swatches (C1/C2/CL/CR), Show ∆-Time checkbox + color swatch, arrow-key step (unit combobox + spinbox), reset button |
 | `app.py` | MVC assembly point; per-tab controller wiring factory (#99) |
+| `__main__.py` | `python -m mdf_viewer` entry point; `main()` imports and calls `app.run(sys.argv)` |
 
 Run `pytest --collect-only -q` for current per-file test counts — not tracked here since they drift on every change.
 
