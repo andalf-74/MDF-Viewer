@@ -2085,6 +2085,122 @@ def test_add_measurements_does_not_reset_synchronized_state(deps: dict) -> None:
     assert ctrl2.is_measurements_synchronized is True
 
 
+# ---------------------------------------------------------------------------
+# Replace a Single Measurement (#122)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-FILE-103")
+def test_replace_single_measurement_preserves_identity(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(
+        deps, [_make_pool_loader(), _make_pool_loader(), _make_pool_loader(), _make_pool_loader()],
+    )
+    ctrl2.replace_measurements(["a.mf4", "b.mf4", "c.mf4"])
+    m1, m2, m3 = ctrl2.measurements
+    ctrl2.rename_measurement(m2, "Baseline")
+    m2.offset_s = 5.0
+    ctrl2.set_primary_measurement(m2)
+    ctrl2.toggle_measurements_synchronized()
+
+    result = ctrl2.replace_single_measurement(m2, "corrected.mf4")
+
+    assert result.succeeded == [m2]
+    assert not result.failed
+    assert ctrl2.measurements == [m1, m2, m3]
+    assert m2.label == "Baseline"
+    assert m2.offset_s == 5.0
+    assert ctrl2.primary_measurement is m2
+    assert ctrl2.is_measurements_synchronized is True
+
+
+@pytest.mark.requirement("REQ-FILE-104")
+def test_replace_single_measurement_does_not_affect_other_measurements(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(
+        deps, [_make_pool_loader(), _make_pool_loader(), _make_pool_loader()],
+    )
+    ctrl2.replace_measurements(["a.mf4", "b.mf4"])
+    m1, m2 = ctrl2.measurements
+    m1_loader = m1.loader
+    ctrl2.add_signal(0, 1, measurement=m1)
+    existing_signal = ctrl2.active_signals[0]
+
+    ctrl2.replace_single_measurement(m2, "corrected.mf4")
+
+    assert ctrl2.measurements[0] is m1
+    assert m1.loader is m1_loader
+    assert ctrl2.active_signals == [existing_signal]
+
+
+@pytest.mark.requirement("REQ-FILE-104")
+def test_replace_single_measurement_removes_only_its_own_signals_across_tabs(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(
+        deps, [_make_pool_loader(), _make_pool_loader(), _make_pool_loader()],
+    )
+    ctrl2.replace_measurements(["a.mf4", "b.mf4"])
+    m1, m2 = ctrl2.measurements
+    ctrl2.add_signal(0, 1, measurement=m1)
+    ctrl2.add_signal(0, 2, measurement=m2)
+    plot2, table2 = MagicMock(), MagicMock()
+    ctrl2.create_tab(plot2, table2)  # tab 1 now active
+    ctrl2.add_signal(0, 3, measurement=m2)
+    ctrl2.switch_tab(0)
+    assert len(ctrl2._workspaces[0].active) == 2
+    assert len(ctrl2._workspaces[1].active) == 1
+
+    ctrl2.replace_single_measurement(m2, "corrected.mf4")
+
+    assert [s.measurement for s in ctrl2._workspaces[0].active] == [m1]
+    assert ctrl2._workspaces[1].active == []
+
+
+@pytest.mark.requirement("REQ-FILE-106")
+def test_replace_single_measurement_failure_leaves_measurement_untouched(deps: dict) -> None:
+    bad = MagicMock()
+    bad.open.side_effect = MdfLoadError("bad file")
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader(), bad])
+    ctrl2.replace_measurements(["a.mf4", "b.mf4"])
+    m1, m2 = ctrl2.measurements
+    m2_loader = m2.loader
+    ctrl2.add_signal(0, 1, measurement=m2)
+    existing_signal = ctrl2.active_signals[0]
+
+    result = ctrl2.replace_single_measurement(m2, "bad.mf4")
+
+    assert len(result.failed) == 1
+    assert result.failed[0][0] == "bad.mf4"
+    assert not result.succeeded
+    assert ctrl2.measurements == [m1, m2]
+    assert m2.loader is m2_loader
+    assert ctrl2.active_signals == [existing_signal]
+
+
+@pytest.mark.requirement("REQ-FILE-100")
+def test_replace_single_measurement_unknown_measurement_is_noop(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    foreign = LoadedMeasurement(loader=_make_pool_loader(), info=_make_measurement_info(), label="X")
+
+    result = ctrl2.replace_single_measurement(foreign, "b.mf4")
+
+    assert not result.succeeded
+    assert not result.failed
+    assert ctrl2.measurement_count == 1
+
+
+@pytest.mark.requirement("REQ-FILE-104")
+def test_snapshot_measurement_signals_scoped_to_one_measurement(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4", "b.mf4"])
+    m1, m2 = ctrl2.measurements
+    ctrl2.add_signal(0, 1, measurement=m1)
+    ctrl2.add_signal(0, 2, measurement=m2)
+
+    snapshots = ctrl2.snapshot_measurement_signals(m2)
+
+    assert list(snapshots.keys()) == [0]
+    (snap,) = snapshots[0]
+    assert snap.measurement is m2
+
+
 @pytest.mark.requirement("REQ-FILE-031")
 def test_on_measurement_offset_changed_refreshes_only_that_measurements_signals(
     deps: dict,

@@ -1367,6 +1367,191 @@ def test_close_measurement_cancelled_does_not_close(
 
 
 # ---------------------------------------------------------------------------
+# Replace Measurement menu and flow (#122, REQ-FILE-100..108)
+# ---------------------------------------------------------------------------
+
+def test_replace_measurement_menu_disabled_without_controller(window: MainWindow) -> None:
+    window._file_menu.aboutToShow.emit()
+    assert window._replace_measurement_menu.isEnabled() is False
+    assert window._replace_measurement_menu.actions() == []
+
+
+def test_replace_measurement_menu_disabled_with_no_measurements(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.measurements = []
+    wired._file_menu.aboutToShow.emit()
+    assert wired._replace_measurement_menu.isEnabled() is False
+
+
+@pytest.mark.requirement("REQ-FILE-100")
+def test_replace_measurement_menu_lists_every_measurement_by_short_name(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    m1, m2 = MagicMock(label="M1"), MagicMock(label="M2")
+    mock_controller.measurements = [m1, m2]
+    wired._file_menu.aboutToShow.emit()
+    assert wired._replace_measurement_menu.isEnabled() is True
+    actions = wired._replace_measurement_menu.actions()
+    assert [a.text() for a in actions] == ["M1", "M2"]
+
+
+@pytest.mark.requirement("REQ-FILE-100")
+def test_replace_measurement_menu_rebuilt_on_each_show(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.measurements = [MagicMock(label="M1")]
+    wired._file_menu.aboutToShow.emit()
+    mock_controller.measurements = [MagicMock(label="M1"), MagicMock(label="M2")]
+    wired._file_menu.aboutToShow.emit()
+    assert len(wired._replace_measurement_menu.actions()) == 2
+
+
+@pytest.mark.requirement("REQ-FILE-100")
+def test_replace_measurement_menu_entry_invokes_replace_flow(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    m1 = MagicMock(label="M1")
+    mock_controller.measurements = [m1]
+    wired._file_menu.aboutToShow.emit()
+    with patch.object(wired, "_replace_single_measurement") as mock_replace:
+        wired._replace_measurement_menu.actions()[0].trigger()
+    mock_replace.assert_called_once_with(m1)
+
+
+@pytest.mark.requirement("REQ-FILE-102")
+def test_replace_single_measurement_cancel_dialog_does_nothing(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    m1 = MagicMock(label="M1")
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName", return_value=("", "")
+    ):
+        wired._replace_single_measurement(m1)
+    mock_controller.replace_single_measurement.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-FILE-103")
+def test_replace_single_measurement_success_calls_controller(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    m1 = MagicMock(label="M1")
+    p = tmp_path / "corrected.mf4"
+    p.touch()
+    mock_controller.measurement_has_signals.return_value = False
+    mock_controller.replace_single_measurement.return_value = LoadResult(succeeded=[m1])
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(p), ""),
+    ):
+        wired._replace_single_measurement(m1)
+    mock_controller.replace_single_measurement.assert_called_once_with(m1, str(p))
+
+
+@pytest.mark.requirement("REQ-FILE-106")
+def test_replace_single_measurement_failure_shows_error_dialog(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    m1 = MagicMock(label="M1")
+    p = tmp_path / "bad.mf4"
+    p.touch()
+    mock_controller.measurement_has_signals.return_value = False
+    mock_controller.replace_single_measurement.return_value = LoadResult(
+        failed=[(str(p), MdfLoadError("bad file"))]
+    )
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(p), ""),
+    ), patch("mdf_viewer.view.main_window.QMessageBox.critical") as mock_crit:
+        wired._replace_single_measurement(m1)
+    mock_crit.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-FILE-104")
+def test_replace_single_measurement_restores_snapshots_scoped_to_measurement(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    m1 = MagicMock(label="M1")
+    p = tmp_path / "corrected.mf4"
+    p.touch()
+    window_settings = MagicMock(keep_signals_on_load="always")
+    window_settings.prompt_save_config_on_close = False
+    wired._settings = window_settings
+    mock_controller.measurement_has_signals.return_value = True
+    mock_controller.snapshot_measurement_signals.return_value = {0: ["snap0"]}
+    mock_controller.replace_single_measurement.return_value = LoadResult(succeeded=[m1])
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(p), ""),
+    ), patch.object(wired, "_restore_snapshots") as mock_restore:
+        wired._replace_single_measurement(m1)
+    mock_controller.snapshot_measurement_signals.assert_called_once_with(m1)
+    mock_restore.assert_called_once_with({0: ["snap0"]})
+
+
+# ---------------------------------------------------------------------------
+# _collect_measurement_snapshots_if_keeping (#122, REQ-FILE-104)
+# ---------------------------------------------------------------------------
+
+def test_collect_measurement_snapshots_empty_when_setting_never(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    window._settings = MagicMock(keep_signals_on_load="never")
+    m1 = MagicMock(label="M1")
+
+    assert window._collect_measurement_snapshots_if_keeping(m1) == {}
+    mock_controller.snapshot_measurement_signals.assert_not_called()
+
+
+def test_collect_measurement_snapshots_empty_when_measurement_has_no_signals(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    window._settings = MagicMock(keep_signals_on_load="always")
+    mock_controller.measurement_has_signals.return_value = False
+    m1 = MagicMock(label="M1")
+
+    assert window._collect_measurement_snapshots_if_keeping(m1) == {}
+    mock_controller.snapshot_measurement_signals.assert_not_called()
+
+
+def test_collect_measurement_snapshots_always_returns_scoped_snapshot(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    window._settings = MagicMock(keep_signals_on_load="always")
+    mock_controller.measurement_has_signals.return_value = True
+    mock_controller.snapshot_measurement_signals.return_value = {0: ["snap0"]}
+    m1 = MagicMock(label="M1")
+
+    result = window._collect_measurement_snapshots_if_keeping(m1)
+
+    assert result == {0: ["snap0"]}
+    mock_controller.snapshot_measurement_signals.assert_called_once_with(m1)
+
+
+def test_collect_measurement_snapshots_ask_declined_returns_empty(
+    window: MainWindow, mock_controller: MagicMock
+) -> None:
+    window._controller = mock_controller
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    window._settings = MagicMock(keep_signals_on_load="ask")
+    mock_controller.measurement_has_signals.return_value = True
+    m1 = MagicMock(label="M1")
+
+    with patch(
+        "PyQt6.QtWidgets.QMessageBox.question",
+        return_value=QMessageBox.StandardButton.No,
+    ):
+        assert window._collect_measurement_snapshots_if_keeping(m1) == {}
+    mock_controller.snapshot_measurement_signals.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Status bar
 # ---------------------------------------------------------------------------
 

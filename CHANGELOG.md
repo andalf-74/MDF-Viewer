@@ -231,6 +231,24 @@ All notable changes to MDF-Viewer are documented in this file.
     sequence for any signal added to the new tab afterward.
   - `docs/requirements/plotting.md` gained a new "Duplicating and Copying
     Tabs" section (REQ-PLOT-262 through 269).
+- Replacing a loaded measurement's file no longer requires discarding every
+  other loaded measurement (#122): a new **File ▸ Replace Measurement**
+  submenu, and a matching **"Replace…"** button on that measurement's own
+  tab in the Measurement Info Box, swap just that one measurement's
+  underlying file in place.
+  - The replaced measurement keeps its short name, load-order position,
+    X-axis offset, Primary status, and Synchronized membership — every
+    other loaded measurement is completely untouched.
+  - The replaced measurement's own active signals follow the existing
+    "keep active signals on replace" preference (always/ask/never) and
+    by-name/near-match resolution, scoped to just that measurement.
+  - If the newly selected file fails to open, the measurement being
+    replaced (and everything else) is left exactly as it was.
+  - A matching **"Close"** button was also added to the Measurement Info
+    Box tab, alongside "Replace…" — an additional entry point for the
+    existing File ▸ Close Measurement behavior, not a behavior change.
+  - `docs/requirements/file-handling.md` gained a new "Replacing a Single
+    Measurement" section (REQ-FILE-100 through 108).
 
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the

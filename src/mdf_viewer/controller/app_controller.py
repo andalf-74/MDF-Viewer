@@ -762,6 +762,67 @@ class AppController:
         self._refresh_measurement_axes()
         self.refresh_display_names()
 
+    def replace_single_measurement(
+        self, measurement: LoadedMeasurement, path: str | os.PathLike
+    ) -> LoadResult:
+        """Swap *measurement*'s underlying file for *path* in place (REQ-FILE-100..107).
+
+        Opens *path* into a fresh loader before touching anything else — on
+        failure, *measurement* and everything else is left exactly as it was
+        (REQ-FILE-106) and the failure is returned via LoadResult.failed,
+        mirroring add_measurements()'s per-file failure isolation (REQ-FILE-024)
+        rather than replace_measurements()'s all-or-nothing failure mode.
+
+        On success, tears down *measurement*'s own active signals across
+        every tab through the same remove_signals() path close_measurement()
+        uses (the #120-hardened teardown, not a new one), then reassigns
+        `.loader`/`.info` on the *same* LoadedMeasurement instance — keeping
+        its identity means label, offset_s, Primary status, and Synchronized
+        membership all carry over for free, with nothing else to reassign.
+        Does not touch color_index, cursor_ctrl, or zoom_ctrl: other
+        measurements' signals remain live in the same tabs throughout.
+        """
+        result = LoadResult()
+        # Identity comparison, not `in`'s `==` — LoadedMeasurement (and the
+        # MdfLoader it wraps) are plain dataclasses with field-equality
+        # __eq__, so two distinct measurements loaded from the same path
+        # could otherwise compare equal (same pattern as close_measurement's
+        # own identity-comparison guard above).
+        if not any(m is measurement for m in self._measurements):
+            return result
+
+        loader = self._loader_factory()
+        try:
+            loader.open(path)
+        except MdfLoadError as exc:
+            result.failed.append((str(path), exc))
+            return result
+        info = loader.measurement_info()
+
+        saved_index = self._active_tab_index
+        try:
+            for index, workspace in enumerate(self._workspaces):
+                affected = [a for a in workspace.active if a.measurement is measurement]
+                if not affected:
+                    continue
+                self._active_tab_index = index
+                self.remove_signals(affected)
+        finally:
+            self._active_tab_index = saved_index
+
+        measurement.loader = loader
+        measurement.info = info
+        result.succeeded.append(measurement)
+        if self._settings is not None:
+            self._settings.add_recent(path)
+
+        self._refresh_signal_browser()
+        self._refresh_info_box()
+        self._refresh_measurement_axes()
+        self.refresh_display_names()
+        self.events.file_loaded.emit(FileLoadedEvent(path=str(path), tab=self.current_workspace))
+        return result
+
     def restore_measurements(
         self,
         measurement_configs: "list[MeasurementConfig]",
@@ -1370,9 +1431,36 @@ class AppController:
             return []
         return self._snapshot_signals(self._workspaces[index])
 
-    def _snapshot_signals(self, workspace: "TabWorkspace") -> list[ActiveSignalSnapshot]:
+    def snapshot_measurement_signals(
+        self, measurement: LoadedMeasurement
+    ) -> dict[int, list[ActiveSignalSnapshot]]:
+        """Capture *measurement*'s own active signals only, across every tab (REQ-FILE-104).
+
+        Each returned snapshot is tagged with `.measurement = measurement`,
+        the same field session restore already uses (#106 M6, REQ-FILE-093)
+        to scope by-name resolution to one specific measurement — so
+        MainWindow's existing resolve/restore pipeline (_classify_signal_name,
+        _resolve_and_confirm_snapshots, _restore_snapshots) handles a
+        single-measurement replace's carry-over with no changes of its own.
+        """
+        result: dict[int, list[ActiveSignalSnapshot]] = {}
+        for index, workspace in enumerate(self._workspaces):
+            actives = [a for a in workspace.active if a.measurement is measurement]
+            if not actives:
+                continue
+            result[index] = [
+                replace(snap, measurement=measurement)
+                for snap in self._snapshot_signals(workspace, actives)
+            ]
+        return result
+
+    def _snapshot_signals(
+        self, workspace: "TabWorkspace", actives: "list[ActiveSignal] | None" = None
+    ) -> list[ActiveSignalSnapshot]:
+        if actives is None:
+            actives = workspace.active
         snapshots = []
-        for active in workspace.active:
+        for active in actives:
             c = active.color
             stripe = workspace.plot.get_stripe_for_signal(active)
             snapshots.append(ActiveSignalSnapshot(

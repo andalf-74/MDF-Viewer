@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QScrollArea,
     QSizePolicy,
     QStackedWidget,
@@ -45,6 +46,14 @@ class MeasurementInfoBox(QWidget):
     # next set_measurements() call, which always reflects the model's own
     # current label.
     rename_requested = pyqtSignal(object, str)
+    # LoadedMeasurement to replace (#122) — MainWindow._replace_single_measurement()
+    # owns the file dialog and carry-over prompting, mirroring the File ▸
+    # Replace Measurement submenu's own entry point.
+    replace_requested = pyqtSignal(object)
+    # LoadedMeasurement to close (#122) — same flow/confirmation as the File ▸
+    # Close Measurement submenu, just a second entry point onto the same
+    # MainWindow._on_close_measurement_requested().
+    close_requested = pyqtSignal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -92,6 +101,12 @@ class MeasurementInfoBox(QWidget):
             page.rename_committed.connect(
                 lambda text, m=measurement: self.rename_requested.emit(m, text)
             )
+            page.replace_clicked.connect(
+                lambda m=measurement: self.replace_requested.emit(m)
+            )
+            page.close_clicked.connect(
+                lambda m=measurement: self.close_requested.emit(m)
+            )
             self._button_group.addButton(page.checkbox)
             self._tabs.addTab(page, measurement.label)
             self._pages.append((measurement, page))
@@ -133,6 +148,8 @@ class _MeasurementInfoPage(QWidget):
     # (QButtonGroup exclusivity), which is never a request to act on.
     primary_checked = pyqtSignal()
     rename_committed = pyqtSignal(str)
+    replace_clicked = pyqtSignal()
+    close_clicked = pyqtSignal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -140,12 +157,20 @@ class _MeasurementInfoPage(QWidget):
         layout.setContentsMargins(4, 4, 4, 4)
 
         header = QHBoxLayout()
-        self._primary_checkbox = QCheckBox("Primary Measurement")
+        self._primary_checkbox = QCheckBox("Primary")
         header.addWidget(self._primary_checkbox)
         header.addWidget(QLabel("Name:"))
         self._name_edit = QLineEdit()
         header.addWidget(self._name_edit)
         layout.addLayout(header)
+
+        actions = QHBoxLayout()
+        actions.addStretch()
+        self._replace_button = QPushButton("Replace…")
+        actions.addWidget(self._replace_button)
+        self._close_button = QPushButton("Close")
+        actions.addWidget(self._close_button)
+        layout.addLayout(actions)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -160,10 +185,20 @@ class _MeasurementInfoPage(QWidget):
 
         self._primary_checkbox.toggled.connect(self._on_toggled)
         self._name_edit.editingFinished.connect(self._on_editing_finished)
+        self._replace_button.clicked.connect(self.replace_clicked)
+        self._close_button.clicked.connect(self.close_clicked)
 
     @property
     def checkbox(self) -> QCheckBox:
         return self._primary_checkbox
+
+    @property
+    def replace_button(self) -> QPushButton:
+        return self._replace_button
+
+    @property
+    def close_button(self) -> QPushButton:
+        return self._close_button
 
     def set_info(self, info: MeasurementInfo) -> None:
         for label, value in _measurement_rows(info):

@@ -254,3 +254,58 @@ Applying a saved session's signal selection to a measurement other than
 the one it was captured from is a separate, related capability — see
 #105 — and is out of scope here, which always restores against the
 session's own recorded measurement(s).
+
+## Replacing a Single Measurement
+
+Extends "Multiple Measurements" above and reuses the signal-carryover
+machinery from "Active Signals When Replacing a File" — previously,
+swapping in a corrected file for one already-loaded measurement required
+discarding and re-adding it (Close Measurement, REQ-FILE-028, followed by
+Add, REQ-FILE-022), losing that measurement's short name, load-order
+position, and any manual alignment along the way (#122).
+
+A File ▸ Replace Measurement submenu lists every currently loaded
+measurement by its short name, mirroring REQ-FILE-029's Close Measurement
+submenu; selecting one opens a file-open dialog for its replacement
+[REQ-FILE-100]. The same operation is also available as a "Replace…"
+button on that measurement's own tab in the Measurement Info Box,
+alongside its short-name field and Primary Measurement checkbox
+[REQ-FILE-101]. The file-open dialog invoked by either entry point
+accepts exactly one file; loading further files alongside a replaced
+measurement is Add's job (REQ-FILE-022), not this operation
+[REQ-FILE-102].
+
+When the newly selected file opens successfully, the replaced
+measurement's short name, load-order position, X-axis offset_s, and
+Synchronized state all carry over unchanged onto the new file, and if it
+was the Primary measurement it remains Primary — only its underlying file
+and channel data change [REQ-FILE-103]. The replaced measurement's own
+active signals follow the same carry-over preference and by-name
+re-resolution, near-match, and ambiguous-match handling already used for a
+whole-pool Replace (REQ-FILE-030 through REQ-FILE-036), scoped to only
+that measurement; every other loaded measurement's active signals, tabs,
+cursors, and zoom state are untouched, since they were never part of this
+operation [REQ-FILE-104]. An "always discard" carry-over preference
+proceeds immediately without an additional confirmation step, silently
+dropping the replaced measurement's active signals the same way it would
+during a whole-pool Replace [REQ-FILE-105].
+
+If the newly selected file fails to open, the measurement being replaced
+is left exactly as it was before the attempt — its channel tree, active
+signals, cursors, and zoom state all untouched — and the failure is
+reported in an error dialog naming the file, the same as an Add failure
+(REQ-FILE-024) [REQ-FILE-106]. A successful replacement adds the newly
+selected file's path to the Recent Files list, the same as any other
+successful load (REQ-FILE-053) [REQ-FILE-107].
+
+Dropping a file directly onto a specific measurement's row to replace it
+is not implemented by this feature — drag-and-drop continues to only
+trigger the whole-pool Replace/Add prompt (REQ-FILE-020); a per-row drop
+target may be added later if requested.
+
+Alongside the new "Replace…" button, the Measurement Info Box's own tab
+for a measurement also gains a "Close" button that closes that specific
+measurement through the same flow, and same active-signal warning, as
+the File ▸ Close Measurement submenu (REQ-FILE-028/029) — an additional
+entry point for an existing capability, not a behavior change
+[REQ-FILE-108].

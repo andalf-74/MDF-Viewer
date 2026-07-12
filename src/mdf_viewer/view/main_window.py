@@ -151,6 +151,10 @@ class MainWindow(QMainWindow):
             controller.set_primary_measurement
         )
         self.measurement_info_box.rename_requested.connect(controller.rename_measurement)
+        self.measurement_info_box.replace_requested.connect(self._replace_single_measurement)
+        self.measurement_info_box.close_requested.connect(
+            self._on_close_measurement_requested
+        )
         self._wire_tab_view(self.plot_area, self.active_signals_table)
         self.signal_info_box.display_mode_requested.connect(
             controller.on_display_mode_requested
@@ -427,6 +431,8 @@ class MainWindow(QMainWindow):
         self._file_menu.addAction(self._load_action)
         self._file_menu.addAction(self._save_config_action)
         self._file_menu.addAction(self._save_config_as_action)
+        self._replace_measurement_menu = QMenu("Replace Measurement", self)
+        self._file_menu.addMenu(self._replace_measurement_menu)
         self._close_measurement_menu = QMenu("Close Measurement", self)
         self._file_menu.addMenu(self._close_measurement_menu)
         self._file_menu.addSeparator()
@@ -437,6 +443,7 @@ class MainWindow(QMainWindow):
         self._file_menu.addSeparator()
         self._file_menu.addAction(self._exit_action)
         self._file_menu.aboutToShow.connect(self._rebuild_recent_files)
+        self._file_menu.aboutToShow.connect(self._rebuild_replace_measurement_menu)
         self._file_menu.aboutToShow.connect(self._rebuild_close_measurement_menu)
 
         self._edit_menu = self.menuBar().addMenu("&Edit")
@@ -1263,6 +1270,29 @@ class MainWindow(QMainWindow):
                 return {}
         return {i: self._controller.snapshot_tab_signals(i) for i in tabs_with_signals}
 
+    def _collect_measurement_snapshots_if_keeping(self, measurement) -> dict[int, list]:
+        """Same three keep_signals_on_load branches as _collect_snapshots_if_keeping()
+        above, scoped to one measurement's own active signals (REQ-FILE-104)
+        rather than every tab's — used by single-measurement Replace, not the
+        whole-pool Replace flow that method serves."""
+        if self._controller is None or self._settings is None:
+            return {}
+        setting = self._settings.keep_signals_on_load
+        if setting == "never":
+            return {}
+        if not self._controller.measurement_has_signals(measurement):
+            return {}
+        if setting == "ask":
+            reply = QMessageBox.question(
+                self,
+                "Keep Active Signals?",
+                "Keep the currently active signals in the new measurement?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            )
+            if reply != QMessageBox.StandardButton.Yes:
+                return {}
+        return self._controller.snapshot_measurement_signals(measurement)
+
     def _resolve_and_confirm_snapshots(
         self,
         snapshots_by_tab: dict[int, list],
@@ -1381,6 +1411,40 @@ class MainWindow(QMainWindow):
         if not_found:
             dlg = SignalsNotFoundDialog(sorted(set(not_found)), self)
             dlg.exec()
+
+    def _replace_single_measurement(self, measurement) -> None:
+        """Replace *measurement*'s underlying file only, leaving every other
+        loaded measurement untouched (REQ-FILE-100..107).
+
+        Entry point for both the File ▸ Replace Measurement submenu and the
+        Measurement Info Box's "Replace…" button.
+        """
+        if self._controller is None:
+            return
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Replace Measurement", "", _MDF_FILE_FILTER
+        )
+        if not path:
+            return
+
+        snapshots = self._collect_measurement_snapshots_if_keeping(measurement)
+
+        self.show_status(f"Loading {Path(path).name}…", timeout_ms=0)
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        QApplication.processEvents()
+        try:
+            result = self._controller.replace_single_measurement(measurement, path)
+        finally:
+            QApplication.restoreOverrideCursor()
+            self.statusBar().clearMessage()
+
+        if result.failed:
+            lines = "\n".join(f"{Path(p).name}: {err}" for p, err in result.failed)
+            QMessageBox.critical(self, "Load Error", lines)
+            return
+
+        if snapshots:
+            self._restore_snapshots(snapshots)
 
     def _on_zoom_to_fit(self) -> None:
         if self._controller is not None:
@@ -1983,6 +2047,23 @@ class MainWindow(QMainWindow):
             self._file_menu.insertAction(self._preferences_action, action)
             self._recent_actions.append(action)
         self._recent_sep = self._file_menu.insertSeparator(self._preferences_action)
+
+    def _rebuild_replace_measurement_menu(self) -> None:
+        """Rebuild the File ▸ Replace Measurement submenu (REQ-FILE-100).
+
+        Rebuilt every time the File menu opens, the same way
+        _rebuild_close_measurement_menu() is, so a rename (#103) is always
+        reflected and a just-closed measurement never lingers as a stale
+        entry.
+        """
+        self._replace_measurement_menu.clear()
+        measurements = [] if self._controller is None else self._controller.measurements
+        self._replace_measurement_menu.setEnabled(bool(measurements))
+        for measurement in measurements:
+            action = self._replace_measurement_menu.addAction(measurement.label)
+            action.triggered.connect(
+                lambda checked=False, m=measurement: self._replace_single_measurement(m)
+            )
 
     def _rebuild_close_measurement_menu(self) -> None:
         """Rebuild the File ▸ Close Measurement submenu (REQ-FILE-029).

@@ -248,6 +248,42 @@ def test_mbox_committing_name_edit_emits_rename_requested(
 
 
 # ---------------------------------------------------------------------------
+# MeasurementInfoBox – Replace/Close buttons (#122, REQ-FILE-101/108)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-FILE-101")
+def test_mbox_clicking_replace_button_emits_replace_requested(
+    mbox: MeasurementInfoBox, qtbot: QtBot
+) -> None:
+    m1, m2 = _make_measurement("M1"), _make_measurement("M2")
+    mbox.set_measurements([m1, m2], m1)
+    with qtbot.waitSignal(mbox.replace_requested, timeout=500) as blocker:
+        _page(mbox, 1).replace_button.click()
+    assert blocker.args == [m2]
+
+
+@pytest.mark.requirement("REQ-FILE-108")
+def test_mbox_clicking_close_button_emits_close_requested(
+    mbox: MeasurementInfoBox, qtbot: QtBot
+) -> None:
+    m1, m2 = _make_measurement("M1"), _make_measurement("M2")
+    mbox.set_measurements([m1, m2], m1)
+    with qtbot.waitSignal(mbox.close_requested, timeout=500) as blocker:
+        _page(mbox, 0).close_button.click()
+    assert blocker.args == [m1]
+
+
+@pytest.mark.requirement("REQ-FILE-101")
+def test_mbox_every_tab_has_its_own_replace_and_close_buttons(
+    mbox: MeasurementInfoBox,
+) -> None:
+    m1, m2 = _make_measurement("M1"), _make_measurement("M2")
+    mbox.set_measurements([m1, m2], m1)
+    assert _page(mbox, 0).replace_button is not _page(mbox, 1).replace_button
+    assert _page(mbox, 0).close_button is not _page(mbox, 1).close_button
+
+
+# ---------------------------------------------------------------------------
 # MeasurementInfoBox – multiple measurements, tab teardown (#103, #120)
 # ---------------------------------------------------------------------------
 

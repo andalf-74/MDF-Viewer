@@ -28,6 +28,7 @@
 - **File**
   - Open… (Ctrl+O; opens file dialog; accepts measurement file(s) and `.mvc` configs; loading with a measurement already open prompts Replace vs. Add)
   - Save Workspace (Ctrl+S) / Save Workspace As… — saves the full session to a `.mvc` file (#106): every tab (name, plot|AST divider width, AST column widths), every tab's plot-stripe layout (names/sizes/active stripe), every active signal (colors, stripe/measurement placement, axis grouping, zoom, cursor state, selection), every loaded measurement (path, short name, offset, Primary, Sync state), and window/splitter layout
+  - Replace Measurement — submenu listing every loaded measurement by its short name (#122); selecting one opens a file dialog and swaps that measurement's underlying file in place, keeping its short name, position, offset, Primary status, and Sync membership; every other loaded measurement is untouched; disabled/empty when nothing is loaded
   - Close Measurement — submenu listing every loaded measurement by its short name (#103); selecting one closes it, warning first if it still has active signals; disabled/empty when nothing is loaded
   - Recently opened files (up to 4; shown between Open… and Preferences when non-empty)
   - Preferences… (opens Preferences dialog)
@@ -112,7 +113,8 @@ A per-stripe "Sync"/"Un-Sync" button also floats in the corner of the measuremen
 
 Below the Signal Browser in the same left panel. Always tabbed, one tab per loaded measurement — even with only one loaded, so the panel's structure doesn't change as measurements are added or removed. Each tab shows:
 
-- A header row with a **Primary Measurement** checkbox (exactly one measurement is Primary at all times; checking a different tab's box unchecks the previous one) and an editable **short name** field (defaults "M1", "M2", ... by load order; rejects a name already used by another loaded measurement, reverting the edit).
+- A header row with a **Primary** checkbox (exactly one measurement is Primary at all times; checking a different tab's box unchecks the previous one) and an editable **short name** field (defaults "M1", "M2", ... by load order; rejects a name already used by another loaded measurement, reverting the edit).
+- Below that, a right-aligned actions row (#122) with a **Replace…** button (opens a file dialog and swaps this measurement's file in place, keeping its short name/position/offset/Primary/Sync membership; every other loaded measurement is untouched) and a **Close** button (same flow/confirmation as the File ▸ Close Measurement submenu, just a second entry point).
 - The existing read-only metadata below: File, MDF version, Author, Recorded, Duration, Comment, and any other MDF metadata fields present.
 
 The Primary measurement's X-axis row is always drawn topmost in the plot area, and is the reference measurement when Sync Measurements is active. Closing the Primary measurement reassigns Primary to the first-loaded of the remaining measurements automatically.
