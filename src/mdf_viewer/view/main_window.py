@@ -1719,30 +1719,7 @@ class MainWindow(QMainWindow):
         self._session.save_config_to(path)
 
     def _reset_to_single_tab(self) -> None:
-        """Tear down every tab but the first, before a full session
-        restore replaces everything (#106 Phase 0).
-
-        `AppController.remove_tab()` only cleans up controller-side state
-        (signals, the `TabWorkspace` itself) — it does not touch the
-        `QTabWidget` page at all. Mirrors `_on_tab_close_requested`'s full
-        teardown (view-side `removeTab()` + `deleteLater()`, #120) for
-        every tab removed here too; neither half alone is safe.
-
-        Relies on the same invariant `_on_tab_close_requested` already
-        assumes: real tab positions in `_tab_widget` align 1:1 with
-        `AppController._workspaces` indices (the pinned "+" placeholder
-        sits after all of them once any transient drag-reorder settles).
-        """
-        if self._controller is None:
-            return
-        for index in range(self._controller.tab_count - 1, 0, -1):
-            page = self._tab_widget.widget(index)
-            self._tab_widget.removeTab(index)
-            page.deleteLater()
-            self._controller.remove_tab(index)
-        if self._tab_widget.currentIndex() != 0:
-            self._tab_widget.setCurrentIndex(0)
-        self._controller.remove_all()
+        self._session.reset_to_single_tab()
 
     def _build_tab_skeletons(self, tab_configs: list) -> None:
         self._session.build_tab_skeletons(tab_configs)

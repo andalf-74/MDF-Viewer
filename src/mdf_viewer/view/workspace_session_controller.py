@@ -151,6 +151,33 @@ class WorkspaceSessionController:
         )
         return reply == QMessageBox.StandardButton.Yes
 
+    def reset_to_single_tab(self) -> None:
+        """Tear down every tab but the first, before a full session
+        restore replaces everything (#106 Phase 0).
+
+        `AppController.remove_tab()` only cleans up controller-side state
+        (signals, the `TabWorkspace` itself) — it does not touch the
+        `QTabWidget` page at all. Mirrors `_on_tab_close_requested`'s full
+        teardown (view-side `removeTab()` + `deleteLater()`, #120) for
+        every tab removed here too; neither half alone is safe.
+
+        Relies on the same invariant `_on_tab_close_requested` already
+        assumes: real tab positions in `_tab_widget` align 1:1 with
+        `AppController._workspaces` indices (the pinned "+" placeholder
+        sits after all of them once any transient drag-reorder settles).
+        """
+        controller = self._get_controller()
+        if controller is None:
+            return
+        for index in range(controller.tab_count - 1, 0, -1):
+            page = self._tab_widget.widget(index)
+            self._tab_widget.removeTab(index)
+            page.deleteLater()
+            controller.remove_tab(index)
+        if self._tab_widget.currentIndex() != 0:
+            self._tab_widget.setCurrentIndex(0)
+        controller.remove_all()
+
     def build_tab_skeletons(self, tab_configs: list) -> None:
         """Build every saved tab's skeleton — the tab itself (renamed)
         and its stripe layout (renamed/resized) — with no signals yet
