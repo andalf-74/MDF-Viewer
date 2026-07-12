@@ -1716,26 +1716,7 @@ class MainWindow(QMainWindow):
         ]
 
     def _save_config_to(self, path: Path) -> None:
-        import dataclasses
-        from mdf_viewer.config_manager import ConfigManager
-        if self._controller is None or self._settings is None:
-            return
-        try:
-            config = self._controller.capture_config(
-                path, self._tab_names(), self._tab_page_splitter_sizes(),
-            )
-            config = dataclasses.replace(
-                config,
-                window_geometry=self._capture_window_geometry(),
-                splitter_sizes=self._capture_splitter_sizes(),
-            )
-            ConfigManager.save(config, path, self._settings.config_path_mode)
-        except Exception as exc:
-            QMessageBox.critical(self, "Save Workspace Error", str(exc))
-            return
-        self._controller.current_config_path = path
-        self._settings.add_recent(path)
-        self.show_status(f"Workspace saved to {path.name}")
+        self._session.save_config_to(path)
 
     def _reset_to_single_tab(self) -> None:
         """Tear down every tab but the first, before a full session
@@ -1814,55 +1795,10 @@ class MainWindow(QMainWindow):
     def _resolve_saved_measurements(
         self, measurement_configs: list, config_path: Path
     ) -> tuple[list, list[str]]:
-        """Resolve every saved measurement's path against *config_path*'s
-        directory (REQ-FILE-063/064, generalized to N measurements, #106).
-
-        Returns (resolved_configs, missing_paths) — resolved_configs has
-        one entry per input, in the same order: resolved ones get their
-        path replaced with the found absolute path, unresolved ones keep
-        their original (raw, still-unresolved) path string so
-        `AppController.restore_measurements()` fails them again at the
-        same index rather than the list silently shrinking and losing
-        alignment with the saved signals' `measurement_index` (REQ-FILE-093).
-        missing_paths lists the raw saved paths that couldn't be found,
-        for `_confirm_missing_measurements()`.
-        """
-        import dataclasses
-        from mdf_viewer.config_manager import ConfigManager
-
-        resolved = []
-        missing: list[str] = []
-        for mc in measurement_configs:
-            found = ConfigManager.resolve_measurement_path(mc.path, config_path)
-            if found is None:
-                missing.append(mc.path)
-                resolved.append(mc)
-            else:
-                resolved.append(dataclasses.replace(mc, path=str(found)))
-        return resolved, missing
+        return self._session.resolve_saved_measurements(measurement_configs, config_path)
 
     def _confirm_missing_measurements(self, missing_paths: list[str]) -> bool:
-        """Ask whether to continue without measurements that couldn't be
-        found (REQ-FILE-097/098) — one combined dialog listing every
-        missing path, not an interactive locate-prompt per file (that
-        stays REQ-FILE-065's behavior, unchanged, for a session with
-        exactly one measurement). Returns True to proceed (continuing
-        drops them — `restore_measurements()` will produce `None` at
-        their index regardless, so there's nothing to "undo" here),
-        False to abort the whole session load.
-        """
-        if not missing_paths:
-            return True
-        listing = "\n".join(missing_paths)
-        reply = QMessageBox.question(
-            self,
-            "Measurements Not Found",
-            f"The following measurement(s) could not be found:\n\n{listing}\n\n"
-            "Continue loading the session without them?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-            QMessageBox.StandardButton.Cancel,
-        )
-        return reply == QMessageBox.StandardButton.Yes
+        return self._session.confirm_missing_measurements(missing_paths)
 
     def open_config(self, path: Path) -> None:
         """Public entry point for opening a .mvc config file (e.g. from app.py)."""
@@ -1951,35 +1887,7 @@ class MainWindow(QMainWindow):
     def _signal_config_to_snapshot(
         self, sig, stripe_name: str = "", measurement: "object | None" = None,
     ) -> "ActiveSignalSnapshot":
-        """Convert a saved `SignalConfig` into the `ActiveSignalSnapshot`
-        currency `_resolve_and_confirm_snapshots()` operates on (#106) —
-        `_restore_snapshots()`'s snapshots instead come from already-active
-        `ActiveSignal`s (`AppController._snapshot_signals`), since that
-        caller runs on a live session, not saved JSON data.
-
-        *measurement*, when given, is the live `LoadedMeasurement` this
-        signal was saved against (#106 M6, resolved via `SignalConfig.
-        measurement_index` against `AppController.restore_measurements()`'s
-        result) — scopes this snapshot's later resolution to that one
-        measurement (REQ-FILE-093) instead of the whole pool.
-        """
-        from mdf_viewer.controller.app_controller import ActiveSignalSnapshot
-        return ActiveSignalSnapshot(
-            name=sig.name,
-            color=tuple(sig.color),  # type: ignore[arg-type]
-            line_width=sig.line_width,
-            line_style=sig.line_style,
-            display_mode=sig.display_mode,
-            marker_shape=sig.marker_shape,
-            step_mode=sig.step_mode,
-            enum_display_table=sig.enum_display_table,
-            enum_display_cursor=sig.enum_display_cursor,
-            enum_display_yaxis=sig.enum_display_yaxis,
-            group_name=sig.group_name,
-            stripe_name=stripe_name,
-            measurement=measurement,
-            visible=sig.visible,
-        )
+        return self._session.signal_config_to_snapshot(sig, stripe_name, measurement)
 
     def _resolve_config_signals_for_tabs(
         self, tab_configs: list, measurements: list,
