@@ -498,6 +498,9 @@ remaining tab if the closed tab was the first [REQ-PLOT-253]. There is
 no maximum number of tabs, and closing the last remaining tab is
 permitted; the app then shows an empty-state placeholder with a "New
 Tab" action rather than auto-creating a replacement tab [REQ-PLOT-254].
+Every tab has a minimum width regardless of how short its name is, so
+its close ("×") control never occupies a disproportionate share of the
+tab's clickable area [REQ-PLOT-255].
 
 ### Loading a New Measurement File
 

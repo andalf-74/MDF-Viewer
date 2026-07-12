@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Callable
 
 from PyQt6.QtCore import (
     QEvent,
+    QSize,
     Qt,
     QThread,
     QUrl,
@@ -43,6 +44,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QSplitter,
     QStackedWidget,
+    QTabBar,
     QTabWidget,
     QVBoxLayout,
     QWidget,
@@ -86,6 +88,29 @@ if TYPE_CHECKING:
 
 _PANEL_W = 260         # left panel default width in pixels
 _INFO_DRAWER_W = 260   # info/properties drawer default width in pixels
+_MIN_REAL_TAB_WIDTH = 110  # px — REQ-PLOT-255
+
+
+class _TabBar(QTabBar):
+    """`QTabBar` enforcing a minimum width on every real tab (REQ-PLOT-255).
+
+    A short tab name (e.g. "DTI") otherwise shrinks the whole tab down to
+    barely more than its own close ("×") button, making the close control
+    disproportionately easy to hit by accident instead of the tab itself
+    (#140). The pinned "+" new-tab tab is exempt — identified by having no
+    close button at all (`MainWindow` clears both button positions for it),
+    it should stay compact like a button, not stretch to the same minimum.
+    """
+
+    def tabSizeHint(self, index: int) -> QSize:
+        hint = super().tabSizeHint(index)
+        has_close_button = (
+            self.tabButton(index, QTabBar.ButtonPosition.LeftSide) is not None
+            or self.tabButton(index, QTabBar.ButtonPosition.RightSide) is not None
+        )
+        if not has_close_button:
+            return hint
+        return QSize(max(hint.width(), _MIN_REAL_TAB_WIDTH), hint.height())
 
 
 
@@ -523,6 +548,7 @@ class MainWindow(QMainWindow):
         self._tab_counter = 1
         self._parked_page: QSplitter | None = None
         self._tab_widget = QTabWidget()
+        self._tab_widget.setTabBar(_TabBar())
         self._tab_widget.setTabsClosable(True)
         self._tab_widget.setMovable(True)
         self._tab_widget.addTab(

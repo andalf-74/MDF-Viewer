@@ -508,6 +508,22 @@ def test_tab_context_menu_close_action(window: MainWindow) -> None:
     assert window._real_tab_count() == 0
 
 
+@pytest.mark.requirement("REQ-PLOT-255")
+def test_tab_bar_enforces_minimum_width_for_short_names(window: MainWindow) -> None:
+    from mdf_viewer.view.main_window import _MIN_REAL_TAB_WIDTH
+    window._tab_widget.setTabText(0, "DTI")
+    tab_bar = window._tab_widget.tabBar()
+    assert tab_bar.tabSizeHint(0).width() >= _MIN_REAL_TAB_WIDTH
+
+
+@pytest.mark.requirement("REQ-PLOT-255")
+def test_tab_bar_placeholder_tab_exempt_from_minimum_width(window: MainWindow) -> None:
+    from mdf_viewer.view.main_window import _MIN_REAL_TAB_WIDTH
+    tab_bar = window._tab_widget.tabBar()
+    placeholder_index = window._placeholder_index()
+    assert tab_bar.tabSizeHint(placeholder_index).width() < _MIN_REAL_TAB_WIDTH
+
+
 def test_tab_context_menu_outside_any_tab_is_noop(window: MainWindow) -> None:
     from PyQt6.QtCore import QPoint
     with patch("PyQt6.QtWidgets.QMenu.exec") as mock_exec:

@@ -338,6 +338,10 @@ All notable changes to MDF-Viewer are documented in this file.
   removed a label from its ViewBox without ever destroying it, the same
   orphaned-but-alive risk as above. Not confirmed to have caused a crash
   in practice, but fixed the same way regardless.
+- A short tab name (e.g. "DTI") shrank the whole tab down to barely more
+  than its own close ("×") button, making it easy to click Close instead
+  of switching tabs (#140). Every tab now has a minimum width regardless
+  of name length; the pinned "+" new-tab tab stays compact as before.
 - Dragging a signal row in the Active Signals Table between two stripes'
   segments moved the table row but left the signal's curve behind in its
   old stripe's plot; dragging a row onto a stripe's plot area directly
