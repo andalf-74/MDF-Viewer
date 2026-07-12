@@ -188,13 +188,15 @@ See `docs/release.md` for the full build and publish steps.
 
 ## Current Status
 
-**As of 2026-07-12:** v2.1.1 is still the last released version (https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.1.1). 1719 tests passing. The **2.1.1 Bugfixing milestone is fully resolved**, all bugs closed. Fix-by-fix detail lives in `CHANGELOG.md`'s `[2.1.1]` entry, not repeated here.
+**As of 2026-07-12:** v2.1.1 is still the last released version (https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.1.1). 1720 tests passing. The **2.1.1 Bugfixing milestone is fully resolved**, all bugs closed. Fix-by-fix detail lives in `CHANGELOG.md`'s `[2.1.1]` entry, not repeated here.
 
 GitHub milestone numbering was reshuffled: **#17 (multi-file support) was pulled out of Backlog, broken into sub-issues, and assigned version 2.2** as milestone **"2.2 Multiview/Multimeasurement"**. The former "2.2 Plugins" effort was renumbered to **"2.3 Plugins"**. This was a version-number assignment only, not a release.
 
 **Milestone "2.2 Multiview/Multimeasurement" is fully closed (2026-07-12)** — all 27 issues done/closed (#17 umbrella, #97–#106, #119, #122, #124, #130, #131, #133; #104 rejected by user directly, not implemented), umbrella #17 closed, GitHub milestone itself closed. Per-issue detail lives in `CHANGELOG.md`'s `[Unreleased]` entries and git history, not repeated here. This milestone number was never released as an actual version — 2.2 has not shipped as a build.
 
-One active milestone remains on GitHub:
+**A later whole-codebase architecture review (2026-07-12) filed 5 more issues into a new milestone "2.2 Additional Bugfixing"** (#134–#138) — 5/5 closed same day (#136 `.mvc` session-persistence extraction into a new `WorkspaceSessionController`, #134 cursor-label Qt-teardown fix, #135 doc drift, #137 dedup cleanups, #138 `CursorMode`/terminology nits). Two more issues (#139 Feature — deactivatable Save Config dialog, #140 Bug — minimum tab width too small) were added to the same milestone afterward and are still open; the milestone itself stays open until those close too.
+
+One other active milestone remains on GitHub:
 - **2.3 Plugins** — new plugin architecture effort: #43 (umbrella), #70 (event bus on AppController, done), #71 (PluginContext API facade), #72 (Plugin base class/lifecycle), #73 (UI extension points in MainWindow), #74 (plugin loader/discovery), #75 (proof-of-concept built-in plugin), #76 (convert update checker into a first-party plugin).
 
 There's also a **2.X Artificial Signals** milestone (#58, #86) not yet assigned a version number, and a **Backlog** milestone (due 2028-12-31, unscheduled) holding #55, #57, #60, #61.
