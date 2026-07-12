@@ -39,6 +39,7 @@ def _make_signal(**kwargs) -> SignalConfig:
         enum_display_table=True,
         enum_display_cursor=False,
         enum_display_yaxis=False,
+        visible=True,
     )
     defaults.update(kwargs)
     return SignalConfig(**defaults)
@@ -117,6 +118,51 @@ def test_round_trip_signal_fields(tmp_path: Path) -> None:
     assert s.enum_display_table is True
     assert s.enum_display_cursor is False
     assert s.enum_display_yaxis is False
+    assert s.visible is True
+
+
+@pytest.mark.requirement("REQ-PLOT-339")
+def test_round_trip_signal_visible_false(tmp_path: Path) -> None:
+    config = _make_config(tabs=(_make_tab(signals=(_make_signal(visible=False),)),))
+    path = tmp_path / "session.mvc"
+    ConfigManager.save(config, path)
+    loaded = ConfigManager.load(path)
+
+    assert loaded.tabs[0].signals[0].visible is False
+
+
+@pytest.mark.requirement("REQ-PLOT-339")
+def test_load_signal_with_no_visible_key_defaults_true(tmp_path: Path) -> None:
+    """A .mvc saved before #133 has no "visible" key at all — every signal
+    loads visible (REQ-FILE-067 forward-compat convention)."""
+    path = tmp_path / "old.mvc"
+    path.write_text(json.dumps({
+        "format_version": CONFIG_FORMAT_VERSION,
+        "measurements": [{"path": "/data/test.mf4", "label": "M1", "offset_s": 0.0}],
+        "primary_measurement_index": 0,
+        "measurements_synchronized": False,
+        "active_tab_index": 0,
+        "tabs": [{
+            "name": "Tab 1",
+            "stripes": [{"name": "Stripe 1", "size": 1}],
+            "active_stripe_index": 0,
+            "signals": [
+                {"name": "Speed", "group_name": "Engine", "color": [255, 85, 85],
+                 "line_width": 1, "line_style": "solid", "display_mode": "line",
+                 "marker_shape": "circle", "step_mode": False,
+                 "enum_display_table": True, "enum_display_cursor": False,
+                 "enum_display_yaxis": False},
+            ],
+            "zoom": {"x_range": [0.0, 10.0], "y_ranges": []},
+            "axes": {"merged": [], "synced": []},
+            "cursors": {"mode": "HIDDEN", "positions": [0.0, 0.0]},
+            "selection": None,
+        }],
+    }), encoding="utf-8")
+
+    loaded = ConfigManager.load(path)
+
+    assert loaded.tabs[0].signals[0].visible is True
 
 
 @pytest.mark.requirement("REQ-FILE-090")

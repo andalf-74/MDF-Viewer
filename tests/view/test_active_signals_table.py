@@ -15,7 +15,16 @@ from pytestqt.qtbot import QtBot
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
 from mdf_viewer.view._mime import SIGNAL_MIME_TYPE, encode_signal_payload
-from mdf_viewer.view.active_signals_table import ActiveSignalsTable
+from mdf_viewer.view.active_signals_table import (
+    ActiveSignalsTable,
+    _cell_inner_widget,
+    _COL_C1,
+    _COL_C2,
+    _COL_COLOR,
+    _COL_DELTA,
+    _COL_NAME,
+    _COL_VISIBLE,
+)
 from mdf_viewer.view.widgets import ColorSwatch as _ColorSwatch
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
@@ -74,9 +83,9 @@ def test_remove_button_disabled_initially(table: ActiveSignalsTable) -> None:
 
 @pytest.mark.requirement("REQ-PLOT-070")
 def test_cursor_columns_hidden_initially(table: ActiveSignalsTable) -> None:
-    assert table._header.isColumnHidden(2)
-    assert table._header.isColumnHidden(3)
-    assert table._header.isColumnHidden(4)
+    assert table._header.isColumnHidden(_COL_C1)
+    assert table._header.isColumnHidden(_COL_C2)
+    assert table._header.isColumnHidden(_COL_DELTA)
 
 
 # ---------------------------------------------------------------------------
@@ -96,13 +105,13 @@ def test_add_multiple_rows(table: ActiveSignalsTable) -> None:
 
 def test_add_row_shows_signal_name(table: ActiveSignalsTable) -> None:
     table.add_row(_make_active("engine_speed"))
-    assert table._segments[0].item(0, 1).text() == "engine_speed"
+    assert table._segments[0].item(0, _COL_NAME).text() == "engine_speed"
 
 
 @pytest.mark.requirement("REQ-PLOT-120")
 def test_add_row_places_color_swatch(table: ActiveSignalsTable) -> None:
     table.add_row(_make_active("x", QColor(100, 200, 50)))
-    swatch = table._segments[0].cellWidget(0, 0)
+    swatch = _cell_inner_widget(table._segments[0], 0, _COL_COLOR)
     assert isinstance(swatch, _ColorSwatch)
 
 
@@ -110,7 +119,7 @@ def test_add_row_places_color_swatch(table: ActiveSignalsTable) -> None:
 def test_add_row_swatch_has_correct_color(table: ActiveSignalsTable) -> None:
     color = QColor(123, 45, 67)
     table.add_row(_make_active("x", color))
-    swatch = table._segments[0].cellWidget(0, 0)
+    swatch = _cell_inner_widget(table._segments[0], 0, _COL_COLOR)
     assert swatch.color == color
 
 
@@ -127,8 +136,8 @@ def test_remove_row_decreases_row_count(populated: tuple) -> None:
 def test_remove_row_removes_correct_signal(populated: tuple) -> None:
     t, sigs = populated
     t.remove_row(sigs[1])
-    assert t._segments[0].item(0, 1).text() == "alpha"
-    assert t._segments[0].item(1, 1).text() == "gamma"
+    assert t._segments[0].item(0, _COL_NAME).text() == "alpha"
+    assert t._segments[0].item(1, _COL_NAME).text() == "gamma"
 
 
 @pytest.mark.requirement("REQ-PLOT-023")
@@ -146,14 +155,14 @@ def test_remove_selected_row_does_not_raise(populated: tuple) -> None:
 def test_remove_first_row(populated: tuple) -> None:
     t, sigs = populated
     t.remove_row(sigs[0])
-    assert t._segments[0].item(0, 1).text() == "beta"
+    assert t._segments[0].item(0, _COL_NAME).text() == "beta"
 
 
 def test_remove_last_row(populated: tuple) -> None:
     t, sigs = populated
     t.remove_row(sigs[2])
     assert t._segments[0].rowCount() == 2
-    assert t._segments[0].item(1, 1).text() == "beta"
+    assert t._segments[0].item(1, _COL_NAME).text() == "beta"
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +260,7 @@ def test_set_row_color_finds_signal_across_segments(table: ActiveSignalsTable) -
     table.add_row(b, s2)
     new_color = QColor(9, 9, 9)
     table.set_row_color(b, new_color)
-    swatch = seg2.cellWidget(0, 0)
+    swatch = _cell_inner_widget(seg2, 0, _COL_COLOR)
     assert swatch.color == new_color
 
 
@@ -266,7 +275,7 @@ def test_update_cursor_values_finds_signal_across_segments(table: ActiveSignalsT
     table.add_row(a, s1)
     table.add_row(b, s2)
     table.update_cursor_values(b, "1.1", "2.2", "3.3")
-    assert seg2.item(0, 2).text() == "1.1"
+    assert seg2.item(0, _COL_C1).text() == "1.1"
 
 
 # ---------------------------------------------------------------------------
@@ -639,9 +648,9 @@ def test_show_cursor_columns_applies_to_header_and_every_segment(
     seg1 = table.add_stripe_segment(_FakeStripe("Stripe 1"))
     seg2 = table.add_stripe_segment(_FakeStripe("Stripe 2"))
     table.show_cursor_columns(True)
-    assert not table._header.isColumnHidden(2)
-    assert not seg1.isColumnHidden(2)
-    assert not seg2.isColumnHidden(2)
+    assert not table._header.isColumnHidden(_COL_C1)
+    assert not seg1.isColumnHidden(_COL_C1)
+    assert not seg2.isColumnHidden(_COL_C1)
 
 
 @pytest.mark.requirement("REQ-PLOT-271")
@@ -650,9 +659,9 @@ def test_header_column_resize_propagates_to_every_segment(
 ) -> None:
     seg1 = table.add_stripe_segment(_FakeStripe("Stripe 1"))
     seg2 = table.add_stripe_segment(_FakeStripe("Stripe 2"))
-    table._header.setColumnWidth(1, 250)
-    assert seg1.columnWidth(1) == 250
-    assert seg2.columnWidth(1) == 250
+    table._header.setColumnWidth(_COL_NAME, 250)
+    assert seg1.columnWidth(_COL_NAME) == 250
+    assert seg2.columnWidth(_COL_NAME) == 250
 
 
 @pytest.mark.requirement("REQ-FILE-090")
@@ -667,10 +676,10 @@ def test_column_widths_reflects_header(table: ActiveSignalsTable) -> None:
 def test_set_column_widths_applies_to_header_and_segments(table: ActiveSignalsTable) -> None:
     seg1 = table.add_stripe_segment(_FakeStripe("Stripe 1"))
 
-    table.set_column_widths([28, 200, 90, 90, 90])
+    table.set_column_widths([24, 28, 200, 90, 90, 90])
 
-    assert table._header.columnWidth(1) == 200
-    assert seg1.columnWidth(1) == 200
+    assert table._header.columnWidth(_COL_NAME) == 200
+    assert seg1.columnWidth(_COL_NAME) == 200
 
 
 @pytest.mark.requirement("REQ-FILE-090")
@@ -748,16 +757,16 @@ def test_clear_with_selection_does_not_raise(populated: tuple) -> None:
 @pytest.mark.requirement("REQ-PLOT-080")
 def test_show_cursor_columns_makes_them_visible(table: ActiveSignalsTable) -> None:
     table.show_cursor_columns(True)
-    assert not table._header.isColumnHidden(2)
-    assert not table._header.isColumnHidden(3)
-    assert not table._header.isColumnHidden(4)
+    assert not table._header.isColumnHidden(_COL_C1)
+    assert not table._header.isColumnHidden(_COL_C2)
+    assert not table._header.isColumnHidden(_COL_DELTA)
 
 
 @pytest.mark.requirement("REQ-PLOT-080")
 def test_hide_cursor_columns(table: ActiveSignalsTable) -> None:
     table.show_cursor_columns(True)
     table.show_cursor_columns(False)
-    assert table._header.isColumnHidden(2)
+    assert table._header.isColumnHidden(_COL_C1)
 
 
 # ---------------------------------------------------------------------------
@@ -768,9 +777,9 @@ def test_hide_cursor_columns(table: ActiveSignalsTable) -> None:
 def test_update_cursor_values_sets_text(populated: tuple) -> None:
     t, sigs = populated
     t.update_cursor_values(sigs[0], "1.23", "4.56", "3.33")
-    assert t._segments[0].item(0, 2).text() == "1.23"
-    assert t._segments[0].item(0, 3).text() == "4.56"
-    assert t._segments[0].item(0, 4).text() == "3.33"
+    assert t._segments[0].item(0, _COL_C1).text() == "1.23"
+    assert t._segments[0].item(0, _COL_C2).text() == "4.56"
+    assert t._segments[0].item(0, _COL_DELTA).text() == "3.33"
 
 
 @pytest.mark.requirement("REQ-PLOT-023")
@@ -862,7 +871,7 @@ def test_color_change_updates_swatch(populated: tuple, qtbot: QtBot) -> None:
         return_value=new_color,
     ):
         t._on_color_swatch_clicked(sigs[0])
-    swatch = t._segments[0].cellWidget(0, 0)
+    swatch = _cell_inner_widget(t._segments[0], 0, _COL_COLOR)
     assert swatch.color == new_color
 
 
@@ -878,6 +887,93 @@ def test_color_change_cancelled_does_not_emit(
     ):
         with qtbot.assertNotEmitted(t.color_change_requested):
             t._on_color_swatch_clicked(sigs[0])
+
+
+# ---------------------------------------------------------------------------
+# Signal Visibility (#133)
+# ---------------------------------------------------------------------------
+
+def test_add_row_places_visibility_button(table: ActiveSignalsTable) -> None:
+    from mdf_viewer.view.widgets import VisibilityToggleButton
+    table.add_row(_make_active("x"))
+    btn = _cell_inner_widget(table._segments[0], 0, _COL_VISIBLE)
+    assert isinstance(btn, VisibilityToggleButton)
+
+
+def test_add_row_visibility_button_reflects_initial_state(table: ActiveSignalsTable) -> None:
+    hidden = _make_active("x")
+    hidden.visible = False
+    table.add_row(hidden)
+    btn = _cell_inner_widget(table._segments[0], 0, _COL_VISIBLE)
+    assert btn.visible_state is False
+
+
+@pytest.mark.requirement("REQ-PLOT-332")
+def test_visibility_button_click_emits_just_that_row(populated: tuple, qtbot: QtBot) -> None:
+    t, sigs = populated
+    btn = _cell_inner_widget(t._segments[0], 0, _COL_VISIBLE)
+    with qtbot.waitSignal(t.visibility_toggle_requested, timeout=500) as blocker:
+        btn.click()
+    assert blocker.args[0] == [sigs[0]]
+
+
+@pytest.mark.requirement("REQ-PLOT-334")
+def test_visibility_button_click_on_multi_selection_emits_whole_selection(
+    populated: tuple, qtbot: QtBot
+) -> None:
+    t, sigs = populated
+    sm = t._segments[0].selectionModel()
+    sm.clearSelection()
+    for row in (0, 1):
+        sm.select(
+            t._segments[0].model().index(row, 0),
+            sm.SelectionFlag.Select | sm.SelectionFlag.Rows,
+        )
+    btn = _cell_inner_widget(t._segments[0], 0, _COL_VISIBLE)
+    with qtbot.waitSignal(t.visibility_toggle_requested, timeout=500) as blocker:
+        btn.click()
+    assert set(blocker.args[0]) == {sigs[0], sigs[1]}
+
+
+@pytest.mark.requirement("REQ-PLOT-334")
+def test_visibility_button_click_on_row_outside_selection_emits_just_that_row(
+    populated: tuple, qtbot: QtBot
+) -> None:
+    t, sigs = populated
+    t._segments[0].selectRow(1)
+    btn = _cell_inner_widget(t._segments[0], 0, _COL_VISIBLE)
+    with qtbot.waitSignal(t.visibility_toggle_requested, timeout=500) as blocker:
+        btn.click()
+    assert blocker.args[0] == [sigs[0]]
+
+
+@pytest.mark.requirement("REQ-PLOT-332")
+def test_ctrl_w_toggles_selected_signals(populated: tuple, qtbot: QtBot) -> None:
+    from PyQt6.QtCore import Qt
+    t, sigs = populated
+    t._segments[0].selectRow(0)
+    with qtbot.waitSignal(t.visibility_toggle_requested, timeout=500) as blocker:
+        qtbot.keyClick(t, Qt.Key.Key_W, Qt.KeyboardModifier.ControlModifier)
+    assert blocker.args[0] == [sigs[0]]
+
+
+@pytest.mark.requirement("REQ-PLOT-332")
+def test_ctrl_w_no_selection_does_not_emit(table: ActiveSignalsTable, qtbot: QtBot) -> None:
+    from PyQt6.QtCore import Qt
+    with qtbot.assertNotEmitted(table.visibility_toggle_requested):
+        qtbot.keyClick(table, Qt.Key.Key_W, Qt.KeyboardModifier.ControlModifier)
+
+
+def test_set_row_visible_icon_updates_button(populated: tuple) -> None:
+    t, sigs = populated
+    t.set_row_visible_icon(sigs[0], False)
+    btn = _cell_inner_widget(t._segments[0], 0, _COL_VISIBLE)
+    assert btn.visible_state is False
+
+
+def test_set_row_visible_icon_unknown_signal_is_noop(table: ActiveSignalsTable) -> None:
+    stranger = _make_active("x")
+    table.set_row_visible_icon(stranger, False)  # must not raise
 
 
 # ---------------------------------------------------------------------------
@@ -1023,7 +1119,7 @@ def test_color_swatch_unselected_signal_ignores_selection(
 
 def test_name_column_is_interactive(table: ActiveSignalsTable) -> None:
     from PyQt6.QtWidgets import QHeaderView
-    mode = table._header.horizontalHeader().sectionResizeMode(1)  # _COL_NAME = 1
+    mode = table._header.horizontalHeader().sectionResizeMode(_COL_NAME)
     assert mode == QHeaderView.ResizeMode.Interactive
 
 
@@ -1118,7 +1214,7 @@ def test_rebuild_rows_preserves_names(
     table, sigs = populated
     table._render_segment(table._segments[0])
     seg = table._segments[0]
-    names = [seg.item(r, 1).text() for r in range(seg.rowCount())]
+    names = [seg.item(r, _COL_NAME).text() for r in range(seg.rowCount())]
     assert names == [s.metadata.name for s in sigs]
 
 
@@ -1392,14 +1488,14 @@ def test_rebuild_rows_restores_color_swatches(
     table._render_segment(table._segments[0])
     seg = table._segments[0]
     for r in range(seg.rowCount()):
-        widget = seg.cellWidget(r, 0)
+        widget = _cell_inner_widget(seg, r, _COL_COLOR)
         assert isinstance(widget, _ColorSwatch)
 
 
 @pytest.mark.requirement("REQ-PLOT-101")
 def test_set_delta_column_header(table: ActiveSignalsTable) -> None:
     table.set_delta_column_header("Δt = 1.234 s")
-    item = table._header.horizontalHeaderItem(4)
+    item = table._header.horizontalHeaderItem(_COL_DELTA)
     assert item is not None
     assert item.text() == "Δt = 1.234 s"
 
@@ -1408,7 +1504,7 @@ def test_set_delta_column_header(table: ActiveSignalsTable) -> None:
 def test_set_delta_column_header_resets_to_default(table: ActiveSignalsTable) -> None:
     table.set_delta_column_header("Δt = 1.234 s")
     table.set_delta_column_header("Δ")
-    item = table._header.horizontalHeaderItem(4)
+    item = table._header.horizontalHeaderItem(_COL_DELTA)
     assert item is not None
     assert item.text() == "Δ"
 
@@ -1509,7 +1605,7 @@ def test_set_name_formatter_updates_existing_rows(
     table, sigs = populated
     table.set_name_formatter(lambda a: a.metadata.name.upper())
     for row, sig in enumerate(sigs):
-        assert table._segments[0].item(row, 1).text() == sig.metadata.name.upper()
+        assert table._segments[0].item(row, _COL_NAME).text() == sig.metadata.name.upper()
 
 
 @pytest.mark.requirement("REQ-PLOT-160")
@@ -1519,7 +1615,7 @@ def test_set_name_formatter_applied_to_new_rows(
     table.set_name_formatter(lambda a: f"[{a.metadata.name}]")
     active = _make_active("mysig")
     table.add_row(active)
-    assert table._segments[0].item(0, 1).text() == "[mysig]"
+    assert table._segments[0].item(0, _COL_NAME).text() == "[mysig]"
 
 
 @pytest.mark.requirement("REQ-PLOT-161")
@@ -1528,7 +1624,7 @@ def test_default_formatter_shows_full_name(
 ) -> None:
     active = _make_active("full.name.here")
     table.add_row(active)
-    assert table._segments[0].item(0, 1).text() == "full.name.here"
+    assert table._segments[0].item(0, _COL_NAME).text() == "full.name.here"
 
 
 @pytest.mark.requirement("REQ-PLOT-160")

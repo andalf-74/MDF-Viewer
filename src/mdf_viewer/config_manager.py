@@ -99,6 +99,7 @@ class ConfigManager:
                     "enum_display_yaxis": s.enum_display_yaxis,
                     "stripe_index": s.stripe_index,
                     "measurement_index": s.measurement_index,
+                    "visible": s.visible,
                 }
                 for s in t.signals
             ],
@@ -319,6 +320,7 @@ class ConfigManager:
             enum_display_yaxis=bool(s.get("enum_display_yaxis", False)),
             stripe_index=int(s.get("stripe_index", 0)),
             measurement_index=int(s.get("measurement_index", 0)),
+            visible=bool(s.get("visible", True)),
         )
 
     @staticmethod

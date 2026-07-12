@@ -850,6 +850,30 @@ class PlotStripe(QWidget):
         spd.curve.opts["stepMode"] = "right" if enabled else False
         spd.curve.setData(active.display_timestamps, active.data.samples)
 
+    def set_signal_visible(self, active: ActiveSignal, visible: bool) -> None:
+        """Hide or show a signal's curve and (via _update_axis_visibility)
+        its own Y-axis, without destroying either (#133). No-op if not present.
+
+        Never removes/recreates the curve, ViewBox, or axis — only ever
+        shows/hides them, the same objects the whole time, so cursor value
+        interpolation and the floating enum cursor label keep working for a
+        hidden signal with no changes needed anywhere else (both operate on
+        `ViewBox` coordinate mapping, which stays alive regardless of
+        show/hide state).
+
+        Sets `active.visible` itself (mirroring `set_line_width`/
+        `set_line_style`'s own field-updating convention) rather than
+        relying on the caller having already updated it — `_update_axis_
+        visibility()` immediately below reads every signal's `.visible`
+        field to decide merged/synced-group axis visibility, so it must
+        already be current by the time it runs.
+        """
+        if active not in self._data:
+            return
+        active.visible = visible
+        self._data[active].curve.setVisible(visible)
+        self._update_axis_visibility()
+
     def refresh_signal_data(self, active: ActiveSignal) -> None:
         """Re-apply curve data after active.display_timestamps changes (#101).
 
@@ -862,13 +886,17 @@ class PlotStripe(QWidget):
         self._data[active].curve.setData(active.display_timestamps, active.data.samples)
 
     def zoom_to_fit(self) -> None:
-        """Reset viewport: full X range across all signals, auto Y per signal."""
-        if not self._data:
+        """Reset viewport: full X range across all visible signals, auto Y per signal.
+
+        A hidden signal's data range is excluded (REQ-PLOT-337).
+        """
+        visible_signals = [a for a in self._data if a.visible]
+        if not visible_signals:
             return
 
-        # Compute full X range from all active signals' display timestamps.
-        t_min = min(float(a.display_timestamps[0]) for a in self._data if len(a.data.timestamps))
-        t_max = max(float(a.display_timestamps[-1]) for a in self._data if len(a.data.timestamps))
+        # Compute full X range from every visible signal's display timestamps.
+        t_min = min(float(a.display_timestamps[0]) for a in visible_signals if len(a.data.timestamps))
+        t_max = max(float(a.display_timestamps[-1]) for a in visible_signals if len(a.data.timestamps))
         self._pi.vb.setXRange(t_min, t_max, padding=0.02)
         self.autorange_y()
 
@@ -1496,8 +1524,15 @@ class PlotStripe(QWidget):
 
         If *ordered_signals* is given, unit order follows the earliest-
         appearing member; otherwise falls back to internal dict order.
+
+        A hidden signal (#133) never contributes to any unit — autorange_y(),
+        zoom_y_to_view(), and swimlanes() all source their grouping from this
+        one helper, so this single filter satisfies REQ-PLOT-337 for all
+        three. A partially-hidden Merged/Synced group's unit still forms,
+        just from only its visible members.
         """
         signals = ordered_signals if ordered_signals is not None else list(self._data)
+        signals = [s for s in signals if s.visible]
         seen_vb_ids: set[int] = set()
         seen_synced_ids: set[int] = set()
         units: list[tuple[object, list[ActiveSignal], bool]] = []
@@ -1694,14 +1729,18 @@ class PlotStripe(QWidget):
         self.y_grid_toggled.emit(checked)
 
     def _update_axis_visibility(self) -> None:
-        """Show or hide Y-axes according to the show-only-selected-Y-axis toggle.
+        """Show or hide Y-axes according to the show-only-selected-Y-axis
+        toggle and each signal's own hidden state (#133, REQ-PLOT-335/336).
 
-        For merged groups: the axis is shown if ANY member is selected.
+        For merged/synced groups: the axis is shown if ANY member is
+        eligible. A hidden signal is never eligible regardless of the
+        show-only-selected toggle.
         """
+        hidden = {a for a in self._data if not a.visible}
         if not self._show_only_selected_y_axis or not self._selected_signals:
-            visible_set = set(self._data.keys())
+            visible_set = set(self._data.keys()) - hidden
         else:
-            visible_set = set(self._selected_signals) & set(self._data.keys())
+            visible_set = (set(self._selected_signals) & set(self._data.keys())) - hidden
 
         # Determine per-axis visibility: an axis is visible if any of its signals is.
         axis_show: dict[int, tuple] = {}  # id(axis) → (axis, should_show)

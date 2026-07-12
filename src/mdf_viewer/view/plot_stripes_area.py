@@ -407,6 +407,11 @@ class PlotStripesArea(QWidget):
         if stripe is not None:
             stripe.set_step_mode(active, step_mode)
 
+    def set_signal_visible(self, active: ActiveSignal, visible: bool) -> None:
+        stripe = self._signal_stripe.get(active)
+        if stripe is not None:
+            stripe.set_signal_visible(active, visible)
+
     def refresh_signal_data(self, active: ActiveSignal) -> None:
         stripe = self._signal_stripe.get(active)
         if stripe is not None:
@@ -472,9 +477,10 @@ class PlotStripesArea(QWidget):
 
         Y-autorange is scoped by *all_stripes* — every stripe, or only the
         active one — per the "All Stripes / Active Stripe" toggle
-        (REQ-PLOT-057); Swimlanes and box-zoom are unaffected by it.
+        (REQ-PLOT-057); Swimlanes and box-zoom are unaffected by it. A
+        hidden signal's data range is excluded (#133, REQ-PLOT-337).
         """
-        signals = list(self._signal_stripe)
+        signals = [a for a in self._signal_stripe if a.visible]
         if not signals:
             return
         t_min = min(float(a.display_timestamps[0]) for a in signals if len(a.data.timestamps))

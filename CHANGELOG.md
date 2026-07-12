@@ -255,7 +255,9 @@ All notable changes to MDF-Viewer are documented in this file.
   `.mvc` files.
   - Before anything is applied, a dialog maps each of the saved workspace's
     measurement slots onto an already-loaded measurement (or "None" to
-    drop it) — picking one removes it from every other slot's choices.
+    drop it) — every slot always offers every loaded measurement, and
+    picking one already assigned elsewhere reassigns it here, resetting
+    the other slot to "None".
   - The applied workspace's tabs, stripes, and signal selections replace
     the current ones entirely, the same as opening a `.mvc` normally does;
     signals resolve against whichever measurement each slot was mapped to,
@@ -270,6 +272,25 @@ All notable changes to MDF-Viewer are documented in this file.
     never silently overwritten by a later plain "Save Workspace".
   - `docs/requirements/file-handling.md` gained a new "Applying a Config
     to Already-Loaded Measurements" section (REQ-FILE-110 through 119).
+- An active signal can now be temporarily hidden — curve and its own
+  Y-axis both disappear — without removing it from the Active Signals
+  Table or losing any of its display settings (#133).
+  - A new eye-icon button, leftmost in each Active Signals Table row,
+    toggles it; so does a new "Toggle Visibility" entry in the table's
+    right-click context menu, and the **Ctrl+W** shortcut for whichever
+    row(s) are currently selected — each selected signal toggles its own
+    state independently, never forced to one shared state.
+  - A signal sharing a Merged or Synced Y-axis group with at least one
+    still-visible signal keeps that shared axis visible; it disappears
+    only once every member of the group is hidden.
+  - Zoom to Fit, Zoom Y to View, and Swimlanes all ignore a hidden
+    signal's data range.
+  - A hidden signal stays fully selectable and editable (Properties,
+    recolor, etc.), and its Cursor 1/2/Delta values keep updating live.
+  - Hidden/visible state is saved and restored per signal as part of a
+    workspace (`.mvc`), the same as its color/line-style/display-mode.
+  - `docs/requirements/plotting.md` gained a new "Signal Visibility"
+    section (REQ-PLOT-330 through 339).
 
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the

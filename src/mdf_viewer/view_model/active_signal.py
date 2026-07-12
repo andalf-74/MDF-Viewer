@@ -57,6 +57,7 @@ class ActiveSignal:
     marker_shape: str = "circle"  # "circle" | "square" | "diamond" | "cross"
     line_width: int = 1           # 1–8
     line_style: str = "solid"     # "solid" | "dashes" | "dots" | "dash-dot"
+    visible: bool = True          # #133 — curve/axis hidden while False, stays active/selectable
     curve: Any = field(default=None)     # pyqtgraph.PlotDataItem
     view_box: Any = field(default=None)  # pyqtgraph.ViewBox
 

@@ -727,6 +727,84 @@ def test_set_step_modes_skips_unknown(ctrl: AppController, deps: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# toggle_signal_visibility (#133)
+# ---------------------------------------------------------------------------
+
+def _wire_visible_side_effect(deps: dict) -> None:
+    """deps["plot"] is a MagicMock — set_signal_visible() must be told to
+    actually flip active.visible, mirroring the real PlotStripe.set_signal_visible()
+    (which sets the field itself, see plot_stripe.py's own docstring)."""
+    def _side_effect(active, visible):
+        active.visible = visible
+    deps["plot"].set_signal_visible.side_effect = _side_effect
+
+
+@pytest.mark.requirement("REQ-PLOT-330")
+def test_toggle_signal_visibility_flips_visible_signal_to_hidden(
+    ctrl: AppController, deps: dict
+) -> None:
+    _wire_visible_side_effect(deps)
+    ctrl.add_signal(0, 1)
+    active = ctrl.active_signals[0]
+    assert active.visible is True
+    ctrl.toggle_signal_visibility([active])
+    assert active.visible is False
+
+
+@pytest.mark.requirement("REQ-PLOT-330")
+def test_toggle_signal_visibility_flips_hidden_signal_to_visible(
+    ctrl: AppController, deps: dict
+) -> None:
+    _wire_visible_side_effect(deps)
+    ctrl.add_signal(0, 1)
+    active = ctrl.active_signals[0]
+    active.visible = False
+    ctrl.toggle_signal_visibility([active])
+    assert active.visible is True
+
+
+@pytest.mark.requirement("REQ-PLOT-333")
+def test_toggle_signal_visibility_toggles_each_independently(
+    ctrl: AppController, deps: dict
+) -> None:
+    _wire_visible_side_effect(deps)
+    deps["loader"].load_signal.side_effect = [
+        (_make_signal_data(), _make_metadata("a", ci=1)),
+        (_make_signal_data(), _make_metadata("b", ci=2)),
+    ]
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    a, b = ctrl.active_signals
+    b.visible = False
+    ctrl.toggle_signal_visibility([a, b])
+    assert a.visible is False
+    assert b.visible is True
+
+
+def test_toggle_signal_visibility_calls_plot_and_table(
+    ctrl: AppController, deps: dict
+) -> None:
+    _wire_visible_side_effect(deps)
+    ctrl.add_signal(0, 1)
+    active = ctrl.active_signals[0]
+    ctrl.toggle_signal_visibility([active])
+    deps["plot"].set_signal_visible.assert_called_once_with(active, False)
+    deps["table"].set_row_visible_icon.assert_called_once_with(active, False)
+
+
+@pytest.mark.requirement("REQ-PLOT-023")
+def test_toggle_signal_visibility_skips_unknown(ctrl: AppController, deps: dict) -> None:
+    t = np.array([0.0, 1.0])
+    unknown = ActiveSignal(
+        data=SignalData(timestamps=t, samples=t),
+        metadata=_make_metadata(),
+        color=QColor(0, 0, 255),
+    )
+    ctrl.toggle_signal_visibility([unknown])  # must not raise
+    deps["plot"].set_signal_visible.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # on_multi_selection
 # ---------------------------------------------------------------------------
 
@@ -2324,6 +2402,27 @@ def test_restore_signals_applies_step_mode(ctrl: AppController, deps: dict) -> N
     assert ctrl.active_signals[0].step_mode is True
 
 
+@pytest.mark.requirement("REQ-PLOT-339")
+def test_restore_signals_applies_hidden_visibility(ctrl: AppController, deps: dict) -> None:
+    meta = _make_metadata("sig", gi=0, ci=1)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    snap = _make_snapshot("sig", visible=False)
+    ctrl.restore_signals([(snap, 0, 1)])
+    deps["plot"].set_signal_visible.assert_called_once_with(ctrl.active_signals[0], False)
+    deps["table"].set_row_visible_icon.assert_called_once_with(ctrl.active_signals[0], False)
+    assert ctrl.active_signals[0].visible is False
+
+
+@pytest.mark.requirement("REQ-PLOT-339")
+def test_restore_signals_default_visible_skips_plot_call(ctrl: AppController, deps: dict) -> None:
+    meta = _make_metadata("sig", gi=0, ci=1)
+    deps["loader"].load_signal.return_value = (_make_signal_data(), meta)
+    snap = _make_snapshot("sig", visible=True)
+    ctrl.restore_signals([(snap, 0, 1)])
+    deps["plot"].set_signal_visible.assert_not_called()
+    assert ctrl.active_signals[0].visible is True
+
+
 @pytest.mark.requirement("REQ-PLOT-020")
 def test_restore_signals_skips_duplicate(ctrl: AppController, deps: dict) -> None:
     meta = _make_metadata("rpm", gi=0, ci=1)
@@ -2727,6 +2826,16 @@ def test_snapshot_active_signals_stripe_name_empty_when_no_stripe(
     ctrl.add_signal(0, 1)
     (snap,) = ctrl.snapshot_active_signals()
     assert snap.stripe_name == ""
+
+
+@pytest.mark.requirement("REQ-PLOT-339")
+def test_snapshot_active_signals_captures_hidden_visibility(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    ctrl.active_signals[0].visible = False
+    (snap,) = ctrl.snapshot_active_signals()
+    assert snap.visible is False
 
 
 # ---------------------------------------------------------------------------

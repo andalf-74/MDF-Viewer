@@ -689,6 +689,43 @@ def test_zoom_to_fit_all_stripes_autoranges_every_stripe(area: PlotStripesArea) 
     assert y_min < 500.0 < y_max
 
 
+# ---------------------------------------------------------------------------
+# Signal Visibility (#133)
+# ---------------------------------------------------------------------------
+
+def test_set_signal_visible_dispatches_to_owning_stripe(area: PlotStripesArea) -> None:
+    s2 = area.create_stripe()
+    a = _make_active("a")
+    area.add_signal(a, stripe=s2)
+    area.set_signal_visible(a, False)
+    assert s2._data[a].curve.isVisible() is False
+
+
+def test_set_signal_visible_unknown_signal_is_noop(area: PlotStripesArea) -> None:
+    stranger = _make_active("x")
+    area.set_signal_visible(stranger, False)  # must not raise
+
+
+@pytest.mark.requirement("REQ-PLOT-337")
+def test_zoom_to_fit_excludes_hidden_signal_range(area: PlotStripesArea) -> None:
+    short = ActiveSignal(
+        data=SignalData(timestamps=np.linspace(0.0, 1.0, 10), samples=np.zeros(10)),
+        metadata=SignalMetadata(name="short", unit="V", group_index=0, channel_index=0),
+        color=QColor(1, 2, 3),
+    )
+    long_signal = ActiveSignal(
+        data=SignalData(timestamps=np.linspace(0.0, 100.0, 10), samples=np.zeros(10)),
+        metadata=SignalMetadata(name="long", unit="V", group_index=0, channel_index=1),
+        color=QColor(4, 5, 6),
+    )
+    area.add_signal(short)
+    area.add_signal(long_signal)
+    area.set_signal_visible(long_signal, False)
+    area.zoom_to_fit()
+    x_min, x_max = area.plot_item.vb.viewRange()[0]
+    assert x_max < 2.0
+
+
 @pytest.mark.requirement("REQ-PLOT-057")
 def test_zoom_y_to_view_active_stripe_only_leaves_others_untouched(
     area: PlotStripesArea,

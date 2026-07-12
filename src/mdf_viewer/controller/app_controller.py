@@ -71,6 +71,7 @@ class ActiveSignalSnapshot:
     # from; left None for the file-reload "keep signals" flow, which has
     # no such prior knowledge and resolves across the whole pool instead.
     measurement: "LoadedMeasurement | None" = None
+    visible: bool = True  # #133 — curve/axis shown or hidden
 
 if TYPE_CHECKING:
     from PyQt6.QtGui import QColor
@@ -1155,6 +1156,22 @@ class AppController:
             active.step_mode = enabled
             current.plot.set_step_mode(active, enabled)
 
+    def toggle_signal_visibility(self, actives: list) -> None:
+        """Toggle each signal in *actives* independently (#133, REQ-PLOT-333)
+        — never forces every signal to one target state.
+
+        `plot.set_signal_visible()` sets `active.visible` itself (mirroring
+        `set_line_width`/`set_line_style`'s own field-updating convention),
+        so the new value is computed here before calling it, then read back
+        for the Active Signals Table icon update.
+        """
+        current = self.current_workspace
+        for active in actives:
+            if active not in current.active:
+                continue
+            current.plot.set_signal_visible(active, not active.visible)
+            current.table.set_row_visible_icon(active, active.visible)
+
     def on_enum_table_requested(self, enabled: bool) -> None:
         """Toggle enum label display in the cursor-value table columns."""
         current = self.current_workspace
@@ -1476,6 +1493,7 @@ class AppController:
                 enum_display_yaxis=active.enum_display_yaxis,
                 group_name=active.metadata.group_name,
                 stripe_name=getattr(stripe, "name", "") if stripe is not None else "",
+                visible=active.visible,
             ))
         return snapshots
 
@@ -1594,6 +1612,10 @@ class AppController:
             if snap.step_mode != active.step_mode:
                 current.plot.set_step_mode(active, snap.step_mode)
                 active.step_mode = snap.step_mode
+            if snap.visible != active.visible:
+                current.plot.set_signal_visible(active, snap.visible)
+                active.visible = snap.visible
+                current.table.set_row_visible_icon(active, snap.visible)
             active.enum_display_table = snap.enum_display_table
             active.enum_display_cursor = snap.enum_display_cursor
             if snap.enum_display_yaxis != active.enum_display_yaxis:
@@ -1740,6 +1762,7 @@ class AppController:
                 enum_display_yaxis=snap.enum_display_yaxis,
                 stripe_index=stripe_idx,
                 measurement_index=self._measurement_index(active.measurement),
+                visible=snap.visible,
             ))
 
         zoom = workspace.plot.get_zoom_state(workspace.active)

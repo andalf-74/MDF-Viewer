@@ -128,16 +128,19 @@ Divided into one segment per stripe, stacked top-to-bottom in the same order as 
 
 | # | Column | Description |
 |---|--------|--------------|
-| 1 | Color swatch | Small colored rectangle; clicking opens a color picker and updates curve + Y-axis color |
-| 2 | Signal name | Display name from MDF metadata (prefixed with its measurement's short name once 2+ measurements are loaded) |
-| 3 | Cursor 1 value | Current value at Cursor 1 position (shown only when cursor is active) |
-| 4 | Cursor 2 value | Current value at Cursor 2 position (shown only when cursor is active) |
-| 5 | Delta | Difference between Cursor 2 and Cursor 1 values |
+| 1 | Visibility | Eye icon button (#133) — open when the signal's curve/axis are shown, closed when hidden; click toggles it (or the whole current selection, if this row is part of one) |
+| 2 | Color swatch | Small colored rectangle; clicking opens a color picker and updates curve + Y-axis color |
+| 3 | Signal name | Display name from MDF metadata (prefixed with its measurement's short name once 2+ measurements are loaded) |
+| 4 | Cursor 1 value | Current value at Cursor 1 position (shown only when cursor is active) |
+| 5 | Cursor 2 value | Current value at Cursor 2 position (shown only when cursor is active) |
+| 6 | Delta | Difference between Cursor 2 and Cursor 1 values |
 
 - Each segment's stripe name is shown as a label above it (double-click to rename, mirroring tab renaming).
 - Dragging a row within or across segments reorders it or moves the signal to a different stripe (the drop target's segment); this also relocates the signal in the plot.
-- Right-click context menu: Remove Signal(s), Enable/Disable Step Mode, Shorten Signal Names (toggle), Display Name Rule…, Merge Y-Axis / Sync Y-Axis / Remove from merged-synced axis (2+ signals), Move to Stripe / Move to new Stripe.
+- Right-click context menu: Remove Signal(s), Toggle Visibility (#133), Enable/Disable Step Mode, Shorten Signal Names (toggle), Display Name Rule…, Merge Y-Axis / Sync Y-Axis / Remove from merged-synced axis (2+ signals), Move to Stripe / Move to new Stripe.
 - **Remove Signal** / **Remove All** buttons below the table (spanning all segments) remove the selected/every active signal from the table and plot.
+- **Ctrl+W** toggles visibility for whichever row(s) are currently selected, each independently — a mix of visible/hidden rows ends up with each one inverted, never forced to one shared state (#133).
+- Hiding a signal (#133) hides its curve and its own Y-axis (a Merged/Synced group's shared axis stays until every member is hidden); it stays fully selectable and editable, its Cursor 1/2/Delta values keep updating, and Zoom to Fit/Zoom Y to View/Swimlanes ignore its data range.
 - Selection here drives the Signal Info/Properties drawer's content.
 
 ---

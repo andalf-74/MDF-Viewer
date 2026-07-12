@@ -672,3 +672,41 @@ Primary to the first-loaded of the new set, the same as every
 measurement's offset (REQ-FILE-026) and Synchronized state already reset
 on Replace; adding a measurement (REQ-FILE-022) never changes which
 measurement is currently Primary [REQ-PLOT-322].
+
+## Signal Visibility
+
+An active signal can be temporarily hidden from the plot without
+removing it from the Active Signals Table or affecting its display
+settings — a distinct action from Remove Signal, which discards it
+entirely [REQ-PLOT-330]. Every newly added signal starts visible
+[REQ-PLOT-331].
+
+Visibility is toggled from any of three places, all acting on the same
+underlying state: an eye-icon button in its own Active Signals Table
+column (open when visible, closed when hidden); a "Hide"/"Show"
+Active Signals Table context-menu entry; and the Ctrl+W keyboard
+shortcut, which acts on whichever row(s) are currently selected
+[REQ-PLOT-332]. When more than one row is selected, both the keyboard
+shortcut and clicking any selected row's own eye button toggle every
+selected signal's visibility independently — each flips its own current
+state, rather than forcing every selected signal to one target state
+[REQ-PLOT-333]. Clicking a row's eye button when that row is not part of
+the current selection affects only that one row [REQ-PLOT-334].
+
+Hiding a signal hides its curve and its own per-signal Y-axis column
+(REQ-PLOT-011), so it takes up no space in the plot until shown again
+[REQ-PLOT-335]. A signal sharing a Merged or Synced Y-axis group (REQ-
+PLOT-030) with at least one other still-visible signal keeps that
+group's shared axis visible; the axis only disappears once every member
+of the group is hidden [REQ-PLOT-336]. A hidden signal's data range is
+excluded from Zoom to Fit, Zoom Y to View, and Swimlanes — none of these
+operations are influenced by, or arrange plot space for, a signal that
+isn't currently shown [REQ-PLOT-337].
+
+A hidden signal's Active Signals Table row stays fully interactive:
+selectable, editable via the Signal Info/Properties panel, and its
+Cursor 1/Cursor 2/Delta value columns keep updating live exactly as a
+visible signal's would [REQ-PLOT-338]. Hidden state is saved and
+restored as part of a signal's other per-signal display settings
+(`file-handling.md` REQ-FILE-061) — a signal reloads with the same
+visibility it had when the workspace was saved [REQ-PLOT-339].

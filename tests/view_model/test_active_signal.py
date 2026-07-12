@@ -44,3 +44,9 @@ def test_display_timestamps_tracks_live_offset_changes() -> None:
     assert np.array_equal(active.display_timestamps, active.data.timestamps)
     measurement.offset_s = -2.0
     assert np.array_equal(active.display_timestamps, np.array([-2.0, -1.0, 0.0]))
+
+
+@pytest.mark.requirement("REQ-PLOT-331")
+def test_visible_defaults_to_true() -> None:
+    active = _make_active()
+    assert active.visible is True

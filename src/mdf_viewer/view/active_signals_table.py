@@ -60,18 +60,50 @@ from mdf_viewer.view._mime import (
     decode_signal_payload,
     encode_row_payload,
 )
-from mdf_viewer.view.widgets import ColorSwatch, make_splitter
+from mdf_viewer.view.widgets import ColorSwatch, VisibilityToggleButton, make_splitter
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
-_COL_COLOR = 0
-_COL_NAME = 1
-_COL_C1 = 2
-_COL_C2 = 3
-_COL_DELTA = 4
-_NUM_COLS = 5
+# _COL_VISIBLE is leftmost (#133) — most prominent/scannable placement,
+# accepted at the cost of shifting every other column's saved .mvc width by
+# one index for a file saved before this feature existed (cosmetic only,
+# self-correcting on the next manual resize — see docs/architecture.md).
+_COL_VISIBLE = 0
+_COL_COLOR = 1
+_COL_NAME = 2
+_COL_C1 = 3
+_COL_C2 = 4
+_COL_DELTA = 5
+_NUM_COLS = 6
 
 _CURSOR_COLS = (_COL_C1, _COL_C2, _COL_DELTA)
-_HEADERS = ("", "Signal", "Cursor 1", "Cursor 2", "Δ")
+_HEADERS = ("", "", "Signal", "Cursor 1", "Cursor 2", "Δ")
+
+
+def _centered_cell_widget(widget: QWidget) -> QWidget:
+    """Wrap a small fixed-size widget (color swatch, eye button) in a
+    zero-margin container that centers it within whatever cell rect
+    QTableWidget assigns.
+
+    QTableWidget.setCellWidget() positions a widget by calling
+    setGeometry(cell_rect) — for a setFixedSize() widget narrower than the
+    column, that anchors it at the cell's top-left corner rather than
+    centering it (live-testing found this made the color/visibility
+    columns' extra width more noticeable, not less).
+    """
+    container = QWidget()
+    layout = QHBoxLayout(container)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.addWidget(widget, alignment=Qt.AlignmentFlag.AlignCenter)
+    return container
+
+
+def _cell_inner_widget(seg: "_ActiveTable", row: int, col: int) -> QWidget | None:
+    """Unwrap the centering container _centered_cell_widget() adds, back to
+    the actual functional widget (ColorSwatch/VisibilityToggleButton)."""
+    container = seg.cellWidget(row, col)
+    if container is None or container.layout() is None or container.layout().count() == 0:
+        return None
+    return container.layout().itemAt(0).widget()
 
 
 def _ro_item(text: str) -> QTableWidgetItem:
@@ -90,8 +122,10 @@ def _configure_columns(table: QTableWidget) -> None:
     table.setColumnCount(_NUM_COLS)
     table.setHorizontalHeaderLabels(_HEADERS)
     hdr = table.horizontalHeader()
+    hdr.setSectionResizeMode(_COL_VISIBLE, QHeaderView.ResizeMode.Fixed)
+    table.setColumnWidth(_COL_VISIBLE, 22)
     hdr.setSectionResizeMode(_COL_COLOR, QHeaderView.ResizeMode.Fixed)
-    table.setColumnWidth(_COL_COLOR, 28)
+    table.setColumnWidth(_COL_COLOR, 24)
     hdr.setSectionResizeMode(_COL_NAME, QHeaderView.ResizeMode.Interactive)
     table.setColumnWidth(_COL_NAME, 120)
     for col in _CURSOR_COLS:
@@ -254,6 +288,10 @@ class ActiveSignalsTable(QWidget):
     # make that segment's stripe the active one (REQ-PLOT-278), mirroring
     # PlotStripe's own "click anywhere inside activates it" (REQ-PLOT-211).
     segment_activated = pyqtSignal(object)
+    # list[ActiveSignal] — emitted from the eye button, the "Toggle
+    # Visibility" context-menu entry, or Ctrl+W (#133); each listed signal
+    # toggles its own current state independently (REQ-PLOT-333).
+    visibility_toggle_requested = pyqtSignal(list)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -398,9 +436,20 @@ class ActiveSignalsTable(QWidget):
         seg, row = self._find(active)
         if seg is None:
             return
-        swatch = seg.cellWidget(row, _COL_COLOR)
+        swatch = _cell_inner_widget(seg, row, _COL_COLOR)
         if isinstance(swatch, ColorSwatch):
             swatch.set_color(color)
+
+    def set_row_visible_icon(self, active: ActiveSignal, visible: bool) -> None:
+        """Update the eye button for *active* (#133) — used after a toggle
+        that didn't originate from clicking that exact button (Ctrl+W,
+        context menu, or session/reload restore). No-op if not in the table."""
+        seg, row = self._find(active)
+        if seg is None:
+            return
+        btn = _cell_inner_widget(seg, row, _COL_VISIBLE)
+        if isinstance(btn, VisibilityToggleButton):
+            btn.set_visible_state(visible)
 
     def set_name_formatter(self, formatter: Callable[[ActiveSignal], str]) -> None:
         """Set a function that maps an active signal to its display name, then refresh all rows.
@@ -653,11 +702,16 @@ class ActiveSignalsTable(QWidget):
         row = seg.rowCount()
         seg.insertRow(row)
 
+        visibility_btn = VisibilityToggleButton(active.visible)
+        visibility_btn.clicked.connect(
+            lambda checked=False, a=active: self._on_visibility_button_clicked(a)
+        )
+        seg.setCellWidget(row, _COL_VISIBLE, _centered_cell_widget(visibility_btn))
         swatch = ColorSwatch(active.color)
         swatch.clicked.connect(
             lambda checked=False, a=active: self._on_color_swatch_clicked(a)
         )
-        seg.setCellWidget(row, _COL_COLOR, swatch)
+        seg.setCellWidget(row, _COL_COLOR, _centered_cell_widget(swatch))
         seg.setItem(row, _COL_NAME, _ro_item(self._name_formatter(active)))
         for col in _CURSOR_COLS:
             seg.setItem(row, col, _ro_item(""))
@@ -763,14 +817,29 @@ class ActiveSignalsTable(QWidget):
         for sig in targets:
             seg, row = self._find(sig)
             if seg is not None:
-                swatch = seg.cellWidget(row, _COL_COLOR)
+                swatch = _cell_inner_widget(seg, row, _COL_COLOR)
                 if isinstance(swatch, ColorSwatch):
                     swatch.set_color(new_color)
         self.color_change_requested.emit(targets, new_color)
 
+    def _on_visibility_button_clicked(self, active: ActiveSignal) -> None:
+        """Clicking one row's eye button toggles the whole current
+        selection if that row is part of one, mirroring
+        _on_color_swatch_clicked's exact scoping rule (REQ-PLOT-334)."""
+        selected = self._selected_signals()
+        targets = selected if len(selected) > 1 and active in selected else [active]
+        self.visibility_toggle_requested.emit(targets)
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
             self._on_remove_clicked()
+        elif (
+            event.key() == Qt.Key.Key_W
+            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        ):
+            signals = self._selected_signals()
+            if signals:
+                self.visibility_toggle_requested.emit(signals)
         else:
             super().keyPressEvent(event)
 
@@ -789,6 +858,13 @@ class ActiveSignalsTable(QWidget):
         remove_action = QAction(remove_label, self)
         remove_action.triggered.connect(lambda: self.remove_requested.emit(selected))
         menu.addAction(remove_action)
+
+        toggle_visibility_label = f"Toggle Visibility ({n})" if n > 1 else "Toggle Visibility"
+        toggle_visibility_action = QAction(toggle_visibility_label, self)
+        toggle_visibility_action.triggered.connect(
+            lambda: self.visibility_toggle_requested.emit(selected)
+        )
+        menu.addAction(toggle_visibility_action)
 
         menu.addSeparator()
 

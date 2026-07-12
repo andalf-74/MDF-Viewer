@@ -1991,6 +1991,134 @@ def test_new_signal_added_with_toggle_on_respects_visibility(plot: PlotStripe) -
 
 
 # ---------------------------------------------------------------------------
+# Signal Visibility (#133)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-335")
+def test_hidden_signal_curve_not_visible(plot: PlotStripe) -> None:
+    a = _make_active("a")
+    plot.add_signal(a)
+    plot.set_signal_visible(a, False)
+    assert plot._data[a].curve.isVisible() is False
+
+
+@pytest.mark.requirement("REQ-PLOT-335")
+def test_shown_signal_curve_visible_again(plot: PlotStripe) -> None:
+    a = _make_active("a")
+    plot.add_signal(a)
+    plot.set_signal_visible(a, False)
+    plot.set_signal_visible(a, True)
+    assert plot._data[a].curve.isVisible() is True
+
+
+@pytest.mark.requirement("REQ-PLOT-335")
+def test_hidden_ungrouped_signal_axis_also_hidden(plot: PlotStripe) -> None:
+    a = _make_active("a")
+    plot.add_signal(a)
+    plot.set_signal_visible(a, False)
+    assert plot._data[a].axis.isVisible() is False
+
+
+@pytest.mark.requirement("REQ-PLOT-336")
+def test_merged_group_axis_stays_visible_if_one_member_still_visible(plot: PlotStripe) -> None:
+    a, b = _make_active("a"), _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.merge_signals([a, b])
+    plot.set_signal_visible(a, False)
+    assert plot._data[b].axis.isVisible() is True
+
+
+@pytest.mark.requirement("REQ-PLOT-336")
+def test_merged_group_axis_hides_once_every_member_hidden(plot: PlotStripe) -> None:
+    a, b = _make_active("a"), _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.merge_signals([a, b])
+    plot.set_signal_visible(a, False)
+    plot.set_signal_visible(b, False)
+    assert plot._data[a].axis.isVisible() is False
+
+
+@pytest.mark.requirement("REQ-PLOT-336")
+def test_synced_group_member_axis_independent_of_other_member(plot: PlotStripe) -> None:
+    a, b = _make_active("a"), _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.sync_signals([a, b])
+    plot.set_signal_visible(a, False)
+    assert plot._data[a].axis.isVisible() is False
+    assert plot._data[b].axis.isVisible() is True
+
+
+@pytest.mark.requirement("REQ-PLOT-337")
+def test_display_units_excludes_hidden_signal(plot: PlotStripe) -> None:
+    a, b = _make_active("a"), _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.set_signal_visible(a, False)
+    units = plot._display_units([a, b])
+    all_members = [s for _, members, _ in units for s in members]
+    assert a not in all_members
+    assert b in all_members
+
+
+@pytest.mark.requirement("REQ-PLOT-337")
+def test_display_units_partially_hidden_merged_group_keeps_visible_members_only(
+    plot: PlotStripe,
+) -> None:
+    a, b, c = _make_active("a"), _make_active("b"), _make_active("c")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.add_signal(c)
+    plot.merge_signals([a, b])
+    plot.set_signal_visible(b, False)
+    units = plot._display_units([a, b, c])
+    merged_unit = next(u for u in units if a in u[1])
+    assert set(merged_unit[1]) == {a}
+
+
+@pytest.mark.requirement("REQ-PLOT-337")
+def test_zoom_to_fit_ignores_hidden_signal_range(plot: PlotStripe) -> None:
+    short = _make_active("short", n=10)
+    long_signal = ActiveSignal(
+        data=SignalData(timestamps=np.linspace(0.0, 100.0, 10), samples=np.zeros(10)),
+        metadata=SignalMetadata(name="long", unit="V", group_index=0, channel_index=1),
+        color=QColor(4, 5, 6),
+    )
+    plot.add_signal(short)
+    plot.add_signal(long_signal)
+    plot.set_signal_visible(long_signal, False)
+    plot.zoom_to_fit()
+    x_min, x_max = plot._pi.vb.viewRange()[0]
+    assert x_max < 2.0
+
+
+@pytest.mark.requirement("REQ-PLOT-337")
+def test_zoom_to_fit_all_hidden_is_noop(plot: PlotStripe) -> None:
+    a = _make_active("a")
+    plot.add_signal(a)
+    plot.set_signal_visible(a, False)
+    plot.zoom_to_fit()  # must not raise
+
+
+@pytest.mark.requirement("REQ-PLOT-337")
+def test_swimlanes_skips_hidden_signal(plot: PlotStripe) -> None:
+    a, b = _make_active("a"), _make_active("b")
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.set_signal_visible(b, False)
+    plot.show()
+    units = plot._display_units([a, b])
+    assert len(units) == 1
+
+
+def test_set_signal_visible_unknown_signal_is_noop(plot: PlotStripe) -> None:
+    stranger = _make_active("x")
+    plot.set_signal_visible(stranger, False)  # must not raise
+
+
+# ---------------------------------------------------------------------------
 # Axis grouping — merge_signals
 # ---------------------------------------------------------------------------
 

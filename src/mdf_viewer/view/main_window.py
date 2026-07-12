@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING, Callable
 
 from PyQt6.QtCore import (
     QEvent,
-    QSize,
     Qt,
     QThread,
     QUrl,
@@ -48,28 +47,6 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-_ICONS_DIR = Path(__file__).parent.parent / "resources" / "icons"
-
-
-def _load_icon(name: str) -> QIcon:
-    icon = QIcon()
-    icon.addFile(str(_ICONS_DIR / f"{name}.png"), QSize(32, 32))
-    icon.addFile(str(_ICONS_DIR / f"{name}@2x.png"), QSize(64, 64))
-    return icon
-
-
-def _icon_suffix() -> str:
-    """Return "_light" unless the OS explicitly reports a dark color scheme.
-
-    The unsuffixed icons are light-gray and meant for dark backgrounds; the
-    "_light" variants are dark-gray and meant for light backgrounds. Detected
-    once at startup; an "Unknown" report (e.g. on platforms without theme
-    support) falls back to the light-mode icons, since light mode is the more
-    common default.
-    """
-    scheme = QApplication.styleHints().colorScheme()
-    return "" if scheme == Qt.ColorScheme.Dark else "_light"
 
 
 def _candidate_indices(candidate, measurement_aware: bool) -> tuple:
@@ -101,6 +78,7 @@ from mdf_viewer.view.plot_stripes_area import PlotStripesArea
 from mdf_viewer.view.signal_browser import SignalBrowser
 from mdf_viewer.view.signal_info_box import SignalInfoBox
 from mdf_viewer.view.widgets import make_splitter
+from mdf_viewer.view.widgets.icons import _ICONS_DIR, _icon_suffix, _load_icon
 
 if TYPE_CHECKING:
     from mdf_viewer.controller.app_controller import AppController
@@ -215,6 +193,9 @@ class MainWindow(QMainWindow):
         )
         active_signals_table.step_mode_set_requested.connect(
             controller.set_step_modes
+        )
+        active_signals_table.visibility_toggle_requested.connect(
+            controller.toggle_signal_visibility
         )
         active_signals_table.order_changed.connect(controller.reorder_signals)
         plot_area.y_grid_toggled.connect(controller.on_y_grid_toggled)
@@ -1983,6 +1964,7 @@ class MainWindow(QMainWindow):
             group_name=sig.group_name,
             stripe_name=stripe_name,
             measurement=measurement,
+            visible=sig.visible,
         )
 
     def _resolve_config_signals_for_tabs(

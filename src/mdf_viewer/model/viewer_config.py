@@ -31,6 +31,10 @@ class SignalConfig:
     # before #106.
     stripe_index: int = 0
     measurement_index: int = 0
+    # Whether the signal's curve/axis were shown or hidden when saved (#133).
+    # Defaults True so a file saved before this field existed loads every
+    # signal visible (REQ-FILE-067 forward-compat convention).
+    visible: bool = True
 
 
 @dataclass(frozen=True)
