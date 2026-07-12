@@ -227,6 +227,54 @@ class WorkspaceSessionController:
         if 0 <= active_stripe_index < len(all_stripes):
             plot_area.set_active_stripe(all_stripes[active_stripe_index])
 
+    def resolve_config_signals_for_tabs(
+        self, tab_configs: list, measurements: list,
+    ) -> tuple[dict[int, list], list[str]]:
+        """Match every saved tab's SignalConfig entries to channels in the
+        resolved measurement pool (#106 M6, full multi-tab replacement for
+        the old single-tab `_resolve_config_signals`).
+
+        *measurements* is `AppController.restore_measurements()`'s
+        index-aligned result (a `None` entry means that measurement failed
+        to load, per Phase 1) — a signal whose `measurement_index` points
+        at a `None` slot is folded straight into `not_found` without
+        attempting resolution at all, since there's nothing to search
+        (REQ-FILE-098). Every other signal's search is scoped to its own
+        saved measurement (REQ-FILE-093), not the whole pool.
+
+        Returns (resolved_by_tab, not_found) — resolved_by_tab maps tab
+        index to a list of (ActiveSignalSnapshot, group_index,
+        channel_index, measurement) tuples, ready for
+        `AppController.restore_config()`.
+        """
+        snapshots_by_tab: dict[int, list] = {}
+        not_found: list[str] = []
+        for tab_index, tab_config in enumerate(tab_configs):
+            stripe_names = [s.name for s in tab_config.stripes]
+            for sig in tab_config.signals:
+                measurement = (
+                    measurements[sig.measurement_index]
+                    if 0 <= sig.measurement_index < len(measurements) else None
+                )
+                if measurement is None:
+                    not_found.append(sig.name)
+                    continue
+                stripe_name = (
+                    stripe_names[sig.stripe_index]
+                    if 0 <= sig.stripe_index < len(stripe_names) else ""
+                )
+                snapshots_by_tab.setdefault(tab_index, []).append(
+                    self.signal_config_to_snapshot(sig, stripe_name, measurement=measurement)
+                )
+
+        # use_group_name=True preserves the old single-tab
+        # _resolve_config_signals' long-standing behavior unchanged (see
+        # _resolve_and_confirm_snapshots' own docstring for why this is an
+        # explicit switch) — baked into the injected callable at
+        # construction time (MainWindow._session wiring).
+        resolved_by_tab, more_not_found = self._resolve_and_confirm_snapshots(snapshots_by_tab)
+        return resolved_by_tab, not_found + more_not_found
+
     def signal_config_to_snapshot(
         self, sig, stripe_name: str = "", measurement: "object | None" = None,
     ) -> "ActiveSignalSnapshot":
