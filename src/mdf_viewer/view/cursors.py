@@ -35,6 +35,24 @@ from mdf_viewer.model.interpolate import interpolate as _interpolate
 if TYPE_CHECKING:
     from mdf_viewer.view_model.active_signal import ActiveSignal
 
+def _destroy_label(lbl, vb) -> None:
+    """Remove *lbl* from *vb*'s bookkeeping and destroy it (#120/#134).
+
+    Deliberately skips ViewBox.removeItem() — same reasoning as
+    PlotStripe._destroy_curve (plot_stripe.py): removeItem() calls
+    item.setParentItem(None), which poisons a still-alive item's
+    getViewBox() cache with the enclosing QGraphicsView, crashing the
+    next time viewRangeChanged()/_updateView() fires on it.
+    deleteLater() detaches it from the scene as part of normal Qt
+    destruction instead, atomically, with no orphaned-but-alive window.
+    """
+    if lbl in vb.addedItems:
+        vb.addedItems.remove(lbl)
+    if hasattr(vb, '_itemBoundsCache'):
+        vb._itemBoundsCache.clear()
+    lbl.deleteLater()
+
+
 # Cursor line style
 _CURSOR_PEN = pg.mkPen(color=(220, 220, 50), width=1, style=Qt.PenStyle.DashLine)
 
@@ -502,7 +520,7 @@ class CursorStripesView(QObject):
                     # sharing/linking/ungrouping can destroy or replace it) —
                     # detach from the stale ViewBox and recreate in the new one.
                     if cached is not None:
-                        cached[1].removeItem(cached[0])
+                        _destroy_label(cached[0], cached[1])
                     lbl = pg.TextItem(
                         text="",
                         color=active.color,
@@ -525,7 +543,7 @@ class CursorStripesView(QObject):
         stale = set(self._labels) - current_keys
         for key in stale:
             lbl, vb = self._labels.pop(key)
-            vb.removeItem(lbl)
+            _destroy_label(lbl, vb)
 
         self._refresh_label_visibility()
 
@@ -553,7 +571,7 @@ class CursorStripesView(QObject):
         stale = [k for k in self._labels if k[1] is active]
         for key in stale:
             lbl, vb = self._labels.pop(key)
-            vb.removeItem(lbl)
+            _destroy_label(lbl, vb)
 
     def clear_labels(self) -> None:
         """Remove all value labels from the plot.
@@ -561,7 +579,7 @@ class CursorStripesView(QObject):
         Must be called before signal ViewBoxes are destroyed.
         """
         for lbl, vb in self._labels.values():
-            vb.removeItem(lbl)
+            _destroy_label(lbl, vb)
         self._labels.clear()
 
     # ------------------------------------------------------------------

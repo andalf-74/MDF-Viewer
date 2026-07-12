@@ -333,6 +333,11 @@ All notable changes to MDF-Viewer are documented in this file.
   silently leaking the whole tab's plot and Active Signals Table.
   `docs/architecture.md`'s "PyQtGraph/Qt Teardown Pitfall" decision-log
   entry has the full technical detail.
+- A follow-up architecture review found the same #120-class teardown gap
+  in the cursor value labels (#134): four sites in `CursorStripesView`
+  removed a label from its ViewBox without ever destroying it, the same
+  orphaned-but-alive risk as above. Not confirmed to have caused a crash
+  in practice, but fixed the same way regardless.
 - Dragging a signal row in the Active Signals Table between two stripes'
   segments moved the table row but left the signal's curve behind in its
   old stripe's plot; dragging a row onto a stripe's plot area directly
