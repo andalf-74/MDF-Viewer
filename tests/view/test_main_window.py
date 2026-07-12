@@ -1685,9 +1685,9 @@ def test_apply_config_success_calls_restore_pipeline(
         "mdf_viewer.view.measurement_mapping_dialog.MeasurementMappingDialog.mapping",
         return_value=[None],
     ), patch.object(
-        wired, "_reset_to_single_tab"
+        wired._session, "reset_to_single_tab"
     ) as mock_reset, patch.object(
-        wired, "_build_tab_skeletons"
+        wired._session, "build_tab_skeletons"
     ) as mock_skeleton, patch.object(
         wired, "_on_save_config_as"
     ) as mock_save_as:

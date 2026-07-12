@@ -22,13 +22,21 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 if TYPE_CHECKING:
     from mdf_viewer.controller.app_controller import ActiveSignalSnapshot, AppController
     from mdf_viewer.model.loaded_measurement import LoadedMeasurement
+    from mdf_viewer.model.viewer_config import ViewerConfig
     from mdf_viewer.settings import Settings
     from PyQt6.QtWidgets import QTabWidget, QWidget
+
+# Duplicated from main_window.py's own module-level constants (not imported
+# from there — main_window.py imports this module, so the reverse import
+# would be circular). Keep the two literal strings in sync if either changes.
+_MDF_FILE_FILTER = "MDF Files (*.mf4 *.mdf *.dat);;All Files (*)"
+_MVC_FILE_FILTER = "MDF Viewer Config (*.mvc);;All Files (*)"
 
 
 class WorkspaceSessionController:
@@ -50,6 +58,7 @@ class WorkspaceSessionController:
         tab_page_splitter_sizes: Callable[[], list[tuple[int, int]]],
         save_config_as: Callable[[], None],
         show_status: Callable[[str, int], None],
+        clear_status: Callable[[], None],
     ) -> None:
         self._parent = parent
         self._tab_widget = tab_widget
@@ -65,6 +74,7 @@ class WorkspaceSessionController:
         self._tab_page_splitter_sizes = tab_page_splitter_sizes
         self._save_config_as = save_config_as
         self._show_status = show_status
+        self._clear_status = clear_status
 
     # ------------------------------------------------------------------
     # Save path
@@ -306,4 +316,193 @@ class WorkspaceSessionController:
             stripe_name=stripe_name,
             measurement=measurement,
             visible=sig.visible,
+        )
+
+    # ------------------------------------------------------------------
+    # Unified restore pipeline (#136) — load_config()/apply_config() are
+    # the same 5-phase pipeline (geometry -> obtain measurements -> build
+    # skeletons -> resolve signals -> restore_config), differing only in
+    # how `measurements: list[LoadedMeasurement | None]` is obtained.
+    # ------------------------------------------------------------------
+
+    def _restore_saved_workspace(
+        self,
+        config: "ViewerConfig",
+        *,
+        obtain_measurements: "Callable[[ViewerConfig], list[LoadedMeasurement | None] | None]",
+        require_at_least_one_loaded: bool,
+        finalize: Callable[[Path], None],
+        source_path: Path,
+    ) -> None:
+        from mdf_viewer.view.signals_not_found_dialog import SignalsNotFoundDialog
+
+        self._apply_window_geometry(config.window_geometry)
+        self._apply_splitter_sizes(config.splitter_sizes)
+
+        # *obtain_measurements* is responsible for calling
+        # self.reset_to_single_tab() itself, at whatever point its own
+        # caller-specific logic today calls it (load_config: after path
+        # resolution, before restore_measurements, both busy-cursor-wrapped;
+        # apply_config: after the mapping dialog). It must NOT be called
+        # unconditionally here — both callers today leave the workspace
+        # completely untouched when their own dialog is cancelled, and
+        # hoisting the reset out of the cancel path would destroy the
+        # user's open tabs even on a cancelled Load/Apply.
+        measurements = obtain_measurements(config)
+        if measurements is None:
+            return  # cancelled partway through — workspace untouched
+
+        if (
+            require_at_least_one_loaded
+            and measurements
+            and not any(m is not None for m in measurements)
+        ):
+            QMessageBox.critical(self._parent, "Load Error", "No measurements could be loaded.")
+            return
+
+        self.build_tab_skeletons(list(config.tabs))
+
+        resolved_by_tab, not_found = self.resolve_config_signals_for_tabs(
+            list(config.tabs), measurements,
+        )
+        if not_found:
+            SignalsNotFoundDialog(sorted(set(not_found)), self._parent).exec()
+
+        controller = self._get_controller()
+        controller.restore_config(config, resolved_by_tab, measurements)
+
+        if 0 <= config.active_tab_index < len(config.tabs):
+            self._tab_widget.setCurrentIndex(config.active_tab_index)
+
+        finalize(source_path)
+
+    def load_config(self, path: Path) -> None:
+        import dataclasses
+        from mdf_viewer.config_manager import ConfigManager
+        from mdf_viewer.errors import ConfigLoadError
+        from mdf_viewer.model.viewer_config import MeasurementConfig
+
+        controller = self._get_controller()
+        settings = self._get_settings()
+        if controller is None or settings is None:
+            return
+
+        try:
+            config = ConfigManager.load(path)
+        except ConfigLoadError as exc:
+            QMessageBox.critical(self._parent, "Config Load Error", str(exc))
+            return
+
+        def obtain(cfg: "ViewerConfig"):
+            measurement_configs = list(cfg.measurements)
+            if len(measurement_configs) <= 1:
+                # REQ-FILE-065: a session with zero or one measurement still
+                # gets an interactive locate-prompt for a missing file, not
+                # the combined continue/cancel dialog used for 2+ (REQ-FILE-097).
+                mc = measurement_configs[0] if measurement_configs else None
+                raw_path = mc.path if mc is not None else ""
+                found = ConfigManager.resolve_measurement_path(raw_path, path)
+                if found is None:
+                    mdf_path_str, _ = QFileDialog.getOpenFileName(
+                        self._parent,
+                        f"Locate Measurement File for '{path.name}'",
+                        "",
+                        _MDF_FILE_FILTER,
+                    )
+                    if not mdf_path_str:
+                        return None
+                    found = Path(mdf_path_str)
+                if mc is not None:
+                    resolved_measurement_configs = [dataclasses.replace(mc, path=str(found))]
+                else:
+                    resolved_measurement_configs = [
+                        MeasurementConfig(path=str(found), label="M1", offset_s=0.0)
+                    ]
+            else:
+                resolved_configs, missing = self.resolve_saved_measurements(
+                    measurement_configs, path,
+                )
+                if not self.confirm_missing_measurements(missing):
+                    return None
+                resolved_measurement_configs = resolved_configs
+
+            self._show_status("Loading session…", 0)
+            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+            QApplication.processEvents()
+            try:
+                self.reset_to_single_tab()
+                return controller.restore_measurements(
+                    resolved_measurement_configs, cfg.primary_measurement_index,
+                    cfg.measurements_synchronized,
+                )
+            finally:
+                QApplication.restoreOverrideCursor()
+                self._clear_status()
+
+        def finalize(p: Path) -> None:
+            controller.current_config_path = p
+            settings.add_recent(p)
+
+        self._restore_saved_workspace(
+            config, obtain_measurements=obtain, require_at_least_one_loaded=True,
+            finalize=finalize, source_path=path,
+        )
+
+    def apply_config(self) -> None:
+        """Apply a saved .mvc workspace's tabs/stripes/signals onto the
+        currently loaded measurement(s), without opening any file the
+        config records (#105, REQ-FILE-110..119).
+
+        Reuses the normal session-restore pipeline (`_restore_saved_workspace`)
+        unchanged — the only new step is the measurement-mapping dialog,
+        which replaces `restore_measurements()`'s file-opening entirely
+        with a pure selection from measurements already loaded.
+        """
+        from mdf_viewer.config_manager import ConfigManager
+        from mdf_viewer.errors import ConfigLoadError
+
+        controller = self._get_controller()
+        settings = self._get_settings()
+        if controller is None or settings is None:
+            return
+
+        path_str, _ = QFileDialog.getOpenFileName(
+            self._parent, "Apply Config", "", _MVC_FILE_FILTER
+        )
+        if not path_str:
+            return
+        path = Path(path_str)
+
+        try:
+            config = ConfigManager.load(path)
+        except ConfigLoadError as exc:
+            QMessageBox.critical(self._parent, "Config Load Error", str(exc))
+            return
+
+        def obtain(cfg: "ViewerConfig"):
+            measurement_configs = list(cfg.measurements)
+            if measurement_configs:
+                from mdf_viewer.view.measurement_mapping_dialog import MeasurementMappingDialog
+                dlg = MeasurementMappingDialog(
+                    measurement_configs, controller.measurements, self._parent
+                )
+                if not dlg.exec():
+                    return None
+                mapped = dlg.mapping()
+            else:
+                mapped = []
+            self.reset_to_single_tab()
+            return mapped
+
+        def finalize(p: Path) -> None:
+            settings.add_recent(p)
+            # Deliberately not setting controller.current_config_path here
+            # (REQ-FILE-119) — a later plain "Save Workspace" must not
+            # silently overwrite the applied template with a different
+            # measurement mapping. Prompt for a new save location instead.
+            self._save_config_as()
+
+        self._restore_saved_workspace(
+            config, obtain_measurements=obtain, require_at_least_one_loaded=False,
+            finalize=finalize, source_path=path,
         )
