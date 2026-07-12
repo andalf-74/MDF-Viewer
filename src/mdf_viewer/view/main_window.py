@@ -1485,7 +1485,7 @@ class MainWindow(QMainWindow):
             self._controller.redo()
 
     def _on_cursor_mode_changed(self, mode) -> None:
-        from mdf_viewer.controller.cursor_controller import CursorMode
+        from mdf_viewer.enums import CursorMode
         self._zoom_cursors_action.setEnabled(mode == CursorMode.TWO)
 
     def _on_cursor_toggle(self) -> None:

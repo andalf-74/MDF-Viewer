@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import QObject, pyqtSignal
 
 if TYPE_CHECKING:
-    from mdf_viewer.controller.cursor_controller import CursorMode
+    from mdf_viewer.enums import CursorMode
     from mdf_viewer.view_model.active_signal import ActiveSignal
 
 

@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from PyQt6.QtGui import QColor
-    from mdf_viewer.controller.cursor_controller import CursorMode
+    from mdf_viewer.enums import CursorMode
     from mdf_viewer.model.loaded_measurement import LoadedMeasurement
     from mdf_viewer.model.mdf_loader import ChannelGroupInfo
     from mdf_viewer.model.signal_metadata import SignalMetadata

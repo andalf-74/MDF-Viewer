@@ -59,9 +59,18 @@ view/         main_window, workspace_session_controller, signal_browser,
               signal_info_box, preferences_dialog, license_dialog,
               _display_name_controls, _mime, widgets/
 license/      license_info, license_manager
-(top level)   app.py, config_manager.py, errors.py, settings.py,
+(top level)   app.py, config_manager.py, errors.py, enums.py, settings.py,
               update_checker.py
 ```
+
+## Glossary
+
+A few terms that read as synonyms on a skim but mean different things (#138):
+
+- **Engineering unit** — a signal's physical unit as recorded in the MDF file (V, °C, ...); used for mismatched-unit validation in `PlotStripe.merge_signals`/`sync_signals`.
+- **Display unit** — one independent Y-autorange/swimlane target within a stripe: an ungrouped signal, a Merged group, or a Synced group (`PlotStripe._display_units()`). Not a physical unit — a grouping concept, unrelated to "engineering unit" despite the shared word.
+- **Segment** — an Active Signals Table's per-stripe UI container, always 1:1 with a `PlotStripe` (`_add_segment`/`_segment_for_stripe`). A second name for a stripe's own AST-side representation, not a distinct structural concept — see "Per-Stripe Active Signals Table (#100)" below.
+- **Stripe** — one `PlotStripe`: an independent plot pane with its own Y-axes, sharing the tab's one X-axis and cursor pair with every other stripe.
 
 ---
 
@@ -353,3 +362,8 @@ Two small dedups found during the same whole-codebase architecture review as #13
 
 - **`AppController._remove_measurement_signals(measurement)`** extracted from `close_measurement()` and `replace_single_measurement()`, which both contained the identical "tear down this measurement's active signals across every tab, restoring `_active_tab_index` in a `finally`" block.
 - **`view/widgets/busy_cursor.py::busy_cursor(message=None, *, show_status=None, clear_status=None)`** — a `@contextmanager` extracted from the identical `QApplication.setOverrideCursor`/`processEvents`/`try`/`finally: restoreOverrideCursor` (+ optional paired status-bar message) block repeated at 4 call sites: `MainWindow._load_files`, `_replace_single_measurement`, `_on_check_for_update`, and `WorkspaceSessionController.load_config`'s `obtain()` closure (moved there by #136, after this issue was originally filed against `MainWindow._load_config`). Lives in `view/widgets/` (a pure-Qt helper, no `MainWindow`/`WorkspaceSessionController` coupling) since it's now shared across two different modules, not just within `MainWindow`. Fixed a small latent bug for free while extracting: `_on_check_for_update`'s `except`/`finally` pair both called `QApplication.restoreOverrideCursor()` on the error path (harmless — Qt just warns "no cursor set" on an empty-stack restore — but redundant), collapsed to the context manager's single `finally`.
+
+### Minor MVC/naming nits (#138)
+
+- **`CursorMode` moved to a new top-level `mdf_viewer/enums.py`**, out of `controller/cursor_controller.py`. `view/cursors.py` and `view/main_window.py` were importing a plain, logic-free `Enum` from a `controller/` module — a reverse-MVC import direction violation, low-risk in practice (no behavior tied to it) but strictly against this project's Layers table. Follows the exact precedent already set by `errors.py` (`MdfLoadError`/`ConfigLoadError` moved there for the same reason — "so both the model and the view can import a shared error class without either layer depending on the other"). `cursor_controller.py` re-exports it via a plain `from mdf_viewer.enums import CursorMode` so `from mdf_viewer.controller.cursor_controller import CursorMode` (a few tests still do this) keeps working unchanged.
+- **Terminology drift** ("unit" meaning two different things in `plot_stripe.py`; Active Signals Table "segment" as a second name for "stripe") — resolved via the new "Glossary" section above, per the issue's own suggested fix, rather than renaming anything.

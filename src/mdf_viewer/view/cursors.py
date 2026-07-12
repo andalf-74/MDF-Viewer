@@ -29,7 +29,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtCore import QObject
 from PyQt6.QtGui import QFont
 
-from mdf_viewer.controller.cursor_controller import CursorMode
+from mdf_viewer.enums import CursorMode
 from mdf_viewer.model.interpolate import interpolate as _interpolate
 
 if TYPE_CHECKING:

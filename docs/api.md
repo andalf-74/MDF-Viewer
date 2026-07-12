@@ -4,7 +4,8 @@
 
 | Module | Description |
 |--------|-------------|
-| `errors.py` | `MdfLoadError` — shared error type imported by model and view |
+| `errors.py` | `MdfLoadError`, `ConfigLoadError` — shared exception types imported by model/controller and view |
+| `enums.py` | `CursorMode` — shared enum imported by both `view/` and `controller/` (#138); re-exported from `controller/cursor_controller.py` for backward compatibility |
 | `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` |
 | `model/loaded_measurement.py` | `LoadedMeasurement` dataclass — one measurement in the global multi-measurement pool (#101); `.label` is the user-facing, user-editable short name (#103); `make_label(index, existing_labels)` derives the "M1"/"M2"... default from load-order position |
 | `model/signal_data.py` | `SignalData` dataclass |

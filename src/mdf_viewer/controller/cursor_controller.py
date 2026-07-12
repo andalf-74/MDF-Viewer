@@ -13,11 +13,11 @@ a single authoritative list (owned by AppController).
 
 from __future__ import annotations
 
-from enum import Enum, auto
 from typing import TYPE_CHECKING, Any, Callable
 
 import numpy as np
 
+from mdf_viewer.enums import CursorMode
 from mdf_viewer.model.interpolate import interpolate as _interpolate
 
 if TYPE_CHECKING:
@@ -36,14 +36,6 @@ _COLOR_CR = (50, 150, 255)   # blue   — Cursor R
 # is injected (single-stripe callers/tests) — keeps that whole codepath
 # behaving as "one implicit stripe" with zero call-site changes.
 _DEFAULT_STRIPE = object()
-
-
-class CursorMode(Enum):
-    """The three states cycled by the Cursor Toggle toolbar button."""
-
-    HIDDEN = auto()
-    ONE = auto()
-    TWO = auto()
 
 
 class CursorController:
