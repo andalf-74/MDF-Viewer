@@ -21,6 +21,7 @@ from mdf_viewer.model.measurement import MeasurementInfo
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
 from mdf_viewer.view_model.active_signal import ActiveSignal
+from mdf_viewer.view_model.zoom_state import ZoomState
 
 
 # ---------------------------------------------------------------------------
@@ -3467,6 +3468,17 @@ def test_create_tab_pushes_current_measurement_axes_to_new_tab(deps: dict) -> No
     plot2.refresh_measurement_axes.assert_called_with(ctrl2.measurements, False)
 
 
+@pytest.mark.requirement("REQ-PLOT-160")
+def test_create_tab_pushes_current_display_name_formatter_to_new_tab(ctrl: AppController) -> None:
+    """A newly created tab's Active Signals Table must show shortened/
+    measurement-prefixed names immediately, matching every other open tab
+    — not its own raw-name default until some unrelated event happens to
+    call refresh_display_names() again (#131, found live-testing #119)."""
+    plot2, table2 = MagicMock(), MagicMock()
+    ctrl.create_tab(plot2, table2)
+    table2.set_name_formatter.assert_called_once()
+
+
 @pytest.mark.requirement("REQ-PLOT-241")
 def test_create_tab_starts_with_no_active_signals(ctrl: AppController) -> None:
     ctrl.add_signal(0, 1)
@@ -3581,13 +3593,333 @@ def test_remove_tab_removes_signals_still_active_in_it(ctrl: AppController) -> N
     table_b.clear.assert_called_once()
 
 
+# ---------------------------------------------------------------------------
+# Duplicate Tab / Copy Signals to new Tab (#119)
+# ---------------------------------------------------------------------------
+
+def _make_active(name="sig", gi=0, ci=1, color=None, **kwargs) -> ActiveSignal:
+    return ActiveSignal(
+        data=_make_signal_data(),
+        metadata=_make_metadata(name=name, gi=gi, ci=ci),
+        color=color or QColor(1, 2, 3),
+        **kwargs,
+    )
+
+
+@pytest.mark.requirement("REQ-PLOT-265")
+def test_clone_active_signal_shares_data_and_copies_display_properties(ctrl: AppController) -> None:
+    old = _make_active(
+        line_style="dashes", line_width=3, marker_shape="square", display_mode="marker",
+        step_mode=True, enum_display_table=False, enum_display_cursor=True, enum_display_yaxis=True,
+    )
+    new = ctrl._clone_active_signal(old)
+    assert new is not old
+    assert new.data is old.data
+    assert new.metadata is old.metadata
+    assert new.measurement is old.measurement
+    assert new.color == old.color
+    assert new.line_style == "dashes"
+    assert new.line_width == 3
+    assert new.marker_shape == "square"
+    assert new.display_mode == "marker"
+    assert new.step_mode is True
+    assert new.enum_display_table is False
+    assert new.enum_display_cursor is True
+    assert new.enum_display_yaxis is True
+    assert new.curve is None
+    assert new.view_box is None
+
+
+@pytest.mark.requirement("REQ-PLOT-268")
+def test_copy_signals_to_new_tab_preserves_order_color_and_display_props(
+    ctrl: AppController, deps: dict
+) -> None:
+    """Order must be sourced from workspace.active (its order survives a
+    same-stripe drag-reorder), not PlotStripesArea.get_signals_in_stripe()'s
+    insertion order — a real bug caught by architecture review before
+    implementation (#119)."""
+    stripe = MagicMock()
+    sig_a = _make_active(name="a", color=QColor(10, 10, 10), line_style="dots")
+    sig_b = _make_active(name="b", color=QColor(20, 20, 20))
+    source = ctrl.current_workspace
+    source.active.extend([sig_b, sig_a])  # deliberately not insertion order
+    source.color_index = 5
+    deps["plot"].get_stripes.return_value = [stripe]
+    deps["plot"].get_stripe_for_signal.side_effect = lambda a: stripe
+
+    dest_plot, dest_table = MagicMock(), MagicMock()
+    dest_stripe = MagicMock()
+    dest_plot.get_stripes.return_value = [dest_stripe]
+    ctrl.create_tab(dest_plot, dest_table)
+    dest = ctrl.current_workspace
+
+    ctrl.copy_signals_to_new_tab(0, 1)
+
+    assert [s.metadata.name for s in dest.active] == ["b", "a"]
+    assert dest.active[0].color == sig_b.color
+    assert dest.active[1].line_style == "dots"
+    assert dest.color_index == 5
+    dest_plot.add_signal.assert_has_calls(
+        [call(dest.active[0], stripe=dest_stripe), call(dest.active[1], stripe=dest_stripe)]
+    )
+    dest_table.add_row.assert_has_calls(
+        [call(dest.active[0], dest_stripe), call(dest.active[1], dest_stripe)]
+    )
+
+
+@pytest.mark.requirement("REQ-PLOT-267")
+def test_copy_signals_to_new_tab_does_not_touch_zoom_grouping_or_cursor(
+    ctrl: AppController, deps: dict
+) -> None:
+    stripe = MagicMock()
+    source = ctrl.current_workspace
+    source.active.append(_make_active())
+    deps["plot"].get_stripes.return_value = [stripe]
+    deps["plot"].get_stripe_for_signal.side_effect = lambda a: stripe
+
+    dest_plot, dest_table = MagicMock(), MagicMock()
+    dest_plot.get_stripes.return_value = [MagicMock()]
+    ctrl.create_tab(dest_plot, dest_table)
+    dest_cursor = MagicMock()
+    ctrl.current_workspace.cursor_ctrl = dest_cursor
+
+    ctrl.copy_signals_to_new_tab(0, 1)
+
+    dest_plot.set_zoom_state.assert_not_called()
+    dest_plot.restore_axis_grouping.assert_not_called()
+    dest_cursor.restore.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-PLUGIN-020")
+def test_copy_signals_to_new_tab_emits_signal_added_per_signal(
+    ctrl: AppController, deps: dict
+) -> None:
+    stripe = MagicMock()
+    source = ctrl.current_workspace
+    source.active.extend([_make_active(name="a"), _make_active(name="b")])
+    deps["plot"].get_stripes.return_value = [stripe]
+    deps["plot"].get_stripe_for_signal.side_effect = lambda a: stripe
+
+    dest_plot, dest_table = MagicMock(), MagicMock()
+    dest_stripe = MagicMock()
+    dest_plot.get_stripes.return_value = [dest_stripe]
+    ctrl.create_tab(dest_plot, dest_table)
+    dest = ctrl.current_workspace
+    seen = []
+    ctrl.events.signal_added.connect(seen.append)
+
+    ctrl.copy_signals_to_new_tab(0, 1)
+
+    assert len(seen) == 2
+    assert [e.signal for e in seen] == list(dest.active)
+    assert all(e.stripe is dest_stripe and e.tab is dest for e in seen)
+
+
+def test_copy_signals_to_new_tab_refreshes_z_order_on_destination(
+    ctrl: AppController, deps: dict
+) -> None:
+    """Every normal add_signal() call ends with refresh_z_order() — bypassing
+    it (as this method must, to avoid loader I/O) would leave cloned curves
+    at an arbitrary Z-order (#119 review finding)."""
+    stripe = MagicMock()
+    source = ctrl.current_workspace
+    source.active.append(_make_active())
+    deps["plot"].get_stripes.return_value = [stripe]
+    deps["plot"].get_stripe_for_signal.side_effect = lambda a: stripe
+
+    dest_plot, dest_table = MagicMock(), MagicMock()
+    dest_plot.get_stripes.return_value = [MagicMock()]
+    ctrl.create_tab(dest_plot, dest_table)
+
+    ctrl.copy_signals_to_new_tab(0, 1)
+
+    dest_plot.set_selected_signals.assert_called_once()
+
+
+def test_copy_signals_to_new_tab_from_empty_source_adds_nothing(
+    ctrl: AppController, deps: dict
+) -> None:
+    deps["plot"].get_stripes.return_value = [MagicMock()]
+    dest_plot, dest_table = MagicMock(), MagicMock()
+    dest_plot.get_stripes.return_value = [MagicMock()]
+    ctrl.create_tab(dest_plot, dest_table)
+
+    ctrl.copy_signals_to_new_tab(0, 1)
+
+    assert ctrl.current_workspace.active == []
+    dest_plot.add_signal.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-PLOT-265")
+def test_duplicate_tab_signals_clones_into_matching_stripe(
+    ctrl: AppController, deps: dict
+) -> None:
+    """Signals must land in the destination stripe that matches their
+    source stripe's *position*, not just get flattened into one — the
+    stripe skeleton (built by the view before this runs) already lines up
+    dest stripes 1:1 with source stripes in the same order."""
+    stripe_1, stripe_2 = MagicMock(), MagicMock()
+    sig_1 = _make_active(name="in-stripe-1")
+    sig_2 = _make_active(name="in-stripe-2")
+    source = ctrl.current_workspace
+    source.active.extend([sig_1, sig_2])
+    source.color_index = 7
+    deps["plot"].get_stripes.return_value = [stripe_1, stripe_2]
+    deps["plot"].get_stripe_for_signal.side_effect = (
+        lambda a: stripe_1 if a is sig_1 else stripe_2
+    )
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    dest_plot, dest_table = MagicMock(), MagicMock()
+    dest_stripe_1, dest_stripe_2 = MagicMock(), MagicMock()
+    dest_plot.get_stripes.return_value = [dest_stripe_1, dest_stripe_2]
+    ctrl.create_tab(dest_plot, dest_table)
+    dest = ctrl.current_workspace
+
+    ctrl.duplicate_tab_signals(0, 1)
+
+    assert len(dest.active) == 2
+    dest_plot.add_signal.assert_has_calls(
+        [call(dest.active[0], stripe=dest_stripe_1), call(dest.active[1], stripe=dest_stripe_2)]
+    )
+    assert dest.color_index == 7
+
+
+def test_duplicate_tab_signals_from_empty_source_builds_no_signals(
+    ctrl: AppController, deps: dict
+) -> None:
+    deps["plot"].get_stripes.return_value = [MagicMock()]
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    dest_plot, dest_table = MagicMock(), MagicMock()
+    dest_plot.get_stripes.return_value = [MagicMock()]
+    ctrl.create_tab(dest_plot, dest_table)
+
+    ctrl.duplicate_tab_signals(0, 1)
+
+    assert ctrl.current_workspace.active == []
+    dest_plot.add_signal.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-PLOT-265")
+def test_duplicate_tab_signals_remaps_zoom_state_to_cloned_signals(
+    ctrl: AppController, deps: dict
+) -> None:
+    """ZoomState.y_ranges is keyed by ActiveSignal object identity — the
+    source's captured state must be remapped through old-to-new before
+    being applied to the destination's (distinct) cloned objects, or the
+    restore would silently apply nothing (#119 architecture note)."""
+    stripe = MagicMock()
+    sig = _make_active(name="sig")
+    source = ctrl.current_workspace
+    source.active.append(sig)
+    deps["plot"].get_stripes.return_value = [stripe]
+    deps["plot"].get_stripe_for_signal.side_effect = lambda a: stripe
+    deps["plot"].get_zoom_state.return_value = ZoomState(x_range=(1.0, 9.0), y_ranges={sig: (2.0, 3.0)})
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    dest_plot, dest_table = MagicMock(), MagicMock()
+    dest_plot.get_stripes.return_value = [MagicMock()]
+    ctrl.create_tab(dest_plot, dest_table)
+    dest = ctrl.current_workspace
+
+    ctrl.duplicate_tab_signals(0, 1)
+
+    dest_plot.set_zoom_state.assert_called_once()
+    applied_state, applied_signals = dest_plot.set_zoom_state.call_args.args
+    assert applied_state.x_range == (1.0, 9.0)
+    assert list(applied_state.y_ranges.keys()) == list(dest.active)
+    assert applied_state.y_ranges[dest.active[0]] == (2.0, 3.0)
+    assert applied_signals == dest.active
+
+
+@pytest.mark.requirement("REQ-PLOT-265")
+def test_duplicate_tab_signals_restores_axis_grouping_with_no_remap(
+    ctrl: AppController, deps: dict
+) -> None:
+    """get_axis_grouping()/restore_axis_grouping() already match by
+    (name, id(measurement)) — a clone keeps the same name/measurement, so
+    the source's captured pairs pass straight through unmodified."""
+    stripe = MagicMock()
+    source = ctrl.current_workspace
+    source.active.append(_make_active(name="sig"))
+    deps["plot"].get_stripes.return_value = [stripe]
+    deps["plot"].get_stripe_for_signal.side_effect = lambda a: stripe
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    merged = [[("sig", None)]]
+    synced = [[]]
+    deps["plot"].get_axis_grouping.return_value = (merged, synced)
+
+    dest_plot, dest_table = MagicMock(), MagicMock()
+    dest_plot.get_stripes.return_value = [MagicMock()]
+    ctrl.create_tab(dest_plot, dest_table)
+    dest = ctrl.current_workspace
+
+    ctrl.duplicate_tab_signals(0, 1)
+
+    dest_plot.restore_axis_grouping.assert_called_once_with(merged, synced, dest.active)
+
+
+@pytest.mark.requirement("REQ-PLOT-265")
+def test_duplicate_tab_signals_restores_cursor_state(ctrl: AppController, deps: dict) -> None:
+    stripe = MagicMock()
+    source = ctrl.current_workspace
+    source.active.append(_make_active())
+    deps["plot"].get_stripes.return_value = [stripe]
+    deps["plot"].get_stripe_for_signal.side_effect = lambda a: stripe
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    source.cursor_ctrl = MagicMock()
+    source.cursor_ctrl.snapshot.return_value = {"mode": "BOTH", "positions": [1.0, 2.0]}
+
+    dest_plot, dest_table = MagicMock(), MagicMock()
+    dest_plot.get_stripes.return_value = [MagicMock()]
+    ctrl.create_tab(dest_plot, dest_table)
+    ctrl.current_workspace.cursor_ctrl = MagicMock()
+
+    ctrl.duplicate_tab_signals(0, 1)
+
+    ctrl.current_workspace.cursor_ctrl.restore.assert_called_once_with(
+        {"mode": "BOTH", "positions": [1.0, 2.0]}
+    )
+
+
+@pytest.mark.requirement("REQ-PLOT-266")
+def test_duplicate_tab_signals_no_cursor_restore_when_dest_has_none(
+    ctrl: AppController, deps: dict
+) -> None:
+    """New tab starts with no selection (REQ-PLOT-266) — cursor restore is
+    skipped gracefully (not a crash) when either side has no cursor_ctrl,
+    same as every other cursor_ctrl-guarded call in this class."""
+    stripe = MagicMock()
+    source = ctrl.current_workspace
+    source.active.append(_make_active())
+    deps["plot"].get_stripes.return_value = [stripe]
+    deps["plot"].get_stripe_for_signal.side_effect = lambda a: stripe
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    source.cursor_ctrl = MagicMock()
+
+    dest_plot, dest_table = MagicMock(), MagicMock()
+    dest_plot.get_stripes.return_value = [MagicMock()]
+    ctrl.create_tab(dest_plot, dest_table)
+    # dest.cursor_ctrl stays None (default) — must not raise
+
+    ctrl.duplicate_tab_signals(0, 1)  # no exception
+
+
 def test_refresh_display_names_updates_every_tab_table(ctrl: AppController, deps: dict) -> None:
     """Display-name shortening is a global preference (REQ-PLOT-160) — every
     tab's table gets the new formatter, not just the currently active one."""
     table2 = MagicMock()
-    ctrl.create_tab(MagicMock(), table2)
+    ctrl.create_tab(MagicMock(), table2)  # also pushes the formatter itself (#131)
     ctrl.switch_tab(0)
+    deps["table"].set_name_formatter.reset_mock()
+    table2.set_name_formatter.reset_mock()
+
     ctrl.refresh_display_names()
+
     deps["table"].set_name_formatter.assert_called_once()
     table2.set_name_formatter.assert_called_once()
 

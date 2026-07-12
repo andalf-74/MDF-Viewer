@@ -12,7 +12,7 @@ display, without either layer importing the other.
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
@@ -266,12 +266,16 @@ class AppController:
         Also pushes the current measurement pool/sync state (#101, #102) to
         the new tab's plot area, so it starts with the same per-measurement
         axis rows as every other tab (#124) instead of the empty-pool
-        default of a single generic axis.
+        default of a single generic axis; and the current display-name
+        formatter (REQ-PLOT-160/306/307), so it starts shortened/
+        measurement-prefixed the same as every other tab (#131) instead of
+        its Active Signals Table's own raw-name default.
         """
         workspace = TabWorkspace(plot=plot_area, table=active_signals_table)
         self._workspaces.append(workspace)
         self._active_tab_index = len(self._workspaces) - 1
         self._refresh_measurement_axes()
+        self.refresh_display_names()
         return workspace
 
     def switch_tab(self, index: int) -> None:
@@ -325,6 +329,120 @@ class AppController:
         del self._workspaces[index]
         if self._active_tab_index >= len(self._workspaces):
             self._active_tab_index = len(self._workspaces) - 1
+
+    def _clone_active_signal(self, old: ActiveSignal) -> ActiveSignal:
+        """Build a new ActiveSignal from *old* for a duplicated/copied tab (#119).
+
+        `data`/`metadata`/`measurement` are shared by reference — no loader
+        I/O, no re-parsing — since a same-session duplicate already holds
+        the exact loaded objects the source signal does; every display
+        property (color, line style, line width, marker shape, display
+        mode, step mode, enum-display flags) copies by value automatically.
+        `curve`/`view_box` are reset so PlotStripesArea.add_signal() builds
+        fresh ones for the new plot, exactly like a normal add_signal()
+        call constructs them. Using dataclasses.replace() rather than a
+        hand-written field list means a future new ActiveSignal field is
+        cloned automatically with no edit needed here.
+        """
+        return replace(old, curve=None, view_box=None)
+
+    def _signals_in_stripe_ordered(self, workspace: TabWorkspace, stripe) -> list[ActiveSignal]:
+        """The signals in *stripe*, in on-screen order (#119).
+
+        Sourced from workspace.active filtered by get_stripe_for_signal(),
+        not PlotStripesArea.get_signals_in_stripe() — that method reads
+        insertion order from an internal dict that a same-stripe row drag
+        never updates (only workspace.active's own order changes), so it
+        can silently diverge from what the user actually sees. Mirrors how
+        _capture_tab() (#106) already sources stripe-scoped order correctly.
+        """
+        return [a for a in workspace.active if workspace.plot.get_stripe_for_signal(a) is stripe]
+
+    def _clone_signals_into_stripe(
+        self,
+        source: TabWorkspace,
+        dest: TabWorkspace,
+        source_stripe,
+        dest_stripe,
+    ) -> dict[ActiveSignal, ActiveSignal]:
+        """Clone every signal in *source_stripe*, in on-screen order, into
+        *dest_stripe* on *dest* (#119). Returns the old-to-new signal map
+        for this stripe, so callers needing per-signal identity elsewhere
+        (e.g. remapping a captured ZoomState) can build a full mapping
+        across every stripe without re-deriving it.
+        """
+        old_to_new: dict[ActiveSignal, ActiveSignal] = {}
+        for old in self._signals_in_stripe_ordered(source, source_stripe):
+            new = self._clone_active_signal(old)
+            dest.active.append(new)
+            dest.plot.add_signal(new, stripe=dest_stripe)
+            dest.table.add_row(new, dest_stripe)
+            self.events.signal_added.emit(
+                SignalAddedEvent(signal=new, stripe=dest_stripe, tab=dest)
+            )
+            old_to_new[old] = new
+        return old_to_new
+
+    def copy_signals_to_new_tab(self, source_index: int, dest_index: int) -> None:
+        """Copy every active signal from the tab at *source_index* into the
+        tab at *dest_index*'s single stripe (REQ-PLOT-267/268).
+
+        Assumes the destination tab already exists (view-side has already
+        created it via create_tab()) with its one auto-created default
+        stripe untouched — no stripe layout, zoom, cursor, or axis grouping
+        is copied, only signals, flattened across every source stripe in
+        top-to-bottom, then within-stripe, order. Continues the source
+        tab's color sequence (REQ-PLOT-269) rather than restarting it.
+        """
+        source = self._workspaces[source_index]
+        dest = self._workspaces[dest_index]
+        dest_stripe = dest.plot.get_stripes()[0]
+        for stripe in source.plot.get_stripes():
+            self._clone_signals_into_stripe(source, dest, stripe, dest_stripe)
+        dest.color_index = source.color_index
+        self.refresh_z_order(dest)
+
+    def duplicate_tab_signals(self, source_index: int, dest_index: int) -> None:
+        """Clone every signal from the tab at *source_index* into the
+        matching stripe of the tab at *dest_index*, then restore zoom,
+        axis grouping, and cursor state (REQ-PLOT-265).
+
+        Assumes the destination tab and its stripe skeleton already exist
+        (view-side builds both — create_tab() then _build_stripe_skeleton())
+        with stripes in the same order as the source's, so
+        zip(source stripes, dest stripes) pairs them up correctly.
+
+        Zoom state needs an explicit old-to-new remap — ZoomState.y_ranges
+        is keyed by the exact ActiveSignal object it was read from, so the
+        source's captured state doesn't resolve against the destination's
+        (distinct) cloned objects without translation. Axis grouping needs
+        no such remap: get_axis_grouping()/restore_axis_grouping() already
+        match by (name, id(measurement)) — a clone keeps the same name and
+        the same measurement reference, so the source's captured pairs
+        already resolve correctly against the destination's clones.
+        """
+        source = self._workspaces[source_index]
+        dest = self._workspaces[dest_index]
+        old_to_new: dict[ActiveSignal, ActiveSignal] = {}
+        for source_stripe, dest_stripe in zip(source.plot.get_stripes(), dest.plot.get_stripes()):
+            old_to_new.update(
+                self._clone_signals_into_stripe(source, dest, source_stripe, dest_stripe)
+            )
+        dest.color_index = source.color_index
+
+        zoom_state = source.plot.get_zoom_state(source.active)
+        remapped_ranges = {
+            old_to_new[old]: rng for old, rng in zoom_state.y_ranges.items() if old in old_to_new
+        }
+        dest.plot.set_zoom_state(replace(zoom_state, y_ranges=remapped_ranges), dest.active)
+
+        merged, synced = source.plot.get_axis_grouping()
+        dest.plot.restore_axis_grouping(merged, synced, dest.active)
+
+        if source.cursor_ctrl is not None and dest.cursor_ctrl is not None:
+            dest.cursor_ctrl.restore(source.cursor_ctrl.snapshot())
+
+        self.refresh_z_order(dest)
 
     def tab_has_signals(self, index: int) -> bool:
         """Whether the tab at *index* has any active signals (REQ-PLOT-252)."""
@@ -1095,9 +1213,15 @@ class AppController:
             return f"[{active.measurement.label}] {name}"
         return name
 
-    def refresh_z_order(self) -> None:
-        """Reapply Z-order, selection boost, and Y-axis visibility after a preference change."""
-        current = self.current_workspace
+    def refresh_z_order(self, workspace: TabWorkspace | None = None) -> None:
+        """Reapply Z-order, selection boost, and Y-axis visibility after a preference change.
+
+        *workspace* defaults to current_workspace — pass one explicitly to
+        target a tab that isn't (or might not yet be) the active one, e.g.
+        right after populating a just-created tab (#119) whose active-tab
+        status shouldn't be assumed by the caller.
+        """
+        current = workspace or self.current_workspace
         current.plot.set_selected_line_boost(self._line_boost)
         current.plot.set_show_only_selected_y_axis(self._show_only_selected_y_axis)
         current.plot.set_selected_signals(

@@ -92,6 +92,7 @@ from mdf_viewer.errors import MdfLoadError
 from mdf_viewer.license.license_info import LicenseInfo
 from mdf_viewer.license.license_manager import LicenseManager
 from mdf_viewer.settings import Settings
+from mdf_viewer.model.viewer_config import StripeConfig
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.dockable_panel import DockablePanel
 from mdf_viewer.view.license_dialog import LicenseDialog
@@ -607,7 +608,7 @@ class MainWindow(QMainWindow):
             if i != placeholder_index
         ]
 
-    def _on_new_tab(self) -> None:
+    def _on_new_tab(self) -> int:
         """Create a new tab: a fresh plot area + Active Signals Table pair (#99).
 
         If a page was parked by closing the previous last tab (#130), reuse
@@ -616,6 +617,10 @@ class MainWindow(QMainWindow):
         current_workspace must never be empty), so building a fresh pair
         here would register a second, unrelated workspace and leave the
         parked one as a permanent, never-shown orphan.
+
+        Returns the new tab's index in the tab bar (always inserted right
+        before the "+" placeholder) — used by _on_duplicate_tab()/
+        _on_copy_signals_to_new_tab() (#119) to reposition it afterward.
         """
         if self._parked_page is not None:
             page = self._parked_page
@@ -633,11 +638,72 @@ class MainWindow(QMainWindow):
         self._tab_widget.setCurrentIndex(index)
         if self._content_stack.currentWidget() is not self._tab_widget:
             self._content_stack.setCurrentWidget(self._tab_widget)
+        return index
 
     def _on_new_stripe(self) -> None:
         """Create a new empty stripe in the currently active tab (REQ-PLOT-196, #112)."""
         if self._controller is not None:
             self._controller.create_stripe()
+
+    def _on_copy_signals_to_new_tab(self, source_index: int) -> None:
+        """Copy every active signal from the tab at *source_index* into a
+        fresh tab's single stripe — no stripe layout or view state carried
+        over (REQ-PLOT-267/268, #119).
+
+        The new tab is built via _on_new_tab() (always appended at the
+        end) then repositioned immediately after the source tab with one
+        moveTab() call, which re-triggers _on_tab_bar_tab_moved()'s
+        existing drag-reorder resync (#99) — no separate "insert at index"
+        path needed. moveTab() is a no-op (and doesn't fire tabMoved) when
+        source_index is already the last real tab, since the new tab was
+        already appended right after it; the controller resync is skipped
+        in that case because nothing needs resyncing.
+        """
+        source_name = self._tab_widget.tabText(source_index)
+        new_index = self._on_new_tab()
+        dest_index = source_index + 1
+        if new_index != dest_index:
+            self._tab_widget.tabBar().moveTab(new_index, dest_index)
+        self._tab_widget.setTabText(dest_index, "Copy of " + source_name)
+        if self._controller is not None:
+            self._controller.copy_signals_to_new_tab(source_index, dest_index)
+
+    def _on_duplicate_tab(self, source_index: int) -> None:
+        """Full copy of the tab at *source_index*: stripe layout, signals,
+        cursor, zoom, and axis grouping — sharing only the underlying
+        measurement(s), not any plot object (REQ-PLOT-265, #119).
+
+        Positions/names the new tab exactly like
+        _on_copy_signals_to_new_tab() (create at the end, reposition via
+        moveTab()), then additionally builds its stripe skeleton from the
+        source's *live* stripes — freshly constructed StripeConfigs, never
+        touching JSON/disk — before handing off to the controller for
+        signal cloning and zoom/grouping/cursor restore.
+        """
+        source_page = self._tab_widget.widget(source_index)
+        source_name = self._tab_widget.tabText(source_index)
+        new_index = self._on_new_tab()
+        dest_index = source_index + 1
+        if new_index != dest_index:
+            self._tab_widget.tabBar().moveTab(new_index, dest_index)
+        self._tab_widget.setTabText(dest_index, "Copy of " + source_name)
+
+        dest_page = self._tab_widget.widget(dest_index)
+        source_plot = source_page.plot_area
+        source_stripes = source_plot.get_stripes()
+        stripe_configs = [
+            StripeConfig(name=stripe.name, size=size)
+            for stripe, size in zip(source_stripes, source_plot.get_stripe_sizes())
+        ]
+        active_stripe_index = source_stripes.index(source_plot.get_active_stripe())
+        self._build_stripe_skeleton(dest_page, stripe_configs, active_stripe_index)
+        dest_page.setSizes(source_page.sizes())
+        dest_page.active_signals_table.set_column_widths(
+            source_page.active_signals_table.column_widths()
+        )
+
+        if self._controller is not None:
+            self._controller.duplicate_tab_signals(source_index, dest_index)
 
     def _on_tab_changed(self, index: int) -> None:
         if self._controller is not None and index >= 0 and not self._is_placeholder(index):
@@ -761,10 +827,19 @@ class MainWindow(QMainWindow):
             return
         menu = QMenu(self)
         rename_action = menu.addAction("Rename")
+        duplicate_action = menu.addAction("Duplicate Tab")
+        copy_signals_action = menu.addAction("Copy Signals to new Tab")
+        copy_signals_action.setEnabled(
+            self._controller is not None and self._controller.tab_has_signals(index)
+        )
         close_action = menu.addAction("Close")
         action = menu.exec(tab_bar.mapToGlobal(pos))
         if action is rename_action:
             self._rename_tab(index)
+        elif action is duplicate_action:
+            self._on_duplicate_tab(index)
+        elif action is copy_signals_action:
+            self._on_copy_signals_to_new_tab(index)
         elif action is close_action:
             self._on_tab_close_requested(index)
 

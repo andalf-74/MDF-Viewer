@@ -218,6 +218,87 @@ def test_new_tab_after_closing_last_tab_reuses_the_parked_page(
 
 
 # ---------------------------------------------------------------------------
+# Copy Signals to new Tab (#119)
+# ---------------------------------------------------------------------------
+
+def test_copy_signals_to_new_tab_inserts_immediately_after_source(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.tab_has_signals.return_value = True
+    wired._on_new_tab()  # Tab 2
+    wired._on_new_tab()  # Tab 3
+
+    wired._on_copy_signals_to_new_tab(0)
+
+    assert wired._real_tab_count() == 4
+    assert wired._tab_widget.tabText(0) == "Tab 1"
+    assert wired._tab_widget.tabText(1) == "Copy of Tab 1"
+    assert wired._tab_widget.tabText(2) == "Tab 2"
+    assert wired._tab_widget.tabText(3) == "Tab 3"
+    mock_controller.copy_signals_to_new_tab.assert_called_once_with(0, 1)
+
+
+def test_copy_signals_to_new_tab_on_last_real_tab(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """moveTab() is a no-op (doesn't fire tabMoved) when the source is
+    already the last real tab, since the new tab was appended right after
+    it — confirm the end state is still correct even though the usual
+    drag-reorder resync path never runs (#119 review finding)."""
+    mock_controller.tab_has_signals.return_value = True
+
+    wired._on_copy_signals_to_new_tab(0)  # tab 0 is the only (and last) real tab
+
+    assert wired._real_tab_count() == 2
+    assert wired._tab_widget.tabText(1) == "Copy of Tab 1"
+    mock_controller.copy_signals_to_new_tab.assert_called_once_with(0, 1)
+
+
+def test_copy_signals_to_new_tab_nested_copy_naming(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.tab_has_signals.return_value = True
+    wired._on_copy_signals_to_new_tab(0)  # -> "Copy of Tab 1" at index 1
+
+    wired._on_copy_signals_to_new_tab(1)
+
+    assert wired._tab_widget.tabText(2) == "Copy of Copy of Tab 1"
+
+
+def test_tab_context_menu_copy_signals_action(wired: MainWindow, mock_controller: MagicMock) -> None:
+    mock_controller.tab_has_signals.return_value = True
+    tab_bar = wired._tab_widget.tabBar()
+    pos = tab_bar.tabRect(0).center()
+    patch_add, patch_exec = _select_menu_action_by_text("Copy Signals to new Tab")
+    with patch_add, patch_exec:
+        wired._on_tab_context_menu(pos)
+    assert wired._real_tab_count() == 2
+    assert wired._tab_widget.tabText(1) == "Copy of Tab 1"
+    mock_controller.copy_signals_to_new_tab.assert_called_once_with(0, 1)
+
+
+def test_tab_context_menu_copy_signals_disabled_when_source_has_no_signals(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.tab_has_signals.return_value = False
+    from PyQt6.QtWidgets import QMenu
+    captured: dict[str, object] = {}
+    orig_add_action = QMenu.addAction
+
+    def _tracking_add_action(self, text):
+        action = orig_add_action(self, text)
+        captured[text] = action
+        return action
+
+    tab_bar = wired._tab_widget.tabBar()
+    pos = tab_bar.tabRect(0).center()
+    with patch.object(QMenu, "addAction", _tracking_add_action), \
+         patch.object(QMenu, "exec", return_value=None):
+        wired._on_tab_context_menu(pos)
+    assert captured["Copy Signals to new Tab"].isEnabled() is False
+
+
+# ---------------------------------------------------------------------------
 # Tab close warning + left-neighbor focus (#99 M6)
 # ---------------------------------------------------------------------------
 
@@ -2423,6 +2504,140 @@ def test_build_stripe_skeleton_ast_segment_label_updated(wired: MainWindow) -> N
 
     seg = page.active_signals_table._segments[0]
     assert seg.name_label.text() == "Vibration"
+
+
+# ---------------------------------------------------------------------------
+# Duplicate Tab (#119)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-265")
+def test_duplicate_tab_builds_matching_stripe_skeleton(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    source_page = wired._tab_widget.widget(0)
+    source_plot = source_page.plot_area
+    source_ast = source_page.active_signals_table
+    stripe_1 = source_plot.get_stripes()[0]
+    source_ast.rename_stripe_segment(stripe_1, "Vibration")
+    stripe_2 = source_plot.create_stripe()
+    source_ast.rename_stripe_segment(stripe_2, "Temp")
+    source_plot.set_stripe_sizes([300, 150])
+    source_plot.set_active_stripe(stripe_2)
+
+    wired._on_duplicate_tab(0)
+
+    dest_page = wired._tab_widget.widget(1)
+    dest_plot = dest_page.plot_area
+    dest_stripes = dest_plot.get_stripes()
+    assert [s.name for s in dest_stripes] == ["Vibration", "Temp"]
+    assert dest_plot.get_active_stripe() is dest_stripes[1]
+    mock_controller.duplicate_tab_signals.assert_called_once_with(0, 1)
+
+
+@pytest.mark.requirement("REQ-PLOT-265")
+def test_duplicate_tab_copies_ast_column_widths(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    source_page = wired._tab_widget.widget(0)
+    source_ast = source_page.active_signals_table
+    source_ast.set_column_widths([w + 10 for w in source_ast.column_widths()])
+    expected = source_ast.column_widths()  # readback: not every column is resizable
+
+    wired._on_duplicate_tab(0)
+
+    dest_page = wired._tab_widget.widget(1)
+    assert dest_page.active_signals_table.column_widths() == expected
+
+
+@pytest.mark.requirement("REQ-PLOT-265")
+def test_duplicate_tab_copies_page_splitter_sizes(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """Asserts the setSizes() call made on the new tab's page specifically
+    (not a later .sizes() readback, which QSplitter may redistribute to
+    fit actual widget geometry not yet settled in a headless test window —
+    same reasoning as _build_tab_skeletons' own splitter-size test). Only
+    the destination page's own setSizes is patched (after it's built by
+    _on_new_tab() inside _on_duplicate_tab()), not the QSplitter class
+    globally — patching the whole class also breaks PlotStripesArea's own
+    internal splitter, which _on_new_tab() constructs a fresh one of."""
+    source_page = wired._tab_widget.widget(0)
+    source_page.setSizes([600, 250])
+    expected = source_page.sizes()
+    orig_on_new_tab = wired._on_new_tab
+    captured: dict[str, object] = {}
+
+    def _spy_on_new_tab():
+        index = orig_on_new_tab()
+        page = wired._tab_widget.widget(index)
+        captured["mock"] = patch.object(page, "setSizes")
+        captured["page"] = page
+        captured["mock"].start()
+        return index
+
+    with patch.object(wired, "_on_new_tab", side_effect=_spy_on_new_tab):
+        wired._on_duplicate_tab(0)
+    try:
+        captured["page"].setSizes.assert_called_once_with(expected)
+    finally:
+        captured["mock"].stop()
+
+
+def test_duplicate_tab_inserts_immediately_after_source_and_names_it(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired._on_new_tab()  # Tab 2
+
+    wired._on_duplicate_tab(0)
+
+    assert wired._real_tab_count() == 3
+    assert wired._tab_widget.tabText(1) == "Copy of Tab 1"
+    assert wired._tab_widget.tabText(2) == "Tab 2"
+    mock_controller.duplicate_tab_signals.assert_called_once_with(0, 1)
+
+
+def test_duplicate_tab_on_last_real_tab(wired: MainWindow, mock_controller: MagicMock) -> None:
+    """Same moveTab()-no-op edge case as Copy Signals to new Tab (#119
+    review finding) — confirm it still lands correctly."""
+    wired._on_duplicate_tab(0)  # tab 0 is the only (and last) real tab
+
+    assert wired._real_tab_count() == 2
+    assert wired._tab_widget.tabText(1) == "Copy of Tab 1"
+    mock_controller.duplicate_tab_signals.assert_called_once_with(0, 1)
+
+
+def test_tab_context_menu_duplicate_tab_action(wired: MainWindow, mock_controller: MagicMock) -> None:
+    tab_bar = wired._tab_widget.tabBar()
+    pos = tab_bar.tabRect(0).center()
+    patch_add, patch_exec = _select_menu_action_by_text("Duplicate Tab")
+    with patch_add, patch_exec:
+        wired._on_tab_context_menu(pos)
+    assert wired._real_tab_count() == 2
+    assert wired._tab_widget.tabText(1) == "Copy of Tab 1"
+    mock_controller.duplicate_tab_signals.assert_called_once_with(0, 1)
+
+
+def test_tab_context_menu_duplicate_tab_enabled_even_with_no_signals(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """Unlike Copy Signals to new Tab, Duplicate Tab stays enabled on an
+    empty source tab (REQ-PLOT-263)."""
+    mock_controller.tab_has_signals.return_value = False
+    from PyQt6.QtWidgets import QMenu
+    captured: dict[str, object] = {}
+    orig_add_action = QMenu.addAction
+
+    def _tracking_add_action(self, text):
+        action = orig_add_action(self, text)
+        captured[text] = action
+        return action
+
+    tab_bar = wired._tab_widget.tabBar()
+    pos = tab_bar.tabRect(0).center()
+    with patch.object(QMenu, "addAction", _tracking_add_action), \
+         patch.object(QMenu, "exec", return_value=None):
+        wired._on_tab_context_menu(pos)
+    assert captured["Duplicate Tab"].isEnabled() is True
 
 
 # ---------------------------------------------------------------------------

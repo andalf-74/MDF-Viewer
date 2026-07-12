@@ -213,6 +213,24 @@ All notable changes to MDF-Viewer are documented in this file.
     amended after live-testing to also cover the AST divider/column
     widths and to extend measurement-disambiguation to zoom ranges and
     axis groups, not just channel resolution).
+- Two new tab-context-menu actions for viewing the same signals a
+  different way without rebuilding the selection from scratch (#119):
+  - **"Duplicate Tab"** makes a full copy of a tab — every active signal
+    (color, line style, and every other display property preserved),
+    stripe layout, cursor mode/positions, current zoom/pan view, and axis
+    grouping (merged/synced Y-axis groups) — sharing only the underlying
+    loaded measurement(s), not any plot object. The copy starts with no
+    signal selected and an empty zoom undo/redo history.
+  - **"Copy Signals to new Tab"** (disabled when the source tab has no
+    active signals) instead opens a new tab with a single stripe holding
+    every signal from the source, flattened across all of its stripes,
+    keeping each signal's display properties but none of the source's
+    stripe layout, zoom, cursor, or axis grouping.
+  - Both insert the new tab immediately after the source tab, name it
+    "Copy of \<source name\>", and continue the source tab's color
+    sequence for any signal added to the new tab afterward.
+  - `docs/requirements/plotting.md` gained a new "Duplicating and Copying
+    Tabs" section (REQ-PLOT-262 through 269).
 
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the
@@ -296,6 +314,14 @@ All notable changes to MDF-Viewer are documented in this file.
   explicitly `deleteLater()`'d in `closeEvent()` — otherwise it stayed
   alive and wired into its signal/slot connections past its own window's
   teardown, the same orphaned-Qt-object class as #120.
+- A newly created tab's Active Signals Table always showed full, unshortened,
+  un-measurement-prefixed channel names, ignoring the global display-name
+  shortening preference (REQ-PLOT-160) every other tab already respected
+  (#131, found live-testing #119). Same root cause and same fix shape as
+  #124: `AppController.create_tab()` never pushed the current display-name
+  formatter to the newly registered tab — only tabs that already existed
+  when the setting was last toggled got it. `create_tab()` now pushes it
+  immediately, alongside #124's measurement-axis push.
 - `docs/requirements/plotting.md`'s REQ-PLOT-121 incorrectly stated that
   "line only" display mode disables the line style control. It doesn't —
   only the marker shape control is disabled in that mode, which is what

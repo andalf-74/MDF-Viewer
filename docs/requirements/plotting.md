@@ -513,6 +513,40 @@ signals, zoom, cursor, and undo/redo state completely untouched; only the
 newly added measurement's own X-axis row (see "Multiple Measurements"
 below) and channel tree become available [REQ-PLOT-261].
 
+### Duplicating and Copying Tabs
+
+A tab's context menu gains two further actions beyond Rename/Close:
+"Duplicate Tab" and "Copy Signals to new Tab" [REQ-PLOT-262].
+"Duplicate Tab" is always enabled, even for a tab with no active signals;
+"Copy Signals to new Tab" is disabled when the source tab has no active
+signals in any of its stripes [REQ-PLOT-263]. Either action inserts the
+new tab immediately after the source tab in the tab bar, named "Copy of
+<source tab's current name>" — the prefix is always prepended, even if
+the source name already starts with "Copy of " [REQ-PLOT-264].
+
+"Duplicate Tab" copies everything REQ-PLOT-231 scopes independently per
+tab: every active signal (color, line style, and stripe assignment
+preserved), stripe layout (names, sizes, per-signal order), the active
+stripe, cursor mode and positions, the current zoom/pan view for every
+stripe, axis grouping (merged/synced Y-axis groups, REQ-PLOT-038), and
+the plot\|Active Signals Table divider width and column widths — the new
+tab and the source share only the underlying loaded measurement(s), not
+any plot object [REQ-PLOT-265]. The duplicate starts with empty zoom
+undo/redo history and no signal selected, regardless of the source tab's
+own undo history or selection at the time of duplication [REQ-PLOT-266].
+
+"Copy Signals to new Tab" creates a new tab with a single default stripe,
+discarding the source's stripe layout, axis grouping, cursor state, and
+zoom/pan view entirely [REQ-PLOT-267]. Every active signal from the
+source tab, flattened across all of its stripes in top-to-bottom order
+and each stripe's own signal order, is added to that single stripe,
+preserving every one of the signal's own display properties (color, line
+style, line width, marker shape, display mode, step mode, and enum
+display settings) [REQ-PLOT-268]. For both actions, a signal
+added to the new tab afterward continues the source tab's color sequence
+rather than restarting it, reducing the chance of a freshly added signal
+reusing a color already present from the duplicate/copy [REQ-PLOT-269].
+
 ## Multiple Measurements
 
 Introduced to let several MDF files be viewed and visually aligned
