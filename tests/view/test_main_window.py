@@ -1615,6 +1615,35 @@ def test_apply_config_load_error_shows_message_box(
 
 
 @pytest.mark.requirement("REQ-FILE-114")
+def test_apply_config_mapping_cancel_leaves_window_geometry_unchanged(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    """Regression: a cancelled mapping dialog used to still resize the
+    window, because geometry/splitter sizes were applied unconditionally
+    before the (cancellable) mapping dialog rather than after it succeeds."""
+    p = tmp_path / "session.mvc"
+    wired._settings = MagicMock()
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    mock_controller.measurements = []
+    original_width = wired.width()
+    config = _minimal_config(
+        measurements=(_measurement_config("M1"),),
+        window_geometry={"x": 5, "y": 5, "width": original_width + 500, "height": 700, "maximized": False},
+    )
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(p), ""),
+    ), patch(
+        "mdf_viewer.config_manager.ConfigManager.load", return_value=config,
+    ), patch(
+        "mdf_viewer.view.measurement_mapping_dialog.MeasurementMappingDialog.exec",
+        return_value=0,
+    ):
+        wired._on_apply_config()
+    assert wired.width() == original_width
+
+
+@pytest.mark.requirement("REQ-FILE-114")
 def test_apply_config_mapping_cancel_aborts(
     wired: MainWindow, mock_controller: MagicMock, tmp_path
 ) -> None:

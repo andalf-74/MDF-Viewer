@@ -319,10 +319,14 @@ class WorkspaceSessionController:
         )
 
     # ------------------------------------------------------------------
-    # Unified restore pipeline (#136) — load_config()/apply_config() are
-    # the same 5-phase pipeline (geometry -> obtain measurements -> build
+    # Unified restore pipeline (#136) — load_config()/apply_config() share
+    # this method for everything from "obtain measurements" onward (build
     # skeletons -> resolve signals -> restore_config), differing only in
     # how `measurements: list[LoadedMeasurement | None]` is obtained.
+    # Window geometry/splitter-size application is each caller's own
+    # responsibility, at its own correct point relative to its own
+    # cancellable dialog(s) — not shared here (see obtain_measurements'
+    # own docstring note below on REQ-FILE-114).
     # ------------------------------------------------------------------
 
     def _restore_saved_workspace(
@@ -336,9 +340,6 @@ class WorkspaceSessionController:
     ) -> None:
         from mdf_viewer.view.signals_not_found_dialog import SignalsNotFoundDialog
 
-        self._apply_window_geometry(config.window_geometry)
-        self._apply_splitter_sizes(config.splitter_sizes)
-
         # *obtain_measurements* is responsible for calling
         # self.reset_to_single_tab() itself, at whatever point its own
         # caller-specific logic today calls it (load_config: after path
@@ -348,6 +349,17 @@ class WorkspaceSessionController:
         # completely untouched when their own dialog is cancelled, and
         # hoisting the reset out of the cancel path would destroy the
         # user's open tabs even on a cancelled Load/Apply.
+        #
+        # Window geometry/splitter sizes are NOT applied by this shared
+        # method at all — each caller applies them at its own correct
+        # point (load_config: unconditionally, before its own
+        # locate-prompt/missing-measurement dialog, matching its
+        # long-standing tested behavior; apply_config: only once
+        # obtain_measurements() below has already succeeded, per
+        # REQ-FILE-114's "cancelling this dialog aborts with nothing
+        # changed" — a live-testing report caught apply_config visibly
+        # resizing the window even on a cancelled mapping dialog, a bug
+        # that predates #136 but was never actually correct).
         measurements = obtain_measurements(config)
         if measurements is None:
             return  # cancelled partway through — workspace untouched
@@ -392,6 +404,9 @@ class WorkspaceSessionController:
         except ConfigLoadError as exc:
             QMessageBox.critical(self._parent, "Config Load Error", str(exc))
             return
+
+        self._apply_window_geometry(config.window_geometry)
+        self._apply_splitter_sizes(config.splitter_sizes)
 
         def obtain(cfg: "ViewerConfig"):
             measurement_configs = list(cfg.measurements)
@@ -491,6 +506,12 @@ class WorkspaceSessionController:
                 mapped = dlg.mapping()
             else:
                 mapped = []
+            # Only apply geometry/splitter sizes once we know we're actually
+            # proceeding (REQ-FILE-114: cancelling the mapping dialog above
+            # must leave "nothing changed" — caught live, this used to run
+            # unconditionally before the dialog even showed).
+            self._apply_window_geometry(cfg.window_geometry)
+            self._apply_splitter_sizes(cfg.splitter_sizes)
             self.reset_to_single_tab()
             return mapped
 
