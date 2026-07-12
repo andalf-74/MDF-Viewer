@@ -79,6 +79,7 @@ from mdf_viewer.view.signal_browser import SignalBrowser
 from mdf_viewer.view.signal_info_box import SignalInfoBox
 from mdf_viewer.view.widgets import make_splitter
 from mdf_viewer.view.widgets.icons import _ICONS_DIR, _icon_suffix, _load_icon
+from mdf_viewer.view.workspace_session_controller import WorkspaceSessionController
 
 if TYPE_CHECKING:
     from mdf_viewer.controller.app_controller import AppController
@@ -116,6 +117,24 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_layout()
         self.statusBar()  # pre-create so its height is always reserved
+        self._session = WorkspaceSessionController(
+            parent=self,
+            tab_widget=self._tab_widget,
+            get_controller=lambda: self._controller,
+            get_settings=lambda: self._settings,
+            on_new_tab=self._on_new_tab,
+            resolve_and_confirm_snapshots=lambda snaps: self._resolve_and_confirm_snapshots(
+                snaps, use_group_name=True
+            ),
+            capture_window_geometry=self._capture_window_geometry,
+            capture_splitter_sizes=self._capture_splitter_sizes,
+            apply_window_geometry=self._apply_window_geometry,
+            apply_splitter_sizes=self._apply_splitter_sizes,
+            tab_names=self._tab_names,
+            tab_page_splitter_sizes=self._tab_page_splitter_sizes,
+            save_config_as=self._on_save_config_as,
+            show_status=self.show_status,
+        )
 
     # ------------------------------------------------------------------
     # Public API
