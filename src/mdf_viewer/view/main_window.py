@@ -1288,7 +1288,6 @@ class MainWindow(QMainWindow):
         self,
         snapshots_by_tab: dict[int, list],
         *,
-        measurement_aware: bool,
         use_group_name: bool,
     ) -> tuple[dict[int, list], list[str]]:
         """Classify every tab's snapshots by name (REQ-FILE-032/033),
@@ -1299,23 +1298,20 @@ class MainWindow(QMainWindow):
         `_resolve_config_signals()` (session restore, #106); extracted
         since the two were structurally near-identical (#106 M5).
 
-        *measurement_aware* selects `_classify_signal_name()`'s candidate
-        shape (see its own docstring) — resolved tuples gain a trailing
-        `measurement` element when True. A snapshot carrying its own
-        `.measurement` (#106 M6 session restore, REQ-FILE-093) always
-        gets the same tagged-tuple shape regardless of *measurement_aware*'s
-        value, since its search is scoped to that one measurement rather
-        than the whole pool. *use_group_name* controls whether each
-        snapshot's `group_name` narrows ambiguous matches — kept as an
-        explicit switch rather than always-on specifically to preserve
-        each existing caller's exact prior behavior (`_restore_snapshots`
-        never passed group_name; the old single-tab `_resolve_config_signals`
-        always did) rather than silently changing either one's resolution
-        results as a side effect of this refactor.
+        Always resolves with `_classify_signal_name(measurement_aware=True)`
+        — resolved tuples gain a trailing `measurement` element (both real
+        callers need this shape; #136 dropped the `measurement_aware`
+        parameter after confirming it was always `True` in practice).
+        *use_group_name* controls whether each snapshot's `group_name`
+        narrows ambiguous matches — a genuine behavioral difference between
+        the two callers, not accidental: session-restore's saved
+        `SignalConfig.group_name` should narrow matches (`use_group_name=True`),
+        while reload's live snapshot resolution never narrows by group
+        (`use_group_name=False`).
 
         Returns (resolved_by_tab, not_found) — resolved_by_tab maps
-        tab_index to a list of (snapshot, group_index, channel_index[,
-        measurement]) tuples; not_found is every signal name that
+        tab_index to a list of (snapshot, group_index, channel_index,
+        measurement) tuples; not_found is every signal name that
         couldn't be resolved at all (including a declined picker/near-match).
         Showing `SignalsNotFoundDialog` is each caller's own job, since
         the two existing callers do it slightly differently (one
@@ -1332,29 +1328,28 @@ class MainWindow(QMainWindow):
             for snap in snapshots:
                 group_name = snap.group_name if use_group_name else ""
                 snap_measurement = getattr(snap, "measurement", None)
-                effective_aware = measurement_aware or snap_measurement is not None
                 status, candidates = self._classify_signal_name(
                     snap.name, group_name,
-                    measurement_aware=measurement_aware, measurement=snap_measurement,
+                    measurement_aware=True, measurement=snap_measurement,
                 )
                 if status == "exact_single":
                     resolved_by_tab.setdefault(tab_index, []).append(
-                        (snap, *_candidate_indices(candidates[0], effective_aware))
+                        (snap, *_candidate_indices(candidates[0], True))
                     )
                 elif status == "exact_multiple":
                     dlg = SignalGroupPickerDialog(snap.name, candidates, self)
                     if dlg.exec():
                         resolved_by_tab.setdefault(tab_index, []).append(
-                            (snap, *_candidate_indices(dlg.selected(), effective_aware))
+                            (snap, *_candidate_indices(dlg.selected(), True))
                         )
                     else:
                         not_found.append(snap.name)
                 elif status == "near_single":
-                    pending_near_matches.append((tab_index, snap, candidates[0], effective_aware))
+                    pending_near_matches.append((tab_index, snap, candidates[0], True))
                 elif status == "near_multiple":
                     dlg = SignalGroupPickerDialog(snap.name, candidates, self)
                     if dlg.exec():
-                        pending_near_matches.append((tab_index, snap, dlg.selected(), effective_aware))
+                        pending_near_matches.append((tab_index, snap, dlg.selected(), True))
                     else:
                         not_found.append(snap.name)
                 else:  # not_found
@@ -1393,7 +1388,7 @@ class MainWindow(QMainWindow):
         # own docstring for why this is an explicit switch, not a silent
         # improvement bundled into the #106 M5 refactor that extracted this).
         resolved_by_tab, not_found = self._resolve_and_confirm_snapshots(
-            snapshots_by_tab, measurement_aware=True, use_group_name=False,
+            snapshots_by_tab, use_group_name=False,
         )
 
         for tab_index, resolved in resolved_by_tab.items():
@@ -2010,11 +2005,9 @@ class MainWindow(QMainWindow):
         # use_group_name=True preserves the old single-tab
         # _resolve_config_signals' long-standing behavior unchanged (see
         # _resolve_and_confirm_snapshots' own docstring for why this is an
-        # explicit switch). measurement_aware is moot here since every
-        # snapshot carries its own `.measurement`, but True keeps the call
-        # site's intent explicit.
+        # explicit switch).
         resolved_by_tab, more_not_found = self._resolve_and_confirm_snapshots(
-            snapshots_by_tab, measurement_aware=True, use_group_name=True,
+            snapshots_by_tab, use_group_name=True,
         )
         return resolved_by_tab, not_found + more_not_found
 
