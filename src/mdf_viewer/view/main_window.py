@@ -112,6 +112,7 @@ _INFO_DRAWER_W = 260   # info/properties drawer default width in pixels
 
 _MDF_FILE_FILTER = "MDF Files (*.mf4 *.mdf *.dat);;All Files (*)"
 _ALL_FILE_FILTER = "All Supported Files (*.mf4 *.mdf *.dat *.mvc);;MDF Files (*.mf4 *.mdf *.dat);;MDF Viewer Config (*.mvc);;All Files (*)"
+_MVC_FILE_FILTER = "MDF Viewer Config (*.mvc);;All Files (*)"
 _GITHUB_URL = "https://github.com/andalf-74/MDF-Viewer"
 
 
@@ -322,6 +323,13 @@ class MainWindow(QMainWindow):
         self._load_action.setToolTip("Open File (Ctrl+O)")
         self._load_action.triggered.connect(self._on_load_file)
 
+        self._apply_config_action = QAction("Apply Config…", self)
+        self._apply_config_action.setToolTip(
+            "Apply a saved workspace's tabs/stripes/signals onto the "
+            "currently loaded measurement(s), without opening its file(s)"
+        )
+        self._apply_config_action.triggered.connect(self._on_apply_config)
+
         self._new_tab_action = QAction("New Tab", self)
         self._new_tab_action.triggered.connect(self._on_new_tab)
 
@@ -429,6 +437,7 @@ class MainWindow(QMainWindow):
     def _build_menu(self) -> None:
         self._file_menu = self.menuBar().addMenu("&File")
         self._file_menu.addAction(self._load_action)
+        self._file_menu.addAction(self._apply_config_action)
         self._file_menu.addAction(self._save_config_action)
         self._file_menu.addAction(self._save_config_as_action)
         self._replace_measurement_menu = QMenu("Replace Measurement", self)
@@ -443,6 +452,7 @@ class MainWindow(QMainWindow):
         self._file_menu.addSeparator()
         self._file_menu.addAction(self._exit_action)
         self._file_menu.aboutToShow.connect(self._rebuild_recent_files)
+        self._file_menu.aboutToShow.connect(self._update_apply_config_enabled)
         self._file_menu.aboutToShow.connect(self._rebuild_replace_measurement_menu)
         self._file_menu.aboutToShow.connect(self._rebuild_close_measurement_menu)
 
@@ -1683,7 +1693,7 @@ class MainWindow(QMainWindow):
         if self._controller is None:
             return
         path_str, _ = QFileDialog.getSaveFileName(
-            self, "Save Workspace As", "", "MDF Viewer Config (*.mvc);;All Files (*)"
+            self, "Save Workspace As", "", _MVC_FILE_FILTER
         )
         if not path_str:
             return
@@ -2097,6 +2107,85 @@ class MainWindow(QMainWindow):
             if reply != QMessageBox.StandardButton.Yes:
                 return
         self._controller.close_measurement(measurement)
+
+    def _update_apply_config_enabled(self) -> None:
+        """Enable File ▸ Apply Config… only once at least one measurement
+        is loaded (REQ-FILE-110) — recomputed lazily on the File menu's
+        aboutToShow, the same lazy-refresh pattern (and the same
+        controller.measurements read) used for the Replace/Close
+        Measurement submenus above, rather than threading an enabled-state
+        update through every measurement-pool-mutating call site."""
+        measurements = [] if self._controller is None else self._controller.measurements
+        self._apply_config_action.setEnabled(bool(measurements))
+
+    def _on_apply_config(self) -> None:
+        """Apply a saved .mvc workspace's tabs/stripes/signals onto the
+        currently loaded measurement(s), without opening any file the
+        config records (#105, REQ-FILE-110..119).
+
+        Reuses the normal session-restore pipeline (_reset_to_single_tab,
+        _build_tab_skeletons, _resolve_config_signals_for_tabs,
+        controller.restore_config) unchanged — the only new step is the
+        measurement-mapping dialog, which replaces restore_measurements()'s
+        file-opening entirely with a pure selection from measurements
+        already loaded.
+        """
+        if self._controller is None or self._settings is None:
+            return
+
+        from mdf_viewer.config_manager import ConfigManager
+        from mdf_viewer.errors import ConfigLoadError
+
+        path_str, _ = QFileDialog.getOpenFileName(
+            self, "Apply Config", "", _MVC_FILE_FILTER
+        )
+        if not path_str:
+            return
+        path = Path(path_str)
+
+        try:
+            config = ConfigManager.load(path)
+        except ConfigLoadError as exc:
+            QMessageBox.critical(self, "Config Load Error", str(exc))
+            return
+
+        self._apply_window_geometry(config.window_geometry)
+        self._apply_splitter_sizes(config.splitter_sizes)
+
+        measurement_configs = list(config.measurements)
+        if measurement_configs:
+            from mdf_viewer.view.measurement_mapping_dialog import MeasurementMappingDialog
+            dlg = MeasurementMappingDialog(
+                measurement_configs, self._controller.measurements, self
+            )
+            if not dlg.exec():
+                return
+            mapped = dlg.mapping()
+        else:
+            mapped = []
+
+        from mdf_viewer.view.signals_not_found_dialog import SignalsNotFoundDialog
+
+        self._reset_to_single_tab()
+        self._build_tab_skeletons(list(config.tabs))
+
+        resolved_by_tab, not_found = self._resolve_config_signals_for_tabs(
+            list(config.tabs), mapped,
+        )
+        if not_found:
+            SignalsNotFoundDialog(sorted(set(not_found)), self).exec()
+
+        self._controller.restore_config(config, resolved_by_tab, mapped)
+
+        if 0 <= config.active_tab_index < len(config.tabs):
+            self._tab_widget.setCurrentIndex(config.active_tab_index)
+
+        self._settings.add_recent(path)
+        # Deliberately not setting self._controller.current_config_path here
+        # (REQ-FILE-119) — a later plain "Save Workspace" must not silently
+        # overwrite the applied template with a different measurement
+        # mapping. Prompt for a new save location instead.
+        self._on_save_config_as()
 
     def _on_open_recent(self, path: Path) -> None:
         if Path(path).suffix.lower() == ".mvc":

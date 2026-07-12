@@ -20,6 +20,7 @@
 | `view/widgets/color_swatch.py` | `ColorSwatch` — flat `QPushButton` color indicator; reusable across views |
 | `view/active_signals_table.py` | `ActiveSignalsTable` — facade over one shared header + per-stripe segments (#100); drag-to-move rows, context menu, multi-select |
 | `view/near_match_dialog.py` | `NearMatchDialog` — batches every near-match signal (different source/protocol) into one confirmation dialog (#109) |
+| `view/measurement_mapping_dialog.py` | `MeasurementMappingDialog` — one combo box per saved config measurement slot, mapping it onto an already-loaded measurement or "None"; enforces a 1:1 mapping (#105) |
 | `view/signals_not_found_dialog.py` | `SignalsNotFoundDialog` — reports signals that couldn't be matched at all after a reload/`.mvc` load, with a copy-to-clipboard button |
 | `view/signal_group_picker_dialog.py` | `SignalGroupPickerDialog` — asks which channel group/measurement to use when a signal name is ambiguous |
 | `view/plot_stripe.py` | `PlotStripe` — one plot stripe: PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, per-measurement axis rows (#101), Sync/Un-Sync button (#102), drop target, zoom state snapshot |
@@ -310,7 +311,7 @@ Constructor creates the five view widgets above as public attrs, then `_build_ac
 
 ### Menu Bar / Toolbar (ground truth, see also `docs/ui.md`)
 
-- **File**: Open… (Ctrl+O) → Save Workspace (Ctrl+S) → Save Workspace As… → Close Measurement (submenu, rebuilt on `aboutToShow`, #103) → separator → [recent files, dynamically inserted here on `aboutToShow`] → separator → Preferences… → separator → Exit (Ctrl+Q)
+- **File**: Open… (Ctrl+O) → Apply Config… (#105) → Save Workspace (Ctrl+S) → Save Workspace As… → Replace Measurement (submenu, rebuilt on `aboutToShow`, #122) → Close Measurement (submenu, rebuilt on `aboutToShow`, #103) → separator → [recent files, dynamically inserted here on `aboutToShow`] → separator → Preferences… → separator → Exit (Ctrl+Q)
 - **Edit** (#115): New Tab → New Stripe → separator → Undo (Ctrl+Z) → Redo (Ctrl+Shift+Z) → separator → Sync Measurements (checkable, #102)
 - **Help**: Check for Update… → separator → License (text toggles Enter/View) → separator → About MDF-Viewer
 - **Toolbar** (#114): Open… → separator → All Stripes (checkable) → Zoom to Fit (Ctrl+0/F) → Zoom Y to View (Y) → separator → Swimlanes (B) → Zoom to Cursors (C, enabled only in two-cursor mode) → Cursors (toggle)
@@ -328,6 +329,12 @@ Constructor creates the five view widgets above as public attrs, then `_build_ac
 - `_build_tab_skeletons(tab_configs)` / `_build_stripe_skeleton(page, stripes, active_stripe_index)` — reuses the tab/stripe that already exists at position 0 (renamed, not recreated — `PlotStripesArea.__init__` already creates one stripe unconditionally, so a naive `create_stripe()` loop would double it); drives `_on_new_tab()`'s own factory for each further tab; applies `page.setSizes(tab_config.page_splitter_sizes)`.
 - `_resolve_saved_measurements(measurement_configs, config_path)` / `_confirm_missing_measurements(missing_paths)` — path resolution + the combined missing-measurements dialog (REQ-FILE-097/098), generalized to N measurements.
 - `_tab_names()` / `_tab_page_splitter_sizes()` — every real tab's current title / plot|AST `QSplitter.sizes()`, in workspace order, excluding the pinned "+" placeholder; `AppController` has no other way to know either (it doesn't own the `QTabWidget`).
+
+### Apply Config to Already-Loaded Measurements (#105)
+
+- `_on_apply_config()` (REQ-FILE-110–119) — re-sequences the Session save/load pieces above, replacing only Phase 1 (which opens files): `QFileDialog.getOpenFileName` filtered to `_MVC_FILE_FILTER` → `ConfigManager.load(path)` → `_apply_window_geometry`/`_apply_splitter_sizes` → `MeasurementMappingDialog(config.measurements, controller.measurements)` (skipped, `mapped = []`, when `config.measurements` is empty) → **unchanged** `_reset_to_single_tab()` → `_build_tab_skeletons(config.tabs)` → `_resolve_config_signals_for_tabs(config.tabs, mapped)` → `SignalsNotFoundDialog` if needed → `controller.restore_config(config, resolved_by_tab, mapped)` → sync the window's active tab index. Deliberately never sets `controller.current_config_path` (REQ-FILE-119 — a later plain "Save Workspace" must not silently overwrite the applied template with a different mapping); calls `_on_save_config_as()` unconditionally instead. No new controller method exists for this feature — `restore_measurements()` is the only Phase-1-shaped method this bypasses entirely, and every other phase (`_reset_to_single_tab`, `_build_tab_skeletons`, `restore_config`) was already measurement-source-agnostic before this feature existed.
+- `_update_apply_config_enabled()` — enables `self._apply_config_action` only once `controller.measurements` is non-empty; recomputed lazily on the File menu's `aboutToShow`, the same pattern as `_rebuild_close_measurement_menu`/`_rebuild_replace_measurement_menu`.
+- `_MVC_FILE_FILTER` — new shared module constant (`"MDF Viewer Config (*.mvc);;All Files (*)"`); `_on_save_config_as()` adopted it too, removing a duplicate inline literal.
 
 ### Other public methods
 
@@ -406,11 +413,12 @@ Fixed `_top_size_offset`/`_bottom_size_offset` (header height; button-row height
 
 `select_signal`, `set_shorten_names_enabled`, `set_group_membership(merged, synced)`, `set_row_color`, `set_name_formatter(formatter)`, `remove_row`, `clear`, `show_cursor_columns`, `set_cursor_column_headers`, `set_delta_column_header`, `update_cursor_values`.
 
-## Signal restore dialogs (#101, #109)
+## Signal restore dialogs (#101, #105, #109)
 
 - **`SignalGroupPickerDialog(signal_name, candidates, parent=None)`** — asks which channel group (or, once measurement-aware, which measurement) to use when a name is ambiguous; `candidates` is either `list[SignalMetadata]` (single-measurement, `.mvc` restore, #106) or `list[tuple[LoadedMeasurement, SignalMetadata]]` (multi-file Replace carry-over, #101), detected by shape so existing call sites keep working unchanged. `selected` property returns the chosen entry (matching whichever shape was given) or `None`.
 - **`NearMatchDialog(pending, parent=None)`** — one dialog batching *every* near-match across a whole operation (all tabs, for reload; #109 REQ-FILE-036), not one popup per signal. `pending` is `list[tuple[original_name, candidate]]` (candidate either shape as above). One checkable row per pending item (checked by default). `accepted_matches()`, `declined_matches()`, `checked_mask()` (per-row checked state in original order, so a caller can re-associate rows with external data like "which tab" without name-matching, which breaks on duplicate names).
 - **`SignalsNotFoundDialog(signal_names, parent=None)`** — reports signals that couldn't be matched at all (distinct from a near-match); plain list + "Copy to Clipboard" button; no accepted-state accessor, purely a report/acknowledge dialog.
+- **`MeasurementMappingDialog(measurement_configs, live_measurements, parent=None)`** (#105) — one `QComboBox` per `MeasurementConfig` slot (labeled with its saved short name plus its recorded file's bare name, shown for identification only since that file is never opened), each with a static item list offering "None" plus *every* entry of `live_measurements` — never rebuilt, so every row always offers every measurement regardless of what other rows currently hold. Defaults slot *i* to `live_measurements[i]` when it exists, else "None" (REQ-FILE-113). Enforces a 1:1 mapping by override: on any combo's `currentIndexChanged`, if the new value is a real measurement, every *other* combo currently holding it is reset to "None" — the newest selection always wins, rather than removing the option from other rows (a first cut that excluded already-chosen items made swapping two already-assigned slots impossible without freeing one first; rejected during live-testing). `.mapping() -> list[LoadedMeasurement | None]`, index-aligned to the `measurement_configs` passed to `__init__`. Standard `QDialog.exec()`/`QDialogButtonBox` OK/Cancel contract — no custom accept/reject handling. Constructing with an empty `measurement_configs` produces zero rows; the caller (`MainWindow._on_apply_config()`) skips showing the dialog entirely in that case.
 
 ## Settings
 

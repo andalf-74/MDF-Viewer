@@ -249,6 +249,27 @@ All notable changes to MDF-Viewer are documented in this file.
     existing File ▸ Close Measurement behavior, not a behavior change.
   - `docs/requirements/file-handling.md` gained a new "Replacing a Single
     Measurement" section (REQ-FILE-100 through 108).
+- A saved workspace (`.mvc`) can now be applied onto measurements that are
+  already loaded, instead of always re-opening the files it records (#105):
+  a new **File ▸ Apply Config…** menu item opens a file dialog filtered to
+  `.mvc` files.
+  - Before anything is applied, a dialog maps each of the saved workspace's
+    measurement slots onto an already-loaded measurement (or "None" to
+    drop it) — picking one removes it from every other slot's choices.
+  - The applied workspace's tabs, stripes, and signal selections replace
+    the current ones entirely, the same as opening a `.mvc` normally does;
+    signals resolve against whichever measurement each slot was mapped to,
+    using the existing by-name/near-match resolution and "signal not
+    found" reporting.
+  - The currently loaded measurement pool itself — including which
+    measurement is Primary and whether Synchronize Measurements is
+    active — is left completely untouched; no measurement file is ever
+    opened by this action.
+  - A "Save Workspace As…" dialog opens automatically afterward so the
+    result can be saved as a new file; the original applied `.mvc` is
+    never silently overwritten by a later plain "Save Workspace".
+  - `docs/requirements/file-handling.md` gained a new "Applying a Config
+    to Already-Loaded Measurements" section (REQ-FILE-110 through 119).
 
 ### Changed
 - Renamed the "Share Y-axis" / "Link Y-axes" context menu actions in the

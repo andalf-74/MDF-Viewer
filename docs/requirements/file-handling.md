@@ -309,3 +309,70 @@ measurement through the same flow, and same active-signal warning, as
 the File ▸ Close Measurement submenu (REQ-FILE-028/029) — an additional
 entry point for an existing capability, not a behavior change
 [REQ-FILE-108].
+
+## Applying a Config to Already-Loaded Measurements
+
+Extends "Session Persistence" and "Session Scope: Stripes, Tabs, and
+Multi-Measurement" above — resolves the cross-reference to #105 left at
+the end of that section. Where opening a `.mvc` file (REQ-FILE-013,
+REQ-FILE-094) always loads that session's own recorded measurement
+file(s), Apply Config takes only a `.mvc` file's workspace — tabs,
+stripes, and signal selections — and re-targets it onto whichever
+measurement(s) are already loaded, without opening any file the config
+refers to (#105).
+
+A File ▸ Apply Config… menu item, separate from Open… and Save
+Workspace/Save Workspace As…, is enabled only once at least one
+measurement is already loaded, and opens a file dialog filtered to
+`.mvc` files [REQ-FILE-110]. Dropping a `.mvc` file onto the window, or
+opening one via Open…, always continues to mean a full session load
+that loads that session's own measurement file(s) (REQ-FILE-013); it
+never offers to apply onto already-loaded measurements instead, keeping
+the two entry points fully separate [REQ-FILE-111].
+
+Before anything is applied, every measurement slot recorded in the
+chosen config is shown in one combined dialog, each offering every
+currently-loaded measurement (by its live short name) or "None" as its
+target; the config's own recorded file name is shown alongside each
+slot for context, since that file is never opened [REQ-FILE-112]. Each
+slot defaults to the currently-loaded measurement at the same load-order
+position, when one exists at that position, or "None" otherwise; every
+slot always offers every currently-loaded measurement regardless of
+whether another slot currently targets it, and picking one for a slot
+that another slot already targets reassigns it to the newer selection,
+resetting that other slot to "None" — so a currently-loaded measurement
+is never mapped to more than one slot at once, without ever removing a
+choice from a slot's own dropdown [REQ-FILE-113]. Canceling this dialog aborts the entire Apply
+Config action with nothing changed, the same as canceling the
+missing-measurement dialog during a normal multi-measurement session
+load (REQ-FILE-097) [REQ-FILE-114].
+
+Once every slot is mapped (or left as "None"), applying the config
+replaces every currently open tab with the config's own tabs, stripes,
+and signal placement, the same full-workspace replace already used for
+a normal session load (REQ-FILE-094) — window geometry, splitter sizes,
+and the saved display-name-shortening parameters are applied the same
+way a normal session load already applies them too [REQ-FILE-115]. The
+current measurement pool itself is never changed by this operation — no
+measurement is opened, closed, or reordered, and the pool's current
+Primary measurement and Synchronize Measurements state are left exactly
+as they were; the config's own saved Primary/Sync fields are not applied
+[REQ-FILE-116].
+
+Each saved signal resolves against whichever currently-loaded measurement
+its own slot was mapped to, using the same by-name resolution, near-match
+detection, ambiguous-match picker, and not-found summary already used for
+a normal session load (REQ-FILE-031 through REQ-FILE-036, REQ-FILE-066)
+[REQ-FILE-117]. A signal whose slot was left "None" is folded into the
+same not-found summary without attempting resolution, the same as a
+saved measurement that failed to load during a normal session restore
+(REQ-FILE-098) [REQ-FILE-118].
+
+After the config has been applied, a "Save Workspace As…" dialog opens
+immediately so the result can be saved as a new workspace file distinct
+from the one that was applied; canceling that dialog leaves the applied
+workspace live and unsaved rather than undoing the apply, and the
+current workspace's save path is not set to the applied config's own
+path, so a subsequent plain "Save Workspace" is never able to silently
+overwrite the original file with a different measurement mapping
+[REQ-FILE-119].

@@ -1552,6 +1552,221 @@ def test_collect_measurement_snapshots_ask_declined_returns_empty(
 
 
 # ---------------------------------------------------------------------------
+# Apply Config (#105, REQ-FILE-110..119)
+# ---------------------------------------------------------------------------
+
+def _measurement_config(label: str, path: str = ""):
+    from mdf_viewer.model.viewer_config import MeasurementConfig
+    return MeasurementConfig(path=path, label=label, offset_s=0.0)
+
+
+def test_apply_config_action_disabled_without_controller(window: MainWindow) -> None:
+    window._file_menu.aboutToShow.emit()
+    assert window._apply_config_action.isEnabled() is False
+
+
+def test_apply_config_action_disabled_with_no_measurements(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.measurements = []
+    wired._file_menu.aboutToShow.emit()
+    assert wired._apply_config_action.isEnabled() is False
+
+
+def test_apply_config_action_enabled_with_measurements(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.measurements = [MagicMock(label="M1")]
+    wired._file_menu.aboutToShow.emit()
+    assert wired._apply_config_action.isEnabled() is True
+
+
+@pytest.mark.requirement("REQ-FILE-110")
+def test_apply_config_cancel_file_dialog_does_nothing(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired._settings = MagicMock()
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName", return_value=("", "")
+    ):
+        wired._on_apply_config()
+    mock_controller.restore_config.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-FILE-110")
+def test_apply_config_load_error_shows_message_box(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    from mdf_viewer.errors import ConfigLoadError
+    p = tmp_path / "bad.mvc"
+    wired._settings = MagicMock()
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(p), ""),
+    ), patch(
+        "mdf_viewer.config_manager.ConfigManager.load",
+        side_effect=ConfigLoadError("bad"),
+    ), patch("mdf_viewer.view.main_window.QMessageBox.critical") as mock_crit:
+        wired._on_apply_config()
+    mock_crit.assert_called_once()
+    mock_controller.restore_config.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-FILE-114")
+def test_apply_config_mapping_cancel_aborts(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    p = tmp_path / "session.mvc"
+    wired._settings = MagicMock()
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    mock_controller.measurements = []
+    config = _minimal_config(measurements=(_measurement_config("M1"),))
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(p), ""),
+    ), patch(
+        "mdf_viewer.config_manager.ConfigManager.load", return_value=config,
+    ), patch(
+        "mdf_viewer.view.measurement_mapping_dialog.MeasurementMappingDialog.exec",
+        return_value=0,
+    ):
+        wired._on_apply_config()
+    mock_controller.restore_config.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-FILE-112")
+def test_apply_config_skips_mapping_dialog_when_no_measurement_slots(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    p = tmp_path / "session.mvc"
+    wired._settings = MagicMock()
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    mock_controller.measurements = []
+    config = _minimal_config()  # measurements=() by default
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(p), ""),
+    ), patch(
+        "mdf_viewer.config_manager.ConfigManager.load", return_value=config,
+    ), patch(
+        "mdf_viewer.view.measurement_mapping_dialog.MeasurementMappingDialog.__init__",
+    ) as mock_dlg_init, patch.object(
+        wired, "_reset_to_single_tab"
+    ), patch.object(
+        wired, "_build_tab_skeletons"
+    ), patch.object(
+        wired, "_on_save_config_as"
+    ):
+        wired._on_apply_config()
+    mock_dlg_init.assert_not_called()
+    mock_controller.restore_config.assert_called_once_with(config, {}, [])
+
+
+@pytest.mark.requirement("REQ-FILE-117")
+def test_apply_config_success_calls_restore_pipeline(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    p = tmp_path / "session.mvc"
+    wired._settings = MagicMock()
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    mock_controller.measurements = []
+    config = _minimal_config(measurements=(_measurement_config("M1"),))
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(p), ""),
+    ), patch(
+        "mdf_viewer.config_manager.ConfigManager.load", return_value=config,
+    ), patch(
+        "mdf_viewer.view.measurement_mapping_dialog.MeasurementMappingDialog.exec",
+        return_value=1,
+    ), patch(
+        "mdf_viewer.view.measurement_mapping_dialog.MeasurementMappingDialog.mapping",
+        return_value=[None],
+    ), patch.object(
+        wired, "_reset_to_single_tab"
+    ) as mock_reset, patch.object(
+        wired, "_build_tab_skeletons"
+    ) as mock_skeleton, patch.object(
+        wired, "_on_save_config_as"
+    ) as mock_save_as:
+        wired._on_apply_config()
+    mock_reset.assert_called_once()
+    mock_skeleton.assert_called_once_with(list(config.tabs))
+    mock_controller.restore_config.assert_called_once()
+    mock_save_as.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-FILE-119")
+def test_apply_config_does_not_set_current_config_path(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    p = tmp_path / "session.mvc"
+    wired._settings = MagicMock()
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    mock_controller.measurements = []
+    mock_controller.current_config_path = "sentinel"
+    config = _minimal_config(measurements=(_measurement_config("M1"),))
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(p), ""),
+    ), patch(
+        "mdf_viewer.config_manager.ConfigManager.load", return_value=config,
+    ), patch(
+        "mdf_viewer.view.measurement_mapping_dialog.MeasurementMappingDialog.exec",
+        return_value=1,
+    ), patch(
+        "mdf_viewer.view.measurement_mapping_dialog.MeasurementMappingDialog.mapping",
+        return_value=[None],
+    ), patch.object(
+        wired, "_reset_to_single_tab"
+    ), patch.object(
+        wired, "_build_tab_skeletons"
+    ), patch.object(
+        wired, "_on_save_config_as"
+    ):
+        wired._on_apply_config()
+    assert mock_controller.current_config_path == "sentinel"
+
+
+@pytest.mark.requirement("REQ-FILE-116")
+def test_apply_config_never_touches_measurement_pool_methods(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    p = tmp_path / "session.mvc"
+    wired._settings = MagicMock()
+    mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
+    mock_controller.measurements = []
+    config = _minimal_config(measurements=(_measurement_config("M1"),))
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(p), ""),
+    ), patch(
+        "mdf_viewer.config_manager.ConfigManager.load", return_value=config,
+    ), patch(
+        "mdf_viewer.view.measurement_mapping_dialog.MeasurementMappingDialog.exec",
+        return_value=1,
+    ), patch(
+        "mdf_viewer.view.measurement_mapping_dialog.MeasurementMappingDialog.mapping",
+        return_value=[None],
+    ), patch.object(
+        wired, "_reset_to_single_tab"
+    ), patch.object(
+        wired, "_build_tab_skeletons"
+    ), patch.object(
+        wired, "_on_save_config_as"
+    ):
+        wired._on_apply_config()
+    mock_controller.replace_measurements.assert_not_called()
+    mock_controller.add_measurements.assert_not_called()
+    mock_controller.restore_measurements.assert_not_called()
+    mock_controller.close_measurement.assert_not_called()
+    mock_controller.set_primary_measurement.assert_not_called()
+    mock_controller.toggle_measurements_synchronized.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # Status bar
 # ---------------------------------------------------------------------------
 
