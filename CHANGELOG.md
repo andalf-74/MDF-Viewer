@@ -4,6 +4,8 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+## [2.2] - 2026-07-12
+
 ### Added
 - Plot Stripes (#97): the plot area can now be split into multiple
   vertically-stacked stripes, each with its own independent Y-axes, sharing

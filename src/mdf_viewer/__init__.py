@@ -1,3 +1,3 @@
 """MDF-Viewer — desktop viewer for ASAM MDF (MDF3/MDF4) measurement files."""
 
-__version__ = "2.1.1"
+__version__ = "2.2"
