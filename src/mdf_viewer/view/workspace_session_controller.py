@@ -22,8 +22,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PyQt6.QtWidgets import QFileDialog, QMessageBox
+
+from mdf_viewer.view.widgets.busy_cursor import busy_cursor
 
 if TYPE_CHECKING:
     from mdf_viewer.controller.app_controller import ActiveSignalSnapshot, AppController
@@ -441,18 +442,14 @@ class WorkspaceSessionController:
                     return None
                 resolved_measurement_configs = resolved_configs
 
-            self._show_status("Loading session…", 0)
-            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            QApplication.processEvents()
-            try:
+            with busy_cursor(
+                "Loading session…", show_status=self._show_status, clear_status=self._clear_status,
+            ):
                 self.reset_to_single_tab()
                 return controller.restore_measurements(
                     resolved_measurement_configs, cfg.primary_measurement_index,
                     cfg.measurements_synchronized,
                 )
-            finally:
-                QApplication.restoreOverrideCursor()
-                self._clear_status()
 
         def finalize(p: Path) -> None:
             controller.current_config_path = p

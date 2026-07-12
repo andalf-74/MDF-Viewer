@@ -77,7 +77,7 @@ from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
 from mdf_viewer.view.plot_stripes_area import PlotStripesArea
 from mdf_viewer.view.signal_browser import SignalBrowser
 from mdf_viewer.view.signal_info_box import SignalInfoBox
-from mdf_viewer.view.widgets import make_splitter
+from mdf_viewer.view.widgets import busy_cursor, make_splitter
 from mdf_viewer.view.widgets.icons import _ICONS_DIR, _icon_suffix, _load_icon
 from mdf_viewer.view.workspace_session_controller import WorkspaceSessionController
 
@@ -1173,17 +1173,14 @@ class MainWindow(QMainWindow):
         snapshots = self._collect_snapshots_if_keeping() if mode == "replace" else {}
 
         names = ", ".join(Path(p).name for p in paths)
-        self.show_status(f"Loading {names}…", timeout_ms=0)
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        QApplication.processEvents()
-        try:
+        with busy_cursor(
+            f"Loading {names}…", show_status=self.show_status,
+            clear_status=lambda: self.statusBar().clearMessage(),
+        ):
             if mode == "replace":
                 result = self._controller.replace_measurements(paths)
             else:
                 result = self._controller.add_measurements(paths)
-        finally:
-            QApplication.restoreOverrideCursor()
-            self.statusBar().clearMessage()
 
         self._sync_measurements_action.setEnabled(self._controller.measurement_count >= 2)
 
@@ -1445,14 +1442,11 @@ class MainWindow(QMainWindow):
 
         snapshots = self._collect_measurement_snapshots_if_keeping(measurement)
 
-        self.show_status(f"Loading {Path(path).name}…", timeout_ms=0)
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        QApplication.processEvents()
-        try:
+        with busy_cursor(
+            f"Loading {Path(path).name}…", show_status=self.show_status,
+            clear_status=lambda: self.statusBar().clearMessage(),
+        ):
             result = self._controller.replace_single_measurement(measurement, path)
-        finally:
-            QApplication.restoreOverrideCursor()
-            self.statusBar().clearMessage()
 
         if result.failed:
             lines = "\n".join(f"{Path(p).name}: {err}" for p, err in result.failed)
@@ -1582,16 +1576,12 @@ class MainWindow(QMainWindow):
 
     def _on_check_for_update(self) -> None:
         from mdf_viewer.update_checker import UpdateCheckError, fetch_latest_release, is_newer
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        QApplication.processEvents()
-        try:
-            release = fetch_latest_release()
-        except UpdateCheckError as exc:
-            QApplication.restoreOverrideCursor()
-            QMessageBox.warning(self, "Update Check Failed", str(exc))
-            return
-        finally:
-            QApplication.restoreOverrideCursor()
+        with busy_cursor():
+            try:
+                release = fetch_latest_release()
+            except UpdateCheckError as exc:
+                QMessageBox.warning(self, "Update Check Failed", str(exc))
+                return
         if is_newer(release.tag, __version__):
             self._on_update_available(release.tag, release.url)
         else:

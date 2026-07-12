@@ -731,12 +731,11 @@ class AppController:
             for a in workspace.active
         )
 
-    def close_measurement(self, measurement: LoadedMeasurement) -> None:
-        """Remove *measurement* and every one of its active signals from every tab (REQ-FILE-028).
-
-        Confirmation (warn when the measurement has active signals) is
-        MainWindow's job, mirroring the stripe/tab-close pattern — this
-        method always proceeds unconditionally once called.
+    def _remove_measurement_signals(self, measurement: LoadedMeasurement) -> None:
+        """Remove every one of *measurement*'s active signals from every tab,
+        via the same #120-hardened `remove_signals()` teardown path used
+        everywhere else — shared by `close_measurement()` and
+        `replace_single_measurement()` (#137).
         """
         saved_index = self._active_tab_index
         try:
@@ -748,6 +747,15 @@ class AppController:
                 self.remove_signals(affected)
         finally:
             self._active_tab_index = saved_index
+
+    def close_measurement(self, measurement: LoadedMeasurement) -> None:
+        """Remove *measurement* and every one of its active signals from every tab (REQ-FILE-028).
+
+        Confirmation (warn when the measurement has active signals) is
+        MainWindow's job, mirroring the stripe/tab-close pattern — this
+        method always proceeds unconditionally once called.
+        """
+        self._remove_measurement_signals(measurement)
         # Identity comparison, not `in`/`.remove()`'s `==` — LoadedMeasurement
         # is a mutable dataclass with no custom __eq__, so two structurally
         # matching-but-distinct instances could otherwise compare equal.
@@ -800,16 +808,7 @@ class AppController:
             return result
         info = loader.measurement_info()
 
-        saved_index = self._active_tab_index
-        try:
-            for index, workspace in enumerate(self._workspaces):
-                affected = [a for a in workspace.active if a.measurement is measurement]
-                if not affected:
-                    continue
-                self._active_tab_index = index
-                self.remove_signals(affected)
-        finally:
-            self._active_tab_index = saved_index
+        self._remove_measurement_signals(measurement)
 
         measurement.loader = loader
         measurement.info = info

@@ -26,6 +26,7 @@
 | `view/widgets/icons.py` | `_load_icon(name)` / `_icon_suffix()` / `_ICONS_DIR` — shared light/dark-aware icon loading (#133); moved out of `main_window.py` so `active_signals_table.py` can use them too without a circular import |
 | `view/widgets/visibility_toggle_button.py` | `VisibilityToggleButton` — flat, icon-based eye button (open/closed) toggling a signal's visibility in the Active Signals Table (#133) |
 | `view/widgets/splitter.py` | `make_splitter(orientation)` — a `QSplitter` with a thin, visible handle line (`setHandleWidth(3)` + palette-colored stylesheet), used everywhere a `QSplitter` is built directly |
+| `view/widgets/busy_cursor.py` | `busy_cursor(message=None, *, show_status=None, clear_status=None)` — `@contextmanager` wrapping a blocking call in a wait cursor, with an optional paired status-bar message; cursor/message are always restored/cleared even on an exception (#137) |
 | `view/active_signals_table.py` | `ActiveSignalsTable` — facade over one shared header + per-stripe segments (#100); drag-to-move rows, context menu, multi-select, per-row visibility toggle (#133) |
 | `view/near_match_dialog.py` | `NearMatchDialog` — batches every near-match signal (different source/protocol) into one confirmation dialog (#109) |
 | `view/measurement_mapping_dialog.py` | `MeasurementMappingDialog` — one combo box per saved config measurement slot, mapping it onto an already-loaded measurement or "None"; enforces a 1:1 mapping (#105) |
