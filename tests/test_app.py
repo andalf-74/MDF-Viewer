@@ -33,13 +33,16 @@ def app_mocks():
         patch("mdf_viewer.controller.cursor_controller.CursorController"),
         patch("mdf_viewer.controller.zoom_controller.ZoomController"),
         patch("mdf_viewer.view.cursors.CursorView"),
+        patch("mdf_viewer.plugin_api.loader.PluginLoader") as mock_loader_cls,
     ):
         mock_qapp_cls.return_value.primaryScreen.return_value.devicePixelRatio.return_value = 1.0
         mock_settings_cls.return_value.check_for_updates = False
+        mock_settings_cls.return_value.plugins_dir = None
         yield {
             "window": mock_window_cls.return_value,
             "controller": mock_controller_cls.return_value,
             "message_box": mock_msgbox_cls,
+            "plugin_loader": mock_loader_cls.return_value,
         }
 
 
@@ -80,3 +83,17 @@ def test_run_with_nonexistent_argv_path_loads_nothing(app_mocks, tmp_path: Path)
 
     app_mocks["controller"].load_file.assert_not_called()
     app_mocks["window"].open_config.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Plugin loader wiring (#74)
+# ---------------------------------------------------------------------------
+
+def test_run_loads_plugins(app_mocks) -> None:
+    run(["mdf-viewer"])
+    app_mocks["plugin_loader"].load_all.assert_called_once()
+
+
+def test_run_deactivates_plugins_on_shutdown(app_mocks) -> None:
+    run(["mdf-viewer"])
+    app_mocks["plugin_loader"].deactivate_all.assert_called_once()

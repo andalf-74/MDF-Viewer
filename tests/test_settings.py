@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -811,3 +812,41 @@ def test_default_config_path_linux_uses_xdg_style_dir(monkeypatch) -> None:
     monkeypatch.setattr(Path, "home", lambda: Path("/home/test"))
     path = _default_config_path()
     assert path == Path("/home/test") / ".config" / "mdf-viewer" / "settings.json"
+
+
+# ---------------------------------------------------------------------------
+# plugins_dir (#74)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-252")
+def test_plugins_dir_defaults_to_none(settings: Settings) -> None:
+    assert settings.plugins_dir is None
+
+
+def test_plugins_dir_round_trips_through_save_and_load(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    s1 = Settings(path=path)
+    s1.plugins_dir = tmp_path / "custom_plugins"
+
+    s2 = Settings(path=path)
+
+    assert s2.plugins_dir == tmp_path / "custom_plugins"
+
+
+def test_plugins_dir_setter_persists_immediately(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    s1 = Settings(path=path)
+    s1.plugins_dir = tmp_path / "custom_plugins"
+
+    raw = json.loads(path.read_text(encoding="utf-8"))
+
+    assert raw["plugins_dir"] == str(tmp_path / "custom_plugins")
+
+
+def test_plugins_dir_handles_missing_key_in_saved_file(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"check_for_updates": False}), encoding="utf-8")
+
+    s = Settings(path=path)
+
+    assert s.plugins_dir is None

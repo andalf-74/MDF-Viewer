@@ -101,6 +101,7 @@ class Settings:
         self._keep_signals_on_load: str = DEFAULT_KEEP_SIGNALS_ON_LOAD
         self._config_path_mode: str = DEFAULT_CONFIG_PATH_MODE
         self._prompt_save_config_on_close: bool = DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE
+        self._plugins_dir: Path | None = None
         self._load()
 
     # ------------------------------------------------------------------
@@ -125,6 +126,16 @@ class Settings:
     @check_for_updates.setter
     def check_for_updates(self, value: bool) -> None:
         self._check_for_updates = value
+        self._save()
+
+    @property
+    def plugins_dir(self) -> Path | None:
+        """Override for the plugins directory (#74). None means "use the computed default"."""
+        return self._plugins_dir
+
+    @plugins_dir.setter
+    def plugins_dir(self, value: Path | None) -> None:
+        self._plugins_dir = value
         self._save()
 
     @property
@@ -390,6 +401,8 @@ class Settings:
             raw_cpm = str(data.get("config_path_mode", DEFAULT_CONFIG_PATH_MODE))
             self._config_path_mode = raw_cpm if raw_cpm in ("absolute", "relative") else DEFAULT_CONFIG_PATH_MODE
             self._prompt_save_config_on_close = bool(data.get("prompt_save_config_on_close", DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE))
+            raw_plugins_dir = data.get("plugins_dir")
+            self._plugins_dir = Path(raw_plugins_dir) if raw_plugins_dir else None
         except (FileNotFoundError, json.JSONDecodeError, TypeError, KeyError):
             self._recent = []
             self._check_for_updates = True
@@ -417,6 +430,7 @@ class Settings:
             self._keep_signals_on_load = DEFAULT_KEEP_SIGNALS_ON_LOAD
             self._config_path_mode = DEFAULT_CONFIG_PATH_MODE
             self._prompt_save_config_on_close = DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE
+            self._plugins_dir = None
 
     @staticmethod
     def _load_color(
@@ -458,6 +472,7 @@ class Settings:
                     "keep_signals_on_load": self._keep_signals_on_load,
                     "config_path_mode": self._config_path_mode,
                     "prompt_save_config_on_close": self._prompt_save_config_on_close,
+                    "plugins_dir": str(self._plugins_dir) if self._plugins_dir else None,
                 },
                 indent=2,
             ),

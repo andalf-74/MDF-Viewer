@@ -201,3 +201,59 @@ does not need to separately register a menu action just to open its own
 dialog [REQ-PLUGIN-230]. Opening it shows the widget in a modal dialog,
 matching how every other dialog in the application (e.g. Preferences) is
 already shown [REQ-PLUGIN-231].
+
+---
+
+## Plugin Loader and Discovery (#74)
+
+This is the piece that finally makes #71/#72/#73 do something: discovering
+real plugin packages on disk, activating them, and deactivating them again
+on shutdown.
+
+### Discovery
+
+The application scans one plugins directory for plugin packages
+[REQ-PLUGIN-240]. Each subdirectory containing an `__init__.py` is treated
+as one plugin package; anything else in the directory is ignored
+[REQ-PLUGIN-241]. A plugin package declares which classes it contributes
+explicitly, as a module-level list, rather than the application guessing
+by inspecting the module's contents — this supports a single plugin and a
+multi-plugin "toolsuite" package the same way, with no ambiguity either
+way [REQ-PLUGIN-242]. A package that fails to declare that list, or
+declares an empty one, is treated as broken and skipped, with the reason
+logged [REQ-PLUGIN-243].
+
+### Location
+
+The plugins directory defaults to a location next to the running
+application — the same folder the installed or portable executable lives
+in — so a portable installation's plugins travel with it when the whole
+folder is copied elsewhere [REQ-PLUGIN-250]. Running from source instead
+uses a location relative to the source checkout, since there is no single
+"next to the application" location in that case [REQ-PLUGIN-251]. The
+plugins directory can be overridden to a different location
+[REQ-PLUGIN-252].
+
+### Activation
+
+Every declared plugin class is instantiated and activated once, during
+application startup, before the rest of the application's UI is
+interactive [REQ-PLUGIN-260]. Two plugins that end up with the same name
+are not both activated — the first one to load with a given name is
+activated normally; any later one reusing that name is rejected and the
+conflict is logged, rather than both silently running under an
+indistinguishable identity [REQ-PLUGIN-261].
+
+### Shutdown
+
+Every plugin that was successfully activated is deactivated once, when
+the application closes [REQ-PLUGIN-270].
+
+### Error isolation
+
+A failure at any point in discovering, loading, instantiating, or
+activating one plugin package — an unreadable directory, a package that
+fails to import, a missing or invalid declared plugin list, or a plugin
+that fails to activate — is caught and logged, and does not prevent any
+other plugin from loading or the application from starting normally
+[REQ-PLUGIN-280].

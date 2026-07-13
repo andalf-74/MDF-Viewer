@@ -126,6 +126,7 @@ def run(argv: list[str]) -> int:
     from mdf_viewer.errors import MdfLoadError
     from mdf_viewer.license.license_manager import LicenseManager
     from mdf_viewer.model.mdf_loader import MdfLoader
+    from mdf_viewer.plugin_api.loader import PluginLoader, resolve_plugins_dir
     from mdf_viewer.settings import Settings
     from mdf_viewer.view.main_window import MainWindow
 
@@ -210,6 +211,17 @@ def run(argv: list[str]) -> int:
         lambda plot_area, table: _add_new_tab(controller, plot_area, table, settings)
     )
 
+    # Must run before set_controller() below: it takes a one-time snapshot
+    # of controller.plugin_registry to build the Plugins menu/dock sections
+    # (#73) — any plugin activated after that point would silently never
+    # appear until a restart.
+    plugin_loader = PluginLoader(
+        app=controller,
+        plugins_dir=resolve_plugins_dir(settings),
+        tab_name_provider=lambda i: window._tab_names()[i],
+    )
+    plugin_loader.load_all()
+
     window.set_settings(settings)
     window.set_controller(controller)
 
@@ -237,4 +249,6 @@ def run(argv: list[str]) -> int:
                 except MdfLoadError as exc:
                     QMessageBox.critical(window, "Load Error", str(exc))
 
-    return app.exec()
+    exit_code = app.exec()
+    plugin_loader.deactivate_all()
+    return exit_code
