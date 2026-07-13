@@ -87,14 +87,25 @@ def test_subscribe_rejects_unknown_event_name(context: PluginContext) -> None:
         context.subscribe("not_a_real_event", lambda payload: None)
 
 
-def test_subscribe_delivers_the_real_event(ctrl: AppController, context: PluginContext) -> None:
+@pytest.mark.requirement("REQ-PLUGIN-080")
+@pytest.mark.requirement("REQ-PLUGIN-141")
+def test_subscribe_delivers_a_translated_event_not_the_raw_payload(
+    ctrl: AppController, context: PluginContext,
+) -> None:
+    """The plugin must never receive the raw EventBus payload (#149) — it
+    carries the live ActiveSignal and the raw TabWorkspace directly."""
     received = []
     context.subscribe("signal_removed", received.append)
 
-    event = SignalRemovedEvent(signal=MagicMock())
+    raw_signal = MagicMock()
+    event = SignalRemovedEvent(signal=raw_signal)
     ctrl.events.signal_removed.emit(event)
 
-    assert received == [event]
+    assert len(received) == 1
+    translated = received[0]
+    assert not isinstance(translated, SignalRemovedEvent)
+    assert translated.signal.metadata is raw_signal.metadata
+    assert translated.tab_index is None
 
 
 @pytest.mark.requirement("REQ-PLUGIN-150")
@@ -128,7 +139,8 @@ def test_a_raising_handler_does_not_break_other_subscribers(
     event = SignalRemovedEvent(signal=MagicMock())
     ctrl.events.signal_removed.emit(event)
 
-    assert other_received == [event]
+    assert len(other_received) == 1
+    assert other_received[0].tab_index is None
 
 
 def test_unsubscribe_all_stops_delivery(ctrl: AppController, context: PluginContext) -> None:
@@ -178,3 +190,45 @@ def test_teardown_only_affects_this_plugins_registrations(
     context_a._teardown()
 
     assert [r.plugin_name for r in registry.menu_actions] == ["b"]
+
+
+# ---------------------------------------------------------------------------
+# Event-translation coverage guard-rails (#149) — a future event added to
+# EventBus without a matching PluginContext translation must be caught here,
+# not discovered later as a live leak of live ActiveSignal/TabWorkspace
+# objects to plugin code.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-142")
+def test_known_events_matches_eventbus_real_signals() -> None:
+    from PyQt6.QtCore import pyqtSignal
+
+    from mdf_viewer.controller.events import EventBus
+    from mdf_viewer.plugin_api.context import _KNOWN_EVENTS
+
+    real_signal_names = {name for name in vars(EventBus) if isinstance(vars(EventBus)[name], pyqtSignal)}
+    assert _KNOWN_EVENTS == real_signal_names
+
+
+@pytest.mark.requirement("REQ-PLUGIN-142")
+def test_every_known_event_has_a_working_translation(context: PluginContext) -> None:
+    from mdf_viewer.plugin_api.context import _KNOWN_EVENTS
+
+    dummy_signal = MagicMock()
+    payloads = {
+        "file_loaded": MagicMock(path="x.mf4", tab=None),
+        "signal_added": MagicMock(signal=dummy_signal, tab=None),
+        "signal_removed": MagicMock(signal=dummy_signal, tab=None),
+        "selection_changed": MagicMock(selected=[dummy_signal], tab=None),
+        "cursor_moved": MagicMock(positions=[1.0, 2.0], mode=None, tab=None),
+    }
+    assert set(payloads) == _KNOWN_EVENTS  # this test itself must cover every known event
+
+    for event_name, payload in payloads.items():
+        translated = context._translate_event(event_name, payload)
+        assert translated is not None
+
+
+def test_translate_event_raises_loudly_for_an_unknown_name(context: PluginContext) -> None:
+    with pytest.raises(AssertionError):
+        context._translate_event("not_a_real_event", MagicMock())

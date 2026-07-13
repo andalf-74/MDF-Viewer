@@ -283,11 +283,12 @@ def test_overridden_handler_receives_a_real_event(ctrl: AppController) -> None:
     event = SignalAddedEvent(signal=MagicMock())
     ctrl.events.signal_added.emit(event)
 
-    assert received == [event]
+    assert len(received) == 1
+    assert not isinstance(received[0], SignalAddedEvent)  # translated, never the raw payload (#149)
 
     plugin.stop()
     ctrl.events.signal_added.emit(event)
-    assert received == [event]  # no second delivery after stop()
+    assert len(received) == 1  # no second delivery after stop()
 
 
 def test_real_registry_has_no_leak_after_failed_activation(ctrl: AppController) -> None:

@@ -18,7 +18,12 @@ import numpy as np
 from mdf_viewer.enums import CursorMode
 from mdf_viewer.plugin_api.registry import DockWidgetMode, DockWidgetRegistration, MenuActionRegistration
 from mdf_viewer.plugin_api.types import (
+    PluginCursorMovedEvent,
+    PluginFileLoadedEvent,
     PluginMeasurementView,
+    PluginSelectionChangedEvent,
+    PluginSignalAddedEvent,
+    PluginSignalRemovedEvent,
     PluginSignalView,
     PluginTabCursor,
     PluginTabSignals,
@@ -28,12 +33,19 @@ if TYPE_CHECKING:
     from PyQt6.QtWidgets import QWidget
 
     from mdf_viewer.controller.app_controller import AppController
+    from mdf_viewer.view_model.active_signal import ActiveSignal
     from mdf_viewer.plugin_api.registry import PluginRegistry
 
 logger = logging.getLogger("mdf_viewer.plugin_api")
 
 # EventBus's own registered signal names (controller/events.py) — the only
-# names a plugin may subscribe to.
+# names a plugin may subscribe to. Every name here MUST have a matching
+# branch in PluginContext._translate_event() (#149) — that method's final
+# `else` raises loudly rather than ever forwarding a raw, untranslated
+# payload, and tests/plugin_api/test_context_registration.py cross-checks
+# this set against EventBus's own real signal attributes, so a future event
+# added to one but not the other is caught immediately rather than silently
+# leaking a live ActiveSignal/TabWorkspace to plugins.
 _KNOWN_EVENTS = frozenset(
     {"file_loaded", "signal_added", "signal_removed", "selection_changed", "cursor_moved"}
 )
@@ -61,6 +73,27 @@ class PluginContext:
             return self._tab_name_provider(index)
         return f"Tab {index + 1}"
 
+    def _to_signal_view(self, active: "ActiveSignal") -> PluginSignalView:
+        """Build a PluginSignalView for *active* — the one place that knows
+        how (shared by the read surface and event translation, #149)."""
+        measurement_view = (
+            PluginMeasurementView.from_measurement(
+                active.measurement, is_primary=active.measurement is self._app.primary_measurement,
+            )
+            if active.measurement is not None
+            else None
+        )
+        token = self._app.token_for_signal(active)
+        return PluginSignalView.from_active(active, token, measurement_view)
+
+    def _tab_index_for(self, workspace: object) -> int | None:
+        """Resolve a raw TabWorkspace to its tab index, or None if it's since
+        been removed (#149) — never hand a plugin the TabWorkspace itself."""
+        for index, ws in enumerate(self._app.all_workspaces()):
+            if ws is workspace:
+                return index
+        return None
+
     # ------------------------------------------------------------------
     # Read access (REQ-PLUGIN-070/080/090/100/110)
     # ------------------------------------------------------------------
@@ -71,17 +104,7 @@ class PluginContext:
         active_index = self._app.active_tab_index
         result = []
         for index, workspace in enumerate(self._app.all_workspaces()):
-            signals = []
-            for active in workspace.active:
-                measurement_view = (
-                    PluginMeasurementView.from_measurement(
-                        active.measurement, is_primary=active.measurement is self._app.primary_measurement,
-                    )
-                    if active.measurement is not None
-                    else None
-                )
-                token = self._app.token_for_signal(active)
-                signals.append(PluginSignalView.from_active(active, token, measurement_view))
+            signals = [self._to_signal_view(active) for active in workspace.active]
             result.append(
                 PluginTabSignals(
                     tab_index=index,
@@ -171,21 +194,59 @@ class PluginContext:
     # Event subscription (REQ-PLUGIN-140/150)
     # ------------------------------------------------------------------
 
+    def _translate_event(self, event_name: str, payload: Any) -> Any:
+        """Translate a raw EventBus payload into the plugin-safe equivalent (#149).
+
+        Every branch here corresponds to one of _KNOWN_EVENTS; the final
+        `else` is a deliberate loud failure, not a silent passthrough — a
+        future event added to EventBus without a matching branch here must
+        never fall through to forwarding a raw, live payload to a plugin.
+        """
+        if event_name == "file_loaded":
+            return PluginFileLoadedEvent(
+                path=payload.path, tab_index=self._tab_index_for(payload.tab),
+            )
+        if event_name == "signal_added":
+            return PluginSignalAddedEvent(
+                signal=self._to_signal_view(payload.signal),
+                tab_index=self._tab_index_for(payload.tab),
+            )
+        if event_name == "signal_removed":
+            return PluginSignalRemovedEvent(
+                signal=self._to_signal_view(payload.signal),
+                tab_index=self._tab_index_for(payload.tab),
+            )
+        if event_name == "selection_changed":
+            return PluginSelectionChangedEvent(
+                selected=tuple(self._to_signal_view(a) for a in payload.selected),
+                tab_index=self._tab_index_for(payload.tab),
+            )
+        if event_name == "cursor_moved":
+            return PluginCursorMovedEvent(
+                positions=tuple(payload.positions),
+                mode=payload.mode,
+                tab_index=self._tab_index_for(payload.tab),
+            )
+        raise AssertionError(f"no plugin-safe translation registered for event '{event_name}'")
+
     def subscribe(self, event_name: str, handler: Callable[[Any], None]) -> None:
         """Subscribe *handler* to one of AppController.events' signals.
 
         *event_name* must be one of "file_loaded", "signal_added",
         "signal_removed", "selection_changed", "cursor_moved" (EventBus's
-        own registered signal names). A raising *handler* is caught and
-        logged, never propagated (REQ-PLUGIN-150) — the emitting EventBus
-        keeps working for every other subscriber.
+        own registered signal names). The raw payload is never forwarded
+        as-is — it's translated into a read-only plugin-facing equivalent
+        first (REQ-PLUGIN-080, #149): a signal becomes a PluginSignalView,
+        the raw TabWorkspace becomes a tab_index. A raising *handler* is
+        caught and logged, never propagated (REQ-PLUGIN-150) — the emitting
+        EventBus keeps working for every other subscriber.
         """
         if event_name not in _KNOWN_EVENTS:
             raise ValueError(f"Unknown plugin event '{event_name}'")
 
         def wrapped(payload: Any) -> None:
             try:
-                handler(payload)
+                handler(self._translate_event(event_name, payload))
             except Exception:
                 logger.exception(
                     "Plugin '%s' handler for event '%s' failed", self._plugin_name, event_name,

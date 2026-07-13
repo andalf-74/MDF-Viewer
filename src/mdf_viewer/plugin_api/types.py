@@ -102,3 +102,45 @@ class PluginTabCursor:
     is_active: bool
     mode: "CursorMode"
     positions: tuple[float, ...]
+
+
+# ---------------------------------------------------------------------------
+# Event payloads delivered via PluginContext.subscribe() (#149)
+#
+# Mirror controller/events.py's dataclasses, but translated: `tab` (the raw
+# TabWorkspace — plot/table/cursor_ctrl/zoom_ctrl all directly reachable)
+# becomes `tab_index`, and any ActiveSignal becomes a PluginSignalView.
+# Never construct these from a raw EventBus payload directly — always via
+# PluginContext's own translation, the single place that knows how to build
+# a PluginSignalView / resolve a tab index.
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class PluginFileLoadedEvent:
+    path: str
+    tab_index: int | None
+
+
+@dataclass(frozen=True)
+class PluginSignalAddedEvent:
+    signal: PluginSignalView
+    tab_index: int | None
+
+
+@dataclass(frozen=True)
+class PluginSignalRemovedEvent:
+    signal: PluginSignalView
+    tab_index: int | None
+
+
+@dataclass(frozen=True)
+class PluginSelectionChangedEvent:
+    selected: tuple[PluginSignalView, ...]
+    tab_index: int | None
+
+
+@dataclass(frozen=True)
+class PluginCursorMovedEvent:
+    positions: tuple[float, ...]
+    mode: "CursorMode"
+    tab_index: int | None

@@ -347,8 +347,9 @@ class AppController:
             workspace.cursor_ctrl.on_all_signals_cleared()
         for sig in list(workspace.active):
             workspace.plot.remove_signal(sig)
-            self._drop_signal_token(sig)
+            # Emit before dropping the token (#149) — see remove_signals()'s comment.
             self.events.signal_removed.emit(SignalRemovedEvent(signal=sig, tab=workspace))
+            self._drop_signal_token(sig)
         workspace.active.clear()
         workspace.table.clear()
         if len(self._workspaces) <= 1:
@@ -1172,8 +1173,11 @@ class AppController:
             current.plot.remove_signal(active)
             current.active.remove(active)
             current.table.remove_row(active)
-            self._drop_signal_token(active)
+            # Emit before dropping the token (#149) — a plugin's
+            # signal_removed handler can still call get_samples() one last
+            # time; the token becomes invalid immediately afterward.
             self.events.signal_removed.emit(SignalRemovedEvent(signal=active, tab=current))
+            self._drop_signal_token(active)
         if current.cursor_ctrl is not None:
             current.cursor_ctrl.refresh()
         self._refresh_table_group_state()
@@ -1377,8 +1381,9 @@ class AppController:
         current.plot.remove_signal(active_signal)
         current.active.remove(active_signal)
         current.table.remove_row(active_signal)
-        self._drop_signal_token(active_signal)
+        # Emit before dropping the token (#149) — see remove_signals()'s comment.
         self.events.signal_removed.emit(SignalRemovedEvent(signal=active_signal, tab=current))
+        self._drop_signal_token(active_signal)
         if current.cursor_ctrl is not None:
             current.cursor_ctrl.refresh()
         if current.selected is active_signal:
@@ -1393,8 +1398,9 @@ class AppController:
             current.cursor_ctrl.on_all_signals_cleared()
         for sig in list(current.active):
             current.plot.remove_signal(sig)
-            self._drop_signal_token(sig)
+            # Emit before dropping the token (#149) — see remove_signals()'s comment.
             self.events.signal_removed.emit(SignalRemovedEvent(signal=sig, tab=current))
+            self._drop_signal_token(sig)
         current.active.clear()
         current.table.clear()
         self.set_selected_signal(None)

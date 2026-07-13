@@ -93,12 +93,19 @@ def test_full_plugin_context_lifecycle(ctrl: AppController) -> None:
     registry.menu_actions[0].invoke()
     assert menu_calls == [1]
 
-    # 5. Event subscription — fire a real event through AppController.events.
+    # 5. Event subscription — trigger a real signal_added by adding a second
+    # channel, through the real controller (not a manually-built event), so
+    # the payload's `tab` is the real TabWorkspace. The plugin must receive
+    # a translated, read-only payload (#149), never the raw event carrying
+    # the live ActiveSignal/TabWorkspace.
     received = []
     context.subscribe("signal_added", received.append)
+    ctrl.add_signal(0, 2)
+    assert len(received) == 1
+    assert received[0].signal.metadata.name == "RPM"
+    assert received[0].tab_index == 0
+
     event = SignalAddedEvent(signal=ctrl.active_signals[0])
-    ctrl.events.signal_added.emit(event)
-    assert received == [event]
 
     # 6. Remove the signal — get_samples must now report it gone.
     ctrl.remove_signal(ctrl.active_signals[0])
@@ -107,4 +114,4 @@ def test_full_plugin_context_lifecycle(ctrl: AppController) -> None:
     # 7. Unsubscribe — handler stops firing.
     context.unsubscribe_all()
     ctrl.events.signal_added.emit(event)
-    assert received == [event]  # unchanged, no second delivery
+    assert len(received) == 1  # unchanged, no second delivery

@@ -42,12 +42,16 @@ changes [REQ-PLUGIN-040]. The application fires a `cursor_moved` event,
 carrying the new cursor positions and cursor mode, whenever a visible
 cursor's position changes [REQ-PLUGIN-050].
 
-**Resolved for #71:** event payloads that carry a signal (`signal_added`,
-`signal_removed`) still pass the live, mutable `ActiveSignal` internally —
-#70's event bus is unchanged. `PluginContext` (below) exposes a narrower,
-read-only projection instead of that raw object; a plugin never receives
-the live `ActiveSignal` (or its PyQtGraph `curve`/`view_box` handles)
-through either the event bus or the context.
+**Resolved for #71, enforced for #149:** event payloads that carry a signal
+(`signal_added`, `signal_removed`) still pass the live, mutable
+`ActiveSignal` internally — #70's event bus is unchanged. `PluginContext`
+(below) exposes a narrower, read-only projection instead of that raw
+object; a plugin never receives the live `ActiveSignal` (or its PyQtGraph
+`curve`/`view_box` handles) through either the event bus or the context.
+Every event's `tab` field is likewise the raw internal `TabWorkspace`
+internally — carrying that tab's actual `plot`/`table`/`cursor_ctrl`/
+`zoom_ctrl` objects — and is translated the same way (#149; see
+REQ-PLUGIN-141).
 
 ---
 
@@ -96,7 +100,14 @@ or dock widgets in the UI — that wiring belongs to #73.
 ### Subscribing to events
 
 A plugin can subscribe to any of the events described above (Lifecycle
-Events) through its own context [REQ-PLUGIN-140].
+Events) through its own context [REQ-PLUGIN-140]. The payload delivered
+to a plugin's handler is translated into the same kind of read-only
+projection the read surface above uses — a signal becomes the same
+read-only projection REQ-PLUGIN-080 describes, and a tab is identified by
+its index rather than the raw internal tab object — never the live,
+mutable objects the application uses internally [REQ-PLUGIN-141]. Every
+event the application bus can emit has such a translation; none is ever
+forwarded to a plugin unchanged [REQ-PLUGIN-142].
 
 ### Error isolation
 

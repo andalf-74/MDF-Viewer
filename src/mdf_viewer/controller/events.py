@@ -55,7 +55,17 @@ class CursorMovedEvent:
 
 
 class EventBus(QObject):
-    """Qt signals for AppController lifecycle events. Owned by AppController."""
+    """Qt signals for AppController lifecycle events. Owned by AppController.
+
+    Adding a new signal here? Every payload eventually reaches
+    ``PluginContext.subscribe()`` (#71/#149), which forwards it to plugin
+    code — never the raw dataclass. Add a matching branch to
+    ``plugin_api.context.PluginContext._translate_event()`` and to that
+    module's ``_KNOWN_EVENTS`` in the same change, or a plugin subscribing
+    to the new event will hit a loud ``AssertionError`` rather than
+    silently leaking a live ``ActiveSignal``/``TabWorkspace`` — that
+    failure mode is deliberate, see #149.
+    """
 
     file_loaded = pyqtSignal(object)       # FileLoadedEvent
     signal_added = pyqtSignal(object)      # SignalAddedEvent
