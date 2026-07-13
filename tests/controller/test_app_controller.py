@@ -4340,3 +4340,112 @@ def test_switch_tab_out_of_range_does_not_touch_drawer(
 
     deps["signal_info"].set_metadata.assert_not_called()
     deps["signal_info"].clear.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Plugin support (#71): all_workspaces / active_tab_index / signal tokens
+# ---------------------------------------------------------------------------
+
+def test_all_workspaces_returns_every_tab_in_order(ctrl: AppController) -> None:
+    ws0 = ctrl.current_workspace
+    ws1 = ctrl.create_tab(MagicMock(), MagicMock())
+
+    assert ctrl.all_workspaces() == [ws0, ws1]
+
+
+def test_all_workspaces_returns_a_copy_not_the_live_list(ctrl: AppController) -> None:
+    workspaces = ctrl.all_workspaces()
+    workspaces.append(MagicMock())
+
+    assert ctrl.tab_count == 1
+
+
+def test_active_tab_index_matches_current_workspace(ctrl: AppController) -> None:
+    assert ctrl.active_tab_index == 0
+    ctrl.create_tab(MagicMock(), MagicMock())
+    assert ctrl.active_tab_index == 1
+    ctrl.switch_tab(0)
+    assert ctrl.active_tab_index == 0
+
+
+def test_token_for_signal_is_idempotent(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+
+    token_a = ctrl.token_for_signal(sig)
+    token_b = ctrl.token_for_signal(sig)
+
+    assert token_a == token_b
+
+
+def test_token_for_signal_differs_across_signals(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    sig_a, sig_b = ctrl.active_signals
+
+    assert ctrl.token_for_signal(sig_a) != ctrl.token_for_signal(sig_b)
+
+
+def test_find_active_signal_by_id_resolves_a_minted_token(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    token = ctrl.token_for_signal(sig)
+
+    assert ctrl.find_active_signal_by_id(token) is sig
+
+
+def test_find_active_signal_by_id_unknown_token_returns_none(ctrl: AppController) -> None:
+    assert ctrl.find_active_signal_by_id(999) is None
+
+
+def test_token_dropped_by_remove_signal(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    token = ctrl.token_for_signal(sig)
+
+    ctrl.remove_signal(sig)
+
+    assert ctrl.find_active_signal_by_id(token) is None
+
+
+def test_token_dropped_by_remove_signals(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    token = ctrl.token_for_signal(sig)
+
+    ctrl.remove_signals([sig])
+
+    assert ctrl.find_active_signal_by_id(token) is None
+
+
+def test_token_dropped_by_remove_all(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    token = ctrl.token_for_signal(sig)
+
+    ctrl.remove_all()
+
+    assert ctrl.find_active_signal_by_id(token) is None
+
+
+def test_token_dropped_by_remove_tab(ctrl: AppController) -> None:
+    ctrl.create_tab(MagicMock(), MagicMock())
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+    token = ctrl.token_for_signal(sig)
+
+    ctrl.remove_tab(1)
+
+    assert ctrl.find_active_signal_by_id(token) is None
+
+
+def test_token_bookkeeping_is_a_noop_for_signals_never_exposed_to_a_plugin(
+    ctrl: AppController,
+) -> None:
+    """Nothing should require a token to exist before a signal is removed."""
+    ctrl.add_signal(0, 1)
+    sig = ctrl.active_signals[0]
+
+    ctrl.remove_signal(sig)  # no prior token_for_signal() call
+
+    assert ctrl.active_signals == []

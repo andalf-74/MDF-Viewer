@@ -172,6 +172,16 @@ class AppController:
         self._current_config_path: Path | None = None
         self.events = EventBus()
 
+        # Opaque, plugin-facing signal handles (#71) — see token_for_signal().
+        # id(active) is only ever used as a transient lookup key while
+        # `active` is still referenced by some workspace's `active` list
+        # (so its address can't yet have been reused), and is dropped the
+        # moment the signal itself is removed (_drop_signal_token()) —
+        # never handed to a plugin, which only ever sees the minted token.
+        self._signal_tokens: dict[int, ActiveSignal] = {}
+        self._signal_token_by_id: dict[int, int] = {}
+        self._next_signal_token: int = 1
+
     def _default_measurement(self) -> LoadedMeasurement | None:
         """Resolve an implicit measurement when the pool has exactly one entry.
 
@@ -253,6 +263,22 @@ class AppController:
         """
         return self._workspaces[self._active_tab_index]
 
+    def all_workspaces(self) -> list[TabWorkspace]:
+        """Every tab's TabWorkspace, in tab order.
+
+        Returns a shallow copy (matching active_signals' own convention),
+        not the live `_workspaces` list — reorder_tabs() reassigns that
+        list wholesale and remove_tab() deletes from it in place, either of
+        which would otherwise mutate/invalidate whatever a caller (e.g.
+        PluginContext, #71) is still iterating.
+        """
+        return list(self._workspaces)
+
+    @property
+    def active_tab_index(self) -> int:
+        """Index of the currently active tab (read-only view of `current_workspace`'s position)."""
+        return self._active_tab_index
+
     def create_tab(
         self, plot_area: PlotAreaProtocol, active_signals_table: SignalTableProtocol
     ) -> TabWorkspace:
@@ -317,6 +343,7 @@ class AppController:
             workspace.cursor_ctrl.on_all_signals_cleared()
         for sig in list(workspace.active):
             workspace.plot.remove_signal(sig)
+            self._drop_signal_token(sig)
             self.events.signal_removed.emit(SignalRemovedEvent(signal=sig, tab=workspace))
         workspace.active.clear()
         workspace.table.clear()
@@ -1141,6 +1168,7 @@ class AppController:
             current.plot.remove_signal(active)
             current.active.remove(active)
             current.table.remove_row(active)
+            self._drop_signal_token(active)
             self.events.signal_removed.emit(SignalRemovedEvent(signal=active, tab=current))
         if current.cursor_ctrl is not None:
             current.cursor_ctrl.refresh()
@@ -1345,6 +1373,7 @@ class AppController:
         current.plot.remove_signal(active_signal)
         current.active.remove(active_signal)
         current.table.remove_row(active_signal)
+        self._drop_signal_token(active_signal)
         self.events.signal_removed.emit(SignalRemovedEvent(signal=active_signal, tab=current))
         if current.cursor_ctrl is not None:
             current.cursor_ctrl.refresh()
@@ -1360,6 +1389,7 @@ class AppController:
             current.cursor_ctrl.on_all_signals_cleared()
         for sig in list(current.active):
             current.plot.remove_signal(sig)
+            self._drop_signal_token(sig)
             self.events.signal_removed.emit(SignalRemovedEvent(signal=sig, tab=current))
         current.active.clear()
         current.table.clear()
@@ -1943,6 +1973,39 @@ class AppController:
     @property
     def active_signals(self) -> list[ActiveSignal]:
         return list(self.current_workspace.active)
+
+    def token_for_signal(self, active: ActiveSignal) -> int:
+        """Mint (or reuse) *active*'s opaque plugin-facing token (#71).
+
+        Lazy — a signal never exposed to a plugin never gets a token.
+        Called by PluginContext when building a PluginSignalView; never
+        called with a signal that isn't currently in some workspace's
+        `active` list (see the `_signal_token_by_id` comment in __init__).
+        """
+        key = id(active)
+        token = self._signal_token_by_id.get(key)
+        if token is None:
+            token = self._next_signal_token
+            self._next_signal_token += 1
+            self._signal_token_by_id[key] = token
+            self._signal_tokens[token] = active
+        return token
+
+    def find_active_signal_by_id(self, token: int) -> ActiveSignal | None:
+        """The live ActiveSignal *token* refers to, or None if it's since been removed (#71)."""
+        return self._signal_tokens.get(token)
+
+    def _drop_signal_token(self, active: ActiveSignal) -> None:
+        """Invalidate *active*'s token, if it was ever minted (#71).
+
+        Called from every path that removes a signal from a workspace's
+        `active` list (remove_signal, remove_signals, remove_all,
+        remove_tab), so find_active_signal_by_id() reliably returns None
+        afterward instead of a stale or address-reused result.
+        """
+        token = self._signal_token_by_id.pop(id(active), None)
+        if token is not None:
+            self._signal_tokens.pop(token, None)
 
     @property
     def selected_signal(self) -> ActiveSignal | None:

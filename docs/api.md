@@ -41,6 +41,9 @@
 | `controller/interfaces.py` | Protocol contracts for all controller-view dependencies |
 | `controller/app_controller.py` | `AppController` — coordinates all layers; multi-tab (#99), multi-measurement (#101), Measurement Synchronization (#102), Primary Measurement + rename (#103) |
 | `controller/events.py` | `EventBus` + event dataclasses (`FileLoadedEvent`, `SignalAddedEvent`, `SignalRemovedEvent`, `SelectionChangedEvent`, `CursorMovedEvent`) — plugin groundwork (#70) |
+| `plugin_api/types.py` | Read-only plugin projections: `PluginSignalView`, `PluginMeasurementView`, `PluginTabSignals`, `PluginTabCursor` — never the live `ActiveSignal`/`LoadedMeasurement` (#71) |
+| `plugin_api/registry.py` | `PluginRegistry`, `MenuActionRegistration`, `DockWidgetRegistration` — plugin UI-contribution registry; populated by #71, rendered into the real UI by #73 |
+| `plugin_api/context.py` | `PluginContext` — the only object a plugin may import; one instance per plugin (#71) |
 | `controller/cursor_controller.py` | `CursorController` — toggle, position memory, interpolation, delta-time |
 | `controller/zoom_controller.py` | `ZoomController` — zoom undo/redo, gesture coalescing, stable-state pre-capture |
 | `settings.py` | `Settings` — JSON persistence for recent files + preferences |
@@ -534,3 +537,15 @@ Composes one or more `PlotStripe`s (a vertical `QSplitter`) into what `MainWindo
 - `self._synchronized: bool = False` (#102) — whether the per-measurement axis rows are collapsed into one shared ruler; pushed alongside `self._measurements`, same lifetime/re-apply rules.
 - `refresh_measurement_axes(measurements, synchronized=False)` — stores both, calls `_update_x_axis_tick_visibility()`.
 - `_update_x_axis_tick_visibility()` — for the bottom stripe: when synchronized and the pool is non-empty, passes `[measurements[0]]` (the Primary measurement, #103 — `AppController` guarantees it's first in the list) to `set_measurement_axes` instead of the full pool, with `draggable=False`; `set_show_x_axis_ticks(...)` still gates on the *full* pool, not the collapsed list, so per-measurement rows never fall back to the plain "Time" axis just because they collapsed to one. Also calls `stripe.set_measurement_sync_control(visible=is_bottom and len(measurements) >= 2, synchronized=self._synchronized, on_toggle=self.synchronize_toggled.emit)` for every stripe in the same loop.
+
+## Plugin API (#71)
+
+New top-level package `plugin_api/` (sibling of `model/`/`view/`/`view_model/`/`controller/`, not nested in any of them) — see `docs/architecture.md`'s "PluginContext API Facade (#71)" for the full design rationale. Nothing else in the app imports from here yet; the plugin base class (#72) and loader (#74) that will actually construct/use these don't exist yet.
+
+- **`PluginContext`** (`plugin_api/context.py`) — the only object a plugin is ever allowed to import. One instance per plugin: `PluginContext(plugin_name, app, registry, tab_name_provider=None)`.
+  - Read access: `active_signals -> list[PluginTabSignals]` (every tab, grouped, with `is_active`), `measurements -> list[PluginMeasurementView]` (full pool + which is Primary), `cursor_positions -> list[PluginTabCursor]` (synchronous, every tab), `get_samples(signal_view) -> (timestamps, values) | None` (always a copy; `None` once the signal's been removed).
+  - Registration (stub — recorded here, rendered into the real UI by #73): `register_menu_action(label, callback)` (fixed "Plugins" menu, no per-plugin placement), `register_dock_widget(title, widget_factory, mode)` (`mode` is `"docked"` or `"dialog"`, no free-form area).
+  - Events: `subscribe(event_name, handler)` / `unsubscribe_all()` — validates against `EventBus`'s 5 signal names; a raising handler is caught/logged (`logging.getLogger("mdf_viewer.plugin_api")`), never propagated or breaks other subscribers.
+- **`plugin_api/types.py`** — frozen, read-only projections: `PluginSignalView` (metadata/color/display state/measurement; never the live `curve`/`view_box`), `PluginMeasurementView` (path/label/offset_s/is_primary), `PluginTabSignals`, `PluginTabCursor`. Built via `from_active()`/`from_measurement()` factories, never constructed ad hoc.
+- **`plugin_api/registry.py`** — `PluginRegistry` (one shared instance across every `PluginContext`, entries tagged by `plugin_name`), `MenuActionRegistration`/`DockWidgetRegistration` (each owns an `invoke()`/`build()` that wraps the plugin callback in try/except + logging, so #73 gets error isolation for free).
+- **`AppController` additions supporting this**: `all_workspaces()` (copy, not the live list), `active_tab_index` property, `token_for_signal(active) -> int` / `find_active_signal_by_id(token) -> ActiveSignal | None` — an opaque, controller-minted monotonic token (never `id(active_signal)`, which is unsafe for a handle a plugin can hold indefinitely) invalidated in `remove_signal`/`remove_signals`/`remove_all`/`remove_tab`.
