@@ -113,3 +113,54 @@ out of scope here. Both converge on a single future concept — a plugin
 contributing a "virtual measurement" that behaves like any other loaded
 measurement to the rest of the app — tracked separately in
 [#147](https://github.com/andalf-74/MDF-Viewer/issues/147).
+
+---
+
+## Plugin Base Class and Lifecycle (#72)
+
+A plugin author implements against a `Plugin` base class rather than
+`PluginContext` directly — `PluginContext` is what a plugin *receives*,
+`Plugin` is what a plugin author *writes*.
+
+### Metadata
+
+A plugin declares its own name, version, description, and author as
+class-level attributes [REQ-PLUGIN-160]. A plugin whose name is left
+unset is rejected at construction, with a clear error, rather than being
+silently loaded under an anonymous or generic identity — every other
+per-plugin mechanism (error attribution, registration tagging) depends on
+a real name existing [REQ-PLUGIN-161].
+
+### Activation
+
+A plugin's `activate(context)` method is called exactly once, when the
+plugin is loaded, and is the only point at which it can register menu
+actions, dock widgets, or event subscriptions — a plugin that does not
+implement it can never do anything, so implementing it is mandatory, not
+optional [REQ-PLUGIN-170]. A plugin's `deactivate()` method is called
+exactly once, when the plugin is unloaded (application shutdown, or a
+future explicit disable), and is optional — a plugin that implements no
+teardown of its own still has its event subscriptions and UI
+registrations automatically removed [REQ-PLUGIN-171]. If `activate()`
+raises, the plugin is treated as having failed to activate rather than
+as successfully active, and its `deactivate()` is not later called for
+it [REQ-PLUGIN-172].
+
+### Event handler methods
+
+A plugin may override any of five optional handler methods, one per
+lifecycle event described above (`on_file_loaded`, `on_signal_added`,
+`on_signal_removed`, `on_selection_changed`, `on_cursor_moved`), each
+receiving that event's payload [REQ-PLUGIN-180]. Overriding one of these
+methods is sufficient on its own to subscribe to that event — a plugin
+does not need to call anything else to receive it [REQ-PLUGIN-181]. Every
+event subscription implied by an overridden handler method is
+automatically removed when the plugin is deactivated, whether or not the
+plugin's own `deactivate()` does anything [REQ-PLUGIN-182].
+
+### Error isolation
+
+An exception raised by a plugin's `activate()`, `deactivate()`, or any of
+its event handler methods is caught and logged at the point the
+application invokes it, the same as any other plugin callback
+[REQ-PLUGIN-190].

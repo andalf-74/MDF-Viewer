@@ -145,3 +145,36 @@ def test_unsubscribe_all_is_safe_to_call_twice(ctrl: AppController, context: Plu
     context.subscribe("signal_removed", lambda payload: None)
     context.unsubscribe_all()
     context.unsubscribe_all()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# _teardown (#72) — framework-internal, called by Plugin.start()/stop()
+# ---------------------------------------------------------------------------
+
+def test_teardown_unsubscribes_and_removes_registrations(
+    ctrl: AppController, context: PluginContext, registry: PluginRegistry,
+) -> None:
+    received = []
+    context.subscribe("signal_removed", received.append)
+    context.register_menu_action("Export", lambda: None)
+    context.register_dock_widget("Settings", lambda: MagicMock(), mode="dialog")
+
+    context._teardown()
+
+    assert registry.menu_actions == []
+    assert registry.dock_widgets == []
+    ctrl.events.signal_removed.emit(SignalRemovedEvent(signal=MagicMock()))
+    assert received == []
+
+
+def test_teardown_only_affects_this_plugins_registrations(
+    ctrl: AppController, registry: PluginRegistry,
+) -> None:
+    context_a = PluginContext(plugin_name="a", app=ctrl, registry=registry)
+    context_b = PluginContext(plugin_name="b", app=ctrl, registry=registry)
+    context_a.register_menu_action("A action", lambda: None)
+    context_b.register_menu_action("B action", lambda: None)
+
+    context_a._teardown()
+
+    assert [r.plugin_name for r in registry.menu_actions] == ["b"]

@@ -208,3 +208,14 @@ class PluginContext:
             except TypeError:
                 pass
         self._subscriptions.clear()
+
+    def _teardown(self) -> None:
+        """Undo everything this plugin registered/subscribed (#72).
+
+        Framework-internal — called only by Plugin.start()'s failure path
+        and Plugin.stop(), never by a plugin itself (unlike subscribe()/
+        register_menu_action()/etc., which are the plugin-author-facing
+        contract).
+        """
+        self.unsubscribe_all()
+        self._registry.remove_registrations_for(self._plugin_name)
