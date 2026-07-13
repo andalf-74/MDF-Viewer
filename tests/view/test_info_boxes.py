@@ -844,3 +844,32 @@ def test_sbox_no_enum_signal_emitted_when_setting_programmatically(
     sbox.enum_yaxis_requested.connect(emitted.append)
     sbox.set_enum_options(True, False, True)
     assert emitted == []
+
+
+# ---------------------------------------------------------------------------
+# SignalInfoBox.add_plugin_section (#73)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-220")
+def test_add_plugin_section_adds_a_pane(sbox: SignalInfoBox) -> None:
+    from PyQt6.QtWidgets import QWidget
+
+    assert sbox._splitter.count() == 2
+    sbox.add_plugin_section("Exporter", QWidget())
+    assert sbox._splitter.count() == 3
+
+
+def test_add_plugin_section_gives_every_pane_a_nonzero_size(sbox: SignalInfoBox) -> None:
+    from PyQt6.QtWidgets import QWidget
+
+    sbox.add_plugin_section("Exporter", QWidget())
+    assert all(size > 0 for size in sbox._splitter.sizes())
+
+
+def test_add_plugin_section_twice_adds_two_panes(sbox: SignalInfoBox) -> None:
+    from PyQt6.QtWidgets import QWidget
+
+    sbox.add_plugin_section("Exporter", QWidget())
+    sbox.add_plugin_section("Artificial Signals", QWidget())
+    assert sbox._splitter.count() == 4
+    assert all(size > 0 for size in sbox._splitter.sizes())

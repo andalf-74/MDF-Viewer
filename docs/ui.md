@@ -38,6 +38,7 @@
   - New Tab / New Stripe (#115 — moved here from File)
   - Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) — zoom/pan history
   - Sync Measurements — checkable; collapses/restores every loaded measurement's own time axis into one shared ruler (#102); disabled with fewer than 2 measurements loaded
+- **Plugins** (#73) — one entry per plugin-registered menu action, plus one entry per plugin dialog-type dock widget (labeled "\<title\>…", opening it in a modal dialog on demand). Not shown at all when no plugin has registered anything — today's actual state, since the plugin loader (#74) doesn't exist yet and nothing populates this.
 - **Help**
   - Check for Update… (fetches GitHub releases API; shows update dialog or "up to date" dialog)
   - License (Enter / View/Change)
@@ -151,6 +152,7 @@ Right-edge `DockablePanel` (pin-toggle chevron ›, or hover-reveal near the win
 
 - **Info** (read-only) — Name, Unit, Data type, Samples, Raster, Min, Max, Comment, and any other MDF metadata fields present. Shows a placeholder when no/multiple signals are selected.
 - **Properties** (editable, disabled when no signal is selected) — Display mode (Line / Line & Marker / Marker Only), Marker shape, Line width (1–8), Line style (Solid/Dashes/Dots/Dash-Dot), and — only for signals with an enum/value table — which of Value table / Cursor label / Y-axis should show the enum's text labels instead of raw numbers. Editing with 2+ signals selected applies the change to all of them; mismatched values show a blank/"—".
+- **Plugin sections** (#73) — a plugin registering a docked-mode dock widget gets one additional titled section stacked into this same splitter, alongside Info/Properties. None exist today (the plugin loader, #74, doesn't exist yet), so this drawer shows only Info/Properties in practice.
 
 ---
 

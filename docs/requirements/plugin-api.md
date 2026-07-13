@@ -164,3 +164,40 @@ An exception raised by a plugin's `activate()`, `deactivate()`, or any of
 its event handler methods is caught and logged at the point the
 application invokes it, the same as any other plugin callback
 [REQ-PLUGIN-190].
+
+---
+
+## UI Extension Points in MainWindow (#73)
+
+This section makes #71's registration stubs (`register_menu_action`,
+`register_dock_widget`) actually visible in the running application. It
+is built against whatever has been registered by the time the main
+window is constructed — no plugin can currently activate or deactivate
+after that point (#74, the plugin loader, does not exist yet), so nothing
+here needs to react to registrations changing while the app is already
+running [REQ-PLUGIN-200].
+
+### The Plugins menu
+
+Every registered menu action appears as an entry in one dedicated
+"Plugins" menu, positioned between the existing Edit and Help menus
+[REQ-PLUGIN-210]. The Plugins menu is not shown at all when nothing has
+registered a menu action and no dock widget has been registered in
+dialog mode, rather than appearing empty or disabled [REQ-PLUGIN-211].
+
+### Docked widgets
+
+A dock widget registered in docked mode appears as an additional titled
+section in the existing Signal Info/Properties drawer, alongside the
+existing Info and Properties sections, independently resizable the same
+way those two already are [REQ-PLUGIN-220].
+
+### Dialog widgets
+
+A dock widget registered in dialog mode is not shown automatically;
+instead, an entry for it is automatically added to the Plugins menu,
+labeled with its title, so the user can open it on demand — the plugin
+does not need to separately register a menu action just to open its own
+dialog [REQ-PLUGIN-230]. Opening it shows the widget in a modal dialog,
+matching how every other dialog in the application (e.g. Preferences) is
+already shown [REQ-PLUGIN-231].

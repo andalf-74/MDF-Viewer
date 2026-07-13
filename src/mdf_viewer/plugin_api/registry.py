@@ -36,11 +36,14 @@ class MenuActionRegistration:
     label: str
     callback: Callable[[], None]
 
-    def invoke(self) -> None:
+    def invoke(self) -> bool:
+        """Run the plugin's callback. Returns True on success, False if it raised (#73)."""
         try:
             self.callback()
         except Exception:
             logger.exception("Plugin '%s' menu action '%s' failed", self.plugin_name, self.label)
+            return False
+        return True
 
 
 @dataclass(frozen=True)

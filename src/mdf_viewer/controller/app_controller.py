@@ -27,6 +27,7 @@ from mdf_viewer.controller.events import (
 from mdf_viewer.errors import MdfLoadError
 from mdf_viewer.model.loaded_measurement import LoadedMeasurement, make_label
 from mdf_viewer.model.mdf_loader import MdfLoader
+from mdf_viewer.plugin_api.registry import PluginRegistry
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
 
@@ -171,6 +172,9 @@ class AppController:
 
         self._current_config_path: Path | None = None
         self.events = EventBus()
+        # Shared across every future PluginContext (#71/#73) — one instance
+        # per AppController, mirroring self.events' ownership pattern.
+        self.plugin_registry = PluginRegistry()
 
         # Opaque, plugin-facing signal handles (#71) — see token_for_signal().
         # id(active) is only ever used as a transient lookup key while

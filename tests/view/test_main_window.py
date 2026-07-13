@@ -12,10 +12,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pytestqt.qtbot import QtBot
 
-from PyQt6.QtWidgets import QMessageBox
+from PyQt6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from mdf_viewer.controller.app_controller import LoadResult
 from mdf_viewer.errors import MdfLoadError
+from mdf_viewer.plugin_api.registry import PluginRegistry
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.main_window import MainWindow
 from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
@@ -37,7 +38,13 @@ def window(qtbot: QtBot) -> MainWindow:
 
 @pytest.fixture()
 def mock_controller() -> MagicMock:
-    return MagicMock()
+    controller = MagicMock()
+    # A real, empty PluginRegistry (#73) — a bare MagicMock's auto-iteration
+    # (__iter__ defaults to an empty iterator, __bool__ defaults to True)
+    # would silently make `not registry.menu_actions` False, defeating the
+    # "hide the Plugins menu when empty" check in _build_plugins_menu.
+    controller.plugin_registry = PluginRegistry()
+    return controller
 
 
 @pytest.fixture()
@@ -3420,3 +3427,151 @@ def test_load_config_applies_saved_window_geometry(
 
     assert window.width() == 1000
     assert window.height() == 700
+
+
+# ---------------------------------------------------------------------------
+# Plugins menu (#73)
+# ---------------------------------------------------------------------------
+
+def test_no_plugins_menu_when_registry_is_empty(wired: MainWindow) -> None:
+    assert wired._plugins_menu is None
+    assert not any(a.text() == "&Plugins" for a in wired.menuBar().actions())
+
+
+def test_plugins_menu_appears_between_edit_and_help(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import MenuActionRegistration
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_menu_action(MenuActionRegistration("exporter", "Export", lambda: None))
+    controller.plugin_registry = registry
+
+    window.set_controller(controller)
+
+    titles = [a.text() for a in window.menuBar().actions()]
+    assert titles.index("&Edit") < titles.index("&Plugins") < titles.index("&Help")
+
+
+def test_plugins_menu_action_calls_invoke(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import MenuActionRegistration
+
+    calls = []
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_menu_action(MenuActionRegistration("exporter", "Export", lambda: calls.append(1)))
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+
+    window._plugins_menu.actions()[0].trigger()
+
+    assert calls == [1]
+
+
+def test_plugins_menu_action_failure_shows_status_message(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import MenuActionRegistration
+
+    def boom() -> None:
+        raise ValueError("plugin bug")
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_menu_action(MenuActionRegistration("exporter", "Export", boom))
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+
+    window._plugins_menu.actions()[0].trigger()
+
+    assert "Export" in window.statusBar().currentMessage()
+
+
+def test_dialog_mode_dock_widget_gets_menu_action(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import DockWidgetRegistration
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_dock_widget(
+        DockWidgetRegistration("exporter", "Exporter Settings", lambda: QWidget(), "dialog")
+    )
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+
+    assert window._plugins_menu.actions()[0].text() == "Exporter Settings…"
+
+
+def test_dialog_mode_widget_is_built_once_and_cached(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import DockWidgetRegistration
+
+    build_calls = []
+
+    def factory() -> QWidget:
+        build_calls.append(1)
+        return QWidget()
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registration = DockWidgetRegistration("exporter", "Exporter Settings", factory, "dialog")
+    registry.add_dock_widget(registration)
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+
+    with patch.object(QDialog, "exec", return_value=0):
+        window._on_plugin_dialog_action(registration)
+        window._on_plugin_dialog_action(registration)
+
+    assert len(build_calls) == 1
+
+
+def test_dialog_mode_widget_build_failure_does_nothing(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import DockWidgetRegistration
+
+    def boom() -> QWidget:
+        raise ValueError("plugin bug")
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registration = DockWidgetRegistration("exporter", "Exporter Settings", boom, "dialog")
+    registry.add_dock_widget(registration)
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+
+    window._on_plugin_dialog_action(registration)  # must not raise
+
+    assert registration not in window._plugin_dialogs
+
+
+# ---------------------------------------------------------------------------
+# Docked-mode plugin widgets (#73)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-220")
+def test_docked_mode_dock_widget_added_to_signal_info_box(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import DockWidgetRegistration
+
+    before = window.signal_info_box._splitter.count()
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_dock_widget(
+        DockWidgetRegistration("exporter", "Exporter Settings", lambda: QWidget(), "docked")
+    )
+    controller.plugin_registry = registry
+
+    window.set_controller(controller)
+
+    assert window.signal_info_box._splitter.count() == before + 1
+
+
+def test_docked_mode_build_failure_adds_no_section(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import DockWidgetRegistration
+
+    def boom() -> QWidget:
+        raise ValueError("plugin bug")
+
+    before = window.signal_info_box._splitter.count()
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_dock_widget(DockWidgetRegistration("exporter", "Exporter Settings", boom, "docked"))
+    controller.plugin_registry = registry
+
+    window.set_controller(controller)
+
+    assert window.signal_info_box._splitter.count() == before

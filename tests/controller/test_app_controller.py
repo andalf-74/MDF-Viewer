@@ -89,6 +89,15 @@ def test_initially_no_selection(ctrl: AppController) -> None:
     assert ctrl.selected_signal is None
 
 
+@pytest.mark.requirement("REQ-PLUGIN-200")
+def test_plugin_registry_starts_empty(ctrl: AppController) -> None:
+    from mdf_viewer.plugin_api.registry import PluginRegistry
+
+    assert isinstance(ctrl.plugin_registry, PluginRegistry)
+    assert ctrl.plugin_registry.menu_actions == []
+    assert ctrl.plugin_registry.dock_widgets == []
+
+
 # ---------------------------------------------------------------------------
 # load_file
 # ---------------------------------------------------------------------------

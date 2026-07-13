@@ -36,6 +36,7 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
+    QDialog,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -85,6 +86,11 @@ from mdf_viewer.view.workspace_session_controller import WorkspaceSessionControl
 
 if TYPE_CHECKING:
     from mdf_viewer.controller.app_controller import AppController
+    from mdf_viewer.plugin_api.registry import (
+        DockWidgetRegistration,
+        MenuActionRegistration,
+        PluginRegistry,
+    )
 
 _PANEL_W = 260         # left panel default width in pixels
 _INFO_DRAWER_W = 260   # info/properties drawer default width in pixels
@@ -134,6 +140,8 @@ class MainWindow(QMainWindow):
         self._license_manager: LicenseManager | None = None
         self._settings: Settings | None = None
         self._update_thread: _UpdateCheckThread | None = None
+        self._plugins_menu: QMenu | None = None
+        self._plugin_dialogs: dict["DockWidgetRegistration", QDialog] = {}
         self.setWindowTitle("MDF-Viewer — unregistered")
         self.setWindowIcon(QIcon(str(_ICONS_DIR / "app_icon.ico")))
         self.resize(1280, 800)
@@ -211,6 +219,74 @@ class MainWindow(QMainWindow):
         self.signal_info_box.enum_yaxis_requested.connect(
             controller.on_enum_yaxis_requested
         )
+        self._build_plugins_menu(controller.plugin_registry)
+        self._build_plugin_dock_sections(controller.plugin_registry)
+
+    def _build_plugin_dock_sections(self, registry: "PluginRegistry") -> None:
+        """Add every docked-mode plugin widget to the Info/Properties drawer (#73).
+
+        Read once, here in set_controller() — same one-time-snapshot
+        reasoning as _build_plugins_menu (REQ-PLUGIN-200).
+        """
+        for dock_reg in registry.dock_widgets:
+            if dock_reg.mode != "docked":
+                continue
+            widget = dock_reg.build()
+            if widget is None:
+                continue
+            self.signal_info_box.add_plugin_section(dock_reg.title, widget)
+
+    def _build_plugins_menu(self, registry: "PluginRegistry") -> None:
+        """Build the Plugins menu from *registry*'s current contents (#73).
+
+        Read once, here in set_controller() — MainWindow is constructed
+        before AppController exists (see app.py), so this is the earliest
+        point a real PluginRegistry is available. No plugin loader (#74)
+        exists yet to change the registry afterward, so this never needs
+        to run again (REQ-PLUGIN-200). Not shown at all if there's nothing
+        to put in it (REQ-PLUGIN-211).
+        """
+        has_dialog_widget = any(d.mode == "dialog" for d in registry.dock_widgets)
+        if not registry.menu_actions and not has_dialog_widget:
+            return
+
+        self._plugins_menu = QMenu("&Plugins", self)
+        for action_reg in registry.menu_actions:
+            action = QAction(action_reg.label, self)
+            action.triggered.connect(lambda checked, r=action_reg: self._on_plugin_menu_action(r))
+            self._plugins_menu.addAction(action)
+
+        if registry.menu_actions and has_dialog_widget:
+            self._plugins_menu.addSeparator()
+
+        for dock_reg in registry.dock_widgets:
+            if dock_reg.mode != "dialog":
+                continue
+            action = QAction(f"{dock_reg.title}…", self)
+            action.triggered.connect(lambda checked, r=dock_reg: self._on_plugin_dialog_action(r))
+            self._plugins_menu.addAction(action)
+
+        self.menuBar().insertMenu(self._help_menu.menuAction(), self._plugins_menu)
+
+    def _on_plugin_menu_action(self, registration: "MenuActionRegistration") -> None:
+        if not registration.invoke():
+            self.show_status(f"Plugin action '{registration.label}' failed — see log for detail.", 5000)
+
+    def _on_plugin_dialog_action(self, registration: "DockWidgetRegistration") -> None:
+        """Show *registration*'s dialog, building it lazily on first open and
+        reusing the same instance afterward — rebuilding on every open would
+        silently discard whatever plugin-owned state the widget holds (#73)."""
+        dialog = self._plugin_dialogs.get(registration)
+        if dialog is None:
+            widget = registration.build()
+            if widget is None:
+                return
+            dialog = QDialog(self)
+            dialog.setWindowTitle(registration.title)
+            layout = QVBoxLayout(dialog)
+            layout.addWidget(widget)
+            self._plugin_dialogs[registration] = dialog
+        dialog.exec()
 
     def _wire_tab_view(
         self, plot_area: PlotStripesArea, active_signals_table: ActiveSignalsTable

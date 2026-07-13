@@ -334,6 +334,40 @@ class SignalInfoBox(QWidget):
         """Restore the Info/Properties inner splitter's pixel sizes."""
         self._splitter.setSizes(sizes)
 
+    # ------------------------------------------------------------------
+    # Plugin dock widgets (#73)
+    # ------------------------------------------------------------------
+
+    def add_plugin_section(self, title: str, widget: QWidget) -> None:
+        """Add *widget* as another titled section, alongside Info/Properties
+        (REQ-PLUGIN-220) — mirrors their own `[QLabel, content]` construction.
+
+        Recomputes every pane's size/stretch factor afterward: `addWidget()`
+        alone appends with a default (0) stretch factor and no explicit size
+        entry, which — running before this splitter has ever been shown or
+        laid out — tends to squeeze the new pane to a sliver rather than
+        reasonably subdividing the available space. This deliberately
+        flattens Info/Properties' original size bias into an equal split
+        across every pane once a plugin section exists, rather than trying
+        to preserve their original ratio around an arbitrary number of new
+        plugin sections.
+        """
+        section = QWidget()
+        section_layout = QVBoxLayout(section)
+        section_layout.setContentsMargins(0, 0, 0, 0)
+        section_layout.setSpacing(2)
+
+        label = QLabel(title)
+        label.setStyleSheet("font-weight: bold;")
+        section_layout.addWidget(label)
+        section_layout.addWidget(widget)
+
+        self._splitter.addWidget(section)
+        count = self._splitter.count()
+        self._splitter.setSizes([200] * count)
+        for i in range(count):
+            self._splitter.setStretchFactor(i, 1)
+
 
 # ---------------------------------------------------------------------------
 # Row builder
