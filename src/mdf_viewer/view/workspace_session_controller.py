@@ -60,6 +60,11 @@ class WorkspaceSessionController:
         save_config_as: Callable[[], None],
         show_status: Callable[[str, int], None],
         clear_status: Callable[[], None],
+        is_plot_page: Callable[[object], bool],
+        discard_non_plot_page: Callable[[object], None],
+        find_tab_type: Callable[[str], object | None],
+        create_non_plot_tab: Callable[[object, str], int],
+        tab_specs: Callable[[], list[tuple[str, str, object | None]]],
     ) -> None:
         self._parent = parent
         self._tab_widget = tab_widget
@@ -76,6 +81,12 @@ class WorkspaceSessionController:
         self._save_config_as = save_config_as
         self._show_status = show_status
         self._clear_status = clear_status
+        # #148 — pluggable tab types.
+        self._is_plot_page = is_plot_page
+        self._discard_non_plot_page = discard_non_plot_page
+        self._find_tab_type = find_tab_type
+        self._create_non_plot_tab = create_non_plot_tab
+        self._tab_specs = tab_specs
 
     # ------------------------------------------------------------------
     # Save path
@@ -91,6 +102,7 @@ class WorkspaceSessionController:
         try:
             config = controller.capture_config(
                 path, self._tab_names(), self._tab_page_splitter_sizes(),
+                tab_specs=self._tab_specs(), active_tab_bar_index=self._tab_widget.currentIndex(),
             )
             config = dataclasses.replace(
                 config,
@@ -163,8 +175,8 @@ class WorkspaceSessionController:
         return reply == QMessageBox.StandardButton.Yes
 
     def reset_to_single_tab(self) -> None:
-        """Tear down every tab but the first, before a full session
-        restore replaces everything (#106 Phase 0).
+        """Tear down every tab but one, before a full session restore
+        replaces everything (#106 Phase 0; extended #148 for non-plot tabs).
 
         `AppController.remove_tab()` only cleans up controller-side state
         (signals, the `TabWorkspace` itself) — it does not touch the
@@ -172,47 +184,107 @@ class WorkspaceSessionController:
         teardown (view-side `removeTab()` + `deleteLater()`, #120) for
         every tab removed here too; neither half alone is safe.
 
-        Relies on the same invariant `_on_tab_close_requested` already
-        assumes: real tab positions in `_tab_widget` align 1:1 with
-        `AppController._workspaces` indices (the pinned "+" placeholder
-        sits after all of them once any transient drag-reorder settles).
+        Keeps the *first plot page found* (not always index 0 once a
+        non-plot tab can precede it) — guaranteed to exist, since M4's
+        corrected parking decision never lets the last plot page
+        disappear during normal closing. Every other real tab, plot or
+        non-plot, is torn down via its own kind's teardown path. Removed
+        in descending index order so removing a later tab never shifts
+        the identity of an earlier, not-yet-processed one.
         """
         controller = self._get_controller()
         if controller is None:
             return
-        for index in range(controller.tab_count - 1, 0, -1):
+        placeholder_index = self._tab_widget.count() - 1
+        real_indices = list(range(placeholder_index))
+        keep_index = next(
+            (i for i in real_indices if self._is_plot_page(self._tab_widget.widget(i))), None,
+        )
+        for index in reversed(real_indices):
+            if index == keep_index:
+                continue
             page = self._tab_widget.widget(index)
-            self._tab_widget.removeTab(index)
-            page.deleteLater()
-            controller.remove_tab(index)
+            if self._is_plot_page(page):
+                wi = controller.tab_index_for_plot(page.plot_area)
+                self._tab_widget.removeTab(index)
+                page.deleteLater()
+                if wi is not None:
+                    controller.remove_tab(wi)
+            else:
+                self._discard_non_plot_page(page)
+                self._tab_widget.removeTab(index)
+                page.deleteLater()
         if self._tab_widget.currentIndex() != 0:
             self._tab_widget.setCurrentIndex(0)
         controller.remove_all()
 
-    def build_tab_skeletons(self, tab_configs: list) -> None:
+    def build_tab_skeletons(self, tab_configs: list) -> list:
         """Build every saved tab's skeleton — the tab itself (renamed)
-        and its stripe layout (renamed/resized) — with no signals yet
-        (#106 Phase 2).
+        and, for a plot tab, its stripe layout (renamed/resized) — with
+        no signals yet (#106 Phase 2; extended #148 for non-plot tabs).
 
-        Assumes `reset_to_single_tab()` already ran, so exactly one tab
-        exists. Reuses that tab as `tab_configs[0]` (renamed, not
-        recreated) and drives `on_new_tab()`'s own tab-creation factory
-        for each further `TabConfig` — a deliberate simplification (see
-        `docs/architecture.md`): each call fires `switch_tab()` as a side
-        effect and doesn't reconcile `_tab_counter` against restored
-        names, accepted for this rare bulk operation rather than
-        building a separate non-interactive tab-creation path.
+        Processes *tab_configs* as one single ordered pass (plot and
+        non-plot interleaved in saved order, not plot-first-then-non-plot)
+        — REQ-PLUGIN-351's "same relative position" depends on this.
+        Assumes `reset_to_single_tab()` already ran, so exactly one plot
+        tab exists. Reused for the *first* `"plot"` entry found (renamed,
+        not recreated, then relocated to its correct position via
+        `moveTab()` once every other tab has been built); every other
+        `"plot"` entry drives `on_new_tab()`'s own tab-creation factory —
+        a deliberate simplification (see `docs/architecture.md`): each
+        call fires `switch_tab()` as a side effect and doesn't reconcile
+        `_tab_counter` against restored names, accepted for this rare
+        bulk operation rather than building a separate non-interactive
+        tab-creation path. A non-plot entry looks its `view_type` up in
+        the plugin registry and builds it via `create_non_plot_tab()`,
+        titled from the *saved* name (so a user's rename survives); an
+        unregistered type is skipped entirely (REQ-PLUGIN-352). If
+        *tab_configs* has zero `"plot"` entries, the surviving tab is
+        left exactly where it is — an implicit, unsaved extra Plot tab,
+        since `AppController` structurally always keeps >=1 workspace
+        alive — and every entry is simply appended after it.
+
+        Returns `resolved_workspaces: list[TabWorkspace | None]`, one
+        entry per *tab_configs* position — the `TabWorkspace` for a
+        (re)used/created plot tab, `None` for a non-plot or skipped
+        entry — threaded to `AppController.restore_config()` (#148).
         """
         controller = self._get_controller()
         if controller is None or not tab_configs:
-            return
-        for _ in range(len(tab_configs) - 1):
-            self._on_new_tab()
+            return []
+
+        survivor_page = self._tab_widget.widget(0)
+        first_plot_index = next(
+            (i for i, tc in enumerate(tab_configs) if tc.view_type == "plot"), None,
+        )
+        resolved_workspaces: list = [None] * len(tab_configs)
+
         for index, tab_config in enumerate(tab_configs):
-            self._tab_widget.setTabText(index, tab_config.name)
-            page = self._tab_widget.widget(index)
-            self.build_stripe_skeleton(page, tab_config.stripes, tab_config.active_stripe_index)
-            page.setSizes(list(tab_config.page_splitter_sizes))
+            if tab_config.view_type == "plot":
+                if index == first_plot_index:
+                    page = survivor_page
+                else:
+                    page = self._tab_widget.widget(self._on_new_tab())
+                self._tab_widget.setTabText(self._tab_widget.indexOf(page), tab_config.name)
+                self.build_stripe_skeleton(page, tab_config.stripes, tab_config.active_stripe_index)
+                page.setSizes(list(tab_config.page_splitter_sizes))
+                wi = controller.tab_index_for_plot(page.plot_area)
+                if wi is not None:
+                    resolved_workspaces[index] = controller.all_workspaces()[wi]
+            else:
+                registration = self._find_tab_type(tab_config.view_type)
+                if registration is not None:
+                    self._create_non_plot_tab(registration, tab_config.name)
+                # else: unregistered type — skipped (REQ-PLUGIN-352);
+                # resolved_workspaces[index] stays None either way, a
+                # non-plot tab never has a workspace to begin with.
+
+        if first_plot_index is not None:
+            current_survivor_index = self._tab_widget.indexOf(survivor_page)
+            if current_survivor_index != first_plot_index:
+                self._tab_widget.tabBar().moveTab(current_survivor_index, first_plot_index)
+
+        return resolved_workspaces
 
     def build_stripe_skeleton(self, page, stripes: list, active_stripe_index: int) -> None:
         """Build one tab's stripe layout from saved `StripeConfig`s (#106
@@ -373,7 +445,7 @@ class WorkspaceSessionController:
             QMessageBox.critical(self._parent, "Load Error", "No measurements could be loaded.")
             return
 
-        self.build_tab_skeletons(list(config.tabs))
+        resolved_workspaces = self.build_tab_skeletons(list(config.tabs))
 
         resolved_by_tab, not_found = self.resolve_config_signals_for_tabs(
             list(config.tabs), measurements,
@@ -382,10 +454,16 @@ class WorkspaceSessionController:
             SignalsNotFoundDialog(sorted(set(not_found)), self._parent).exec()
 
         controller = self._get_controller()
-        controller.restore_config(config, resolved_by_tab, measurements)
+        controller.restore_config(config, resolved_by_tab, measurements, resolved_workspaces)
 
-        if 0 <= config.active_tab_index < len(config.tabs):
-            self._tab_widget.setCurrentIndex(config.active_tab_index)
+        # build_tab_skeletons() reproduces config.tabs' exact order in the
+        # tab bar *except* in the "zero plot entries" case (#148), where
+        # the surviving implicit extra Plot tab occupies position 0 and
+        # every restored (non-plot) tab is shifted one position later.
+        has_plot_entry = any(ws is not None for ws in resolved_workspaces)
+        target_index = config.active_tab_index + (0 if has_plot_entry else 1)
+        if 0 <= target_index < self._tab_widget.count() - 1:  # -1 excludes the "+" placeholder
+            self._tab_widget.setCurrentIndex(target_index)
 
         finalize(source_path)
 

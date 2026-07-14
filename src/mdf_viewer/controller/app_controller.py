@@ -505,6 +505,19 @@ class AppController:
         self._workspaces = [by_plot[plot_area] for plot_area in plot_areas_in_order]
         self._active_tab_index = self._workspaces.index(active_workspace)
 
+    def tab_index_for_plot(self, plot_area) -> int | None:
+        """Resolve *plot_area* (a PlotAreaProtocol) to its workspace index,
+        or None if it doesn't belong to any current workspace (#148).
+
+        The one translation point MainWindow uses to relate a QTabWidget
+        page back to its AppController workspace — MainWindow may hold
+        pages with no workspace at all (a plugin-registered non-plot tab
+        type), so it can never assume its own tab-bar position lines up
+        with `_workspaces`' index directly. Identity match, not position
+        counting, mirroring `reorder_tabs()`'s own `by_plot` lookup above.
+        """
+        return next((i for i, ws in enumerate(self._workspaces) if ws.plot is plot_area), None)
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -1790,6 +1803,8 @@ class AppController:
         config_path: Path,
         tab_names: "list[str] | None" = None,
         page_splitter_sizes: "list[tuple[int, int]] | None" = None,
+        tab_specs: "list[tuple[str, str, object | None]] | None" = None,
+        active_tab_bar_index: "int | None" = None,
     ) -> "ViewerConfig":
         """Capture the current viewer state as a ViewerConfig — every tab,
         each tab's stripe layout and signal placement, and every loaded
@@ -1804,6 +1819,24 @@ class AppController:
         supplies each tab's plot|AST divider widths (`MainWindow` owns that
         QSplitter too, #106); a missing or too-short entry defaults to
         `TabConfig.page_splitter_sizes`'s own default.
+
+        *tab_specs* (#148) supersedes *tab_names* when given: one
+        (name, view_type, plot_area) triple per MainWindow tab-bar
+        position, in order, `plot_area` None for a non-plot tab. Lets a
+        session containing plugin-registered non-plot tabs capture
+        correctly — every tab, in its real visual position — without
+        `AppController` ever assuming a tab-bar position lines up with a
+        workspace. `page_splitter_sizes` still only applies to `"plot"`
+        entries (consumed by a separate counter that advances only on
+        those, matching what `MainWindow._tab_page_splitter_sizes()`
+        already only collects for plot pages). When *tab_specs* is
+        omitted, every tab is treated as `"plot"`, built from
+        `self._workspaces` directly — today's exact behavior, unchanged.
+        *active_tab_bar_index* is the raw tab-bar position of whichever
+        tab is currently focused — needed because `self._active_tab_index`
+        never changes when a non-plot tab is focused (there is no
+        workspace to make "active"); omitted falls back to
+        `self._active_tab_index`, correct whenever every tab is a plot tab.
         """
         from mdf_viewer.model.viewer_config import MeasurementConfig, ViewerConfig
 
@@ -1814,16 +1847,37 @@ class AppController:
         # every real measurement's saved index (#147).
         real_measurements = [m for m in self._measurements if m.owner_plugin is None]
 
-        tabs = tuple(
-            self._capture_tab(
-                workspace,
-                tab_names[i] if tab_names is not None and i < len(tab_names) else f"Tab {i + 1}",
-                real_measurements,
-                page_splitter_sizes[i]
-                if page_splitter_sizes is not None and i < len(page_splitter_sizes) else None,
+        if tab_specs is not None:
+            tabs_list = []
+            plot_splitter_index = 0
+            for name, view_type, plot_area in tab_specs:
+                workspace = (
+                    next((ws for ws in self._workspaces if ws.plot is plot_area), None)
+                    if plot_area is not None else None
+                )
+                if workspace is not None:
+                    splitter_size = (
+                        page_splitter_sizes[plot_splitter_index]
+                        if page_splitter_sizes is not None
+                        and plot_splitter_index < len(page_splitter_sizes)
+                        else None
+                    )
+                    plot_splitter_index += 1
+                    tabs_list.append(self._capture_tab(workspace, name, real_measurements, splitter_size))
+                else:
+                    tabs_list.append(self._capture_non_plot_tab(name, view_type))
+            tabs = tuple(tabs_list)
+        else:
+            tabs = tuple(
+                self._capture_tab(
+                    workspace,
+                    tab_names[i] if tab_names is not None and i < len(tab_names) else f"Tab {i + 1}",
+                    real_measurements,
+                    page_splitter_sizes[i]
+                    if page_splitter_sizes is not None and i < len(page_splitter_sizes) else None,
+                )
+                for i, workspace in enumerate(self._workspaces)
             )
-            for i, workspace in enumerate(self._workspaces)
-        )
 
         measurements = tuple(
             MeasurementConfig(
@@ -1860,7 +1914,9 @@ class AppController:
             primary_measurement_index=primary_index,
             measurements_synchronized=self._measurements_synchronized,
             tabs=tabs,
-            active_tab_index=self._active_tab_index,
+            active_tab_index=(
+                active_tab_bar_index if active_tab_bar_index is not None else self._active_tab_index
+            ),
             display_name_separator=name_separator,
             display_name_direction=name_direction,
             display_name_segments=name_segments,
@@ -2002,11 +2058,37 @@ class AppController:
             kwargs["page_splitter_sizes"] = page_splitter_sizes
         return TabConfig(**kwargs)
 
+    def _capture_non_plot_tab(self, name: str, view_type: str) -> "TabConfig":
+        """Build a "shell" TabConfig for a non-plot tab (#148) — every
+        plot-specific field explicitly set to its empty value, rather than
+        widening TabConfig's existing required fields with blanket
+        defaults, which would risk silently masking a real plot-tab
+        capture bug that forgets one of them. Content doesn't survive the
+        round-trip in v1 — only existence/name/view_type (REQ-PLUGIN-350).
+        """
+        from mdf_viewer.model.viewer_config import TabConfig
+
+        return TabConfig(
+            name=name,
+            stripes=(),
+            active_stripe_index=0,
+            signals=(),
+            x_range=(0.0, 0.0),
+            y_ranges=(),
+            merged_groups=(),
+            synced_groups=(),
+            cursor_mode="HIDDEN",
+            cursor_positions=(0.0, 0.0),
+            selected_signal=None,
+            view_type=view_type,
+        )
+
     def restore_config(
         self,
         config: "ViewerConfig",
         resolved_by_tab: "dict[int, list[tuple[ActiveSignalSnapshot, int, int] | tuple[ActiveSignalSnapshot, int, int, LoadedMeasurement | None]]]",
         measurements: "list[LoadedMeasurement | None] | None" = None,
+        resolved_workspaces: "list[TabWorkspace | None] | None" = None,
     ) -> None:
         """Restore a saved viewer session's per-tab display state (#106 M6,
         Phase 4) — axis grouping, zoom, cursor, and selection for every
@@ -2033,6 +2115,22 @@ class AppController:
         #106 M6). Defaults to the current `self._measurements` pool, which
         is index-identical to Phase 1's result whenever nothing failed to
         load (the common case, and every pre-#106 test's implicit scope).
+
+        *resolved_workspaces* (#148) is Phase 2's index-aligned
+        `TabWorkspace | None` per `config.tabs` position — `None` for a
+        non-plot tab, or a plot tab whose type wasn't registered/failed to
+        build. When given, this explicit correspondence is used instead of
+        indexing `self._workspaces[tab_index]` directly, which silently
+        misapplies one tab's saved axis-grouping/zoom/cursor/selection
+        state onto an unrelated workspace the instant a non-plot tab
+        precedes a plot one in `config.tabs`. `self._active_tab_index` is
+        set to that workspace's *actual* current position in
+        `self._workspaces` (via identity search) before each tab's state
+        is restored — required because `restore_signals()`/
+        `set_selected_signal()` below implicitly key off
+        `self.current_workspace`, not an explicit workspace argument. When
+        omitted, behaves exactly as before #148 (every `config.tabs`
+        position treated as a workspace index directly).
         """
         from mdf_viewer.view_model.zoom_state import ZoomState
 
@@ -2052,10 +2150,18 @@ class AppController:
             return (name, id(target))
 
         for tab_index, tab_config in enumerate(config.tabs):
-            if not (0 <= tab_index < len(self._workspaces)):
-                continue
-            self._active_tab_index = tab_index
-            current = self._workspaces[tab_index]
+            if resolved_workspaces is not None:
+                current = (
+                    resolved_workspaces[tab_index] if tab_index < len(resolved_workspaces) else None
+                )
+                if current is None:
+                    continue  # non-plot tab, or a plot tab that wasn't recreated
+                self._active_tab_index = self._workspaces.index(current)
+            else:
+                if not (0 <= tab_index < len(self._workspaces)):
+                    continue
+                self._active_tab_index = tab_index
+                current = self._workspaces[tab_index]
             self.restore_signals(resolved_by_tab.get(tab_index, []))
 
             # Restore axis grouping — must happen after signals are added
@@ -2101,7 +2207,19 @@ class AppController:
 
             current.table.set_column_widths(list(tab_config.ast_column_widths))
 
-        if 0 <= config.active_tab_index < len(self._workspaces):
+        if resolved_workspaces is not None:
+            target = (
+                resolved_workspaces[config.active_tab_index]
+                if 0 <= config.active_tab_index < len(resolved_workspaces) else None
+            )
+            if target is not None:
+                self._active_tab_index = self._workspaces.index(target)
+            # else: the saved active tab was itself non-plot or its type
+            # wasn't registered — leave _active_tab_index wherever the
+            # loop above last left it, same "no workspace to point at"
+            # rule _on_tab_changed() already applies for a live non-plot
+            # tab becoming current.
+        elif 0 <= config.active_tab_index < len(self._workspaces):
             self._active_tab_index = config.active_tab_index
 
         # Restore display-name-shortening rule *parameters* used by this

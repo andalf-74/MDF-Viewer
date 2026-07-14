@@ -10,6 +10,7 @@ from mdf_viewer.plugin_api.registry import (
     DockWidgetRegistration,
     MenuActionRegistration,
     PluginRegistry,
+    TabTypeRegistration,
 )
 
 
@@ -61,8 +62,57 @@ def test_remove_registrations_for_only_removes_matching_plugin() -> None:
     registry.add_menu_action(MenuActionRegistration("b", "B action", lambda: None))
     registry.add_dock_widget(DockWidgetRegistration("a", "A dock", lambda: None, "docked"))
     registry.add_dock_widget(DockWidgetRegistration("b", "B dock", lambda: None, "dialog"))
+    registry.add_tab_type(TabTypeRegistration("a", "map_a", "Map A", lambda: None))
+    registry.add_tab_type(TabTypeRegistration("b", "map_b", "Map B", lambda: None))
 
     registry.remove_registrations_for("a")
 
     assert [r.plugin_name for r in registry.menu_actions] == ["b"]
     assert [r.plugin_name for r in registry.dock_widgets] == ["b"]
+    assert [r.plugin_name for r in registry.tab_types] == ["b"]
+
+
+# ---------------------------------------------------------------------------
+# TabTypeRegistration / add_tab_type (#148)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-320")
+def test_add_tab_type_tags_plugin_name() -> None:
+    registry = PluginRegistry()
+    registration = TabTypeRegistration("exporter", "map", "Map View", lambda: None)
+    registry.add_tab_type(registration)
+    assert registry.tab_types == [registration]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-332")
+def test_tab_type_build_swallows_and_logs_exception(caplog: pytest.LogCaptureFixture) -> None:
+    def boom() -> object:
+        raise ValueError("plugin bug")
+
+    registration = TabTypeRegistration("exporter", "map", "Map View", boom)
+    with caplog.at_level(logging.ERROR, logger="mdf_viewer.plugin_api"):
+        result = registration.build()
+    assert result is None
+    assert "exporter" in caplog.text
+
+
+def test_tab_type_build_returns_widget_on_success() -> None:
+    sentinel = object()
+    registration = TabTypeRegistration("exporter", "map", "Map View", lambda: sentinel)
+    assert registration.build() is sentinel
+
+
+def test_add_tab_type_rejects_duplicate_type_id(caplog: pytest.LogCaptureFixture) -> None:
+    registry = PluginRegistry()
+    registry.add_tab_type(TabTypeRegistration("a", "map", "Map A", lambda: None))
+    with caplog.at_level(logging.ERROR, logger="mdf_viewer.plugin_api"):
+        registry.add_tab_type(TabTypeRegistration("b", "map", "Map B", lambda: None))
+    assert [r.plugin_name for r in registry.tab_types] == ["a"]
+    assert "b" in caplog.text
+
+
+def test_add_tab_type_rejects_reserved_plot_id(caplog: pytest.LogCaptureFixture) -> None:
+    registry = PluginRegistry()
+    with caplog.at_level(logging.ERROR, logger="mdf_viewer.plugin_api"):
+        registry.add_tab_type(TabTypeRegistration("a", "plot", "My Plot", lambda: None))
+    assert registry.tab_types == []

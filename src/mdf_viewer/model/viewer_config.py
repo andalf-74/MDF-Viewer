@@ -80,6 +80,13 @@ class TabConfig:
     # REQ-FILE-090 scope, folded in after live-testing surfaced the gap.
     page_splitter_sizes: tuple[int, int] = (500, 260)
     ast_column_widths: tuple[int, ...] = ()
+    # "plot" for a normal Plot tab, or a plugin-registered tab type's
+    # type_id for a non-plot tab (#148, REQ-PLUGIN-350). Defaults "plot" so
+    # a file saved before this field existed loads every tab as Plot
+    # (REQ-FILE-067 forward-compat convention). A non-plot tab's own
+    # fields above are all set to their empty value on capture — its
+    # content doesn't survive the round-trip, only its existence/name/type.
+    view_type: str = "plot"
 
 
 @dataclass(frozen=True)

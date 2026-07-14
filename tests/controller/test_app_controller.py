@@ -3104,6 +3104,168 @@ def test_capture_config_persists_settings_display_name_ignoring_virtual_measurem
     assert config.display_name_separator == "."
 
 
+# ---------------------------------------------------------------------------
+# Pluggable Tab Types — .mvc capture/restore (#148)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-350")
+def test_capture_non_plot_tab_returns_empty_shell_with_view_type(ctrl: AppController) -> None:
+    tab_config = ctrl._capture_non_plot_tab("Fixture Tab", "fixture_tab")
+    assert tab_config.name == "Fixture Tab"
+    assert tab_config.view_type == "fixture_tab"
+    assert tab_config.stripes == ()
+    assert tab_config.signals == ()
+    assert tab_config.active_stripe_index == 0
+    assert tab_config.x_range == (0.0, 0.0)
+    assert tab_config.merged_groups == ()
+    assert tab_config.synced_groups == ()
+    assert tab_config.cursor_mode == "HIDDEN"
+    assert tab_config.selected_signal is None
+
+
+@pytest.mark.requirement("REQ-PLUGIN-350")
+def test_capture_config_with_tab_specs_captures_plot_and_non_plot_tabs(
+    ctrl: AppController, deps: dict, tmp_path
+) -> None:
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    real_plot_area = ctrl.current_workspace.plot
+
+    config = ctrl.capture_config(
+        tmp_path / "session.mvc",
+        tab_specs=[("Tab 1", "plot", real_plot_area), ("Fixture", "fixture_tab", None)],
+    )
+
+    assert len(config.tabs) == 2
+    assert config.tabs[0].name == "Tab 1"
+    assert config.tabs[0].view_type == "plot"
+    assert config.tabs[1].name == "Fixture"
+    assert config.tabs[1].view_type == "fixture_tab"
+    assert config.tabs[1].signals == ()
+
+
+def test_capture_config_with_tab_specs_consumes_splitter_sizes_only_for_plot(
+    ctrl: AppController, deps: dict, tmp_path
+) -> None:
+    """A non-plot tab preceding the plot tab must not shift which
+    page_splitter_sizes entry the plot tab gets (#148, second-round gap)."""
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    real_plot_area = ctrl.current_workspace.plot
+
+    config = ctrl.capture_config(
+        tmp_path / "session.mvc",
+        tab_specs=[("Fixture", "fixture_tab", None), ("Tab 1", "plot", real_plot_area)],
+        page_splitter_sizes=[(999, 111)],  # one entry, for the one plot tab
+    )
+
+    assert config.tabs[1].page_splitter_sizes == (999, 111)
+
+
+def test_capture_config_with_tab_specs_uses_active_tab_bar_index(
+    ctrl: AppController, deps: dict, tmp_path
+) -> None:
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    real_plot_area = ctrl.current_workspace.plot
+
+    config = ctrl.capture_config(
+        tmp_path / "session.mvc",
+        tab_specs=[("Fixture", "fixture_tab", None), ("Tab 1", "plot", real_plot_area)],
+        active_tab_bar_index=0,
+    )
+
+    assert config.active_tab_index == 0
+
+
+def test_capture_config_without_tab_specs_behaves_as_before(
+    ctrl: AppController, deps: dict, tmp_path
+) -> None:
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+
+    assert len(config.tabs) == 1
+    assert config.tabs[0].view_type == "plot"
+
+
+@pytest.mark.requirement("REQ-PLUGIN-351")
+def test_restore_config_with_resolved_workspaces_targets_correct_workspace(
+    ctrl: AppController,
+) -> None:
+    """A non-plot config.tabs entry preceding a plot one must not shift
+    which live workspace gets that plot tab's saved state (#148 — the most
+    serious gap found: the old code indexed self._workspaces[tab_index]
+    directly)."""
+    import dataclasses
+
+    workspace_a = ctrl.current_workspace
+    cursor_a = MagicMock()
+    workspace_a.cursor_ctrl = cursor_a
+    workspace_b = ctrl.create_tab(MagicMock(), MagicMock())
+    cursor_b = MagicMock()
+    workspace_b.cursor_ctrl = cursor_b
+    ctrl.switch_tab(0)
+
+    base = _make_viewer_config(cursor_mode="ONE", cursor_positions=(1.0, 2.0))
+    plot_tab = base.tabs[0]
+    non_plot_tab = dataclasses.replace(plot_tab, name="Fixture", view_type="fixture_tab")
+    config = dataclasses.replace(base, tabs=(non_plot_tab, plot_tab), active_tab_index=1)
+
+    ctrl.restore_config(config, {}, resolved_workspaces=[None, workspace_b])
+
+    cursor_b.restore.assert_called_once_with({"mode": "ONE", "positions": [1.0, 2.0]})
+    cursor_a.restore.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-PLUGIN-351")
+def test_restore_config_resolves_active_tab_index_via_resolved_workspaces(
+    ctrl: AppController,
+) -> None:
+    import dataclasses
+
+    workspace_a = ctrl.current_workspace
+    workspace_b = ctrl.create_tab(MagicMock(), MagicMock())
+    ctrl.switch_tab(0)
+
+    base = _make_viewer_config()
+    plot_tab = base.tabs[0]
+    non_plot_tab = dataclasses.replace(plot_tab, name="Fixture", view_type="fixture_tab")
+    config = dataclasses.replace(base, tabs=(non_plot_tab, plot_tab), active_tab_index=1)
+
+    ctrl.restore_config(config, {}, resolved_workspaces=[None, workspace_b])
+
+    assert ctrl._active_tab_index == ctrl._workspaces.index(workspace_b)
+
+
+def test_restore_config_active_tab_index_pointing_at_non_plot_leaves_active_index_untouched(
+    ctrl: AppController,
+) -> None:
+    import dataclasses
+
+    workspace_b = ctrl.create_tab(MagicMock(), MagicMock())
+    ctrl.switch_tab(1)  # workspace_b active
+
+    base = _make_viewer_config()
+    plot_tab = base.tabs[0]
+    non_plot_tab = dataclasses.replace(plot_tab, name="Fixture", view_type="fixture_tab")
+    # Saved active tab (position 0) was non-plot.
+    config = dataclasses.replace(base, tabs=(non_plot_tab, plot_tab), active_tab_index=0)
+
+    ctrl.restore_config(config, {}, resolved_workspaces=[None, workspace_b])
+
+    assert ctrl._active_tab_index == ctrl._workspaces.index(workspace_b)
+
+
+def test_restore_config_without_resolved_workspaces_behaves_as_before(
+    ctrl: AppController, deps: dict,
+) -> None:
+    config = _make_viewer_config(merged_groups=(("a", "b"),))
+    ctrl.restore_config(config, {})
+    deps["plot"].restore_axis_grouping.assert_called_once()
+
+
 @pytest.mark.requirement("REQ-FILE-090")
 def test_snapshot_active_signals_captures_stripe_name(ctrl: AppController, deps: dict) -> None:
     stripe = MagicMock()
@@ -4610,6 +4772,35 @@ def test_reorder_tabs_active_tab_follows_its_new_position(ctrl: AppController) -
 
     assert ctrl.current_workspace is workspace_a
     assert ctrl._active_tab_index == 1
+
+
+# ---------------------------------------------------------------------------
+# tab_index_for_plot (#148)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-341")
+def test_tab_index_for_plot_finds_matching_workspace(ctrl: AppController) -> None:
+    plot_a = ctrl.current_workspace.plot
+    workspace_b = ctrl.create_tab(MagicMock(), MagicMock())
+    plot_b = workspace_b.plot
+
+    assert ctrl.tab_index_for_plot(plot_a) == 0
+    assert ctrl.tab_index_for_plot(plot_b) == 1
+
+
+def test_tab_index_for_plot_returns_none_for_unknown_plot_area(ctrl: AppController) -> None:
+    assert ctrl.tab_index_for_plot(MagicMock()) is None
+
+
+def test_tab_index_for_plot_reflects_reordering(ctrl: AppController) -> None:
+    plot_a = ctrl.current_workspace.plot
+    workspace_b = ctrl.create_tab(MagicMock(), MagicMock())
+    plot_b = workspace_b.plot
+
+    ctrl.reorder_tabs([plot_b, plot_a])
+
+    assert ctrl.tab_index_for_plot(plot_b) == 0
+    assert ctrl.tab_index_for_plot(plot_a) == 1
 
 
 # ---------------------------------------------------------------------------

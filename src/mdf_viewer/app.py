@@ -218,7 +218,12 @@ def run(argv: list[str]) -> int:
     plugin_loader = PluginLoader(
         app=controller,
         plugins_dir=resolve_plugins_dir(settings),
-        tab_name_provider=lambda i: window._tab_names()[i],
+        # PluginContext._tab_name(index) is only ever called with a
+        # workspace index (all_workspaces() enumeration) — _plot_tab_names()
+        # filters out non-plot tabs to match that index space, unlike
+        # _tab_names() (all tab-bar positions), which .mvc capture uses
+        # separately (#148).
+        tab_name_provider=lambda i: window._plot_tab_names()[i],
     )
     plugin_loader.load_all()
 

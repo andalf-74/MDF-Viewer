@@ -70,7 +70,10 @@ def test_plugin_is_discovered_and_activated_by_the_real_loader(
     loader = PluginLoader(app=ctrl, plugins_dir=REPO_PLUGINS_DIR)
     result = loader.load_all()
 
-    assert result.loaded == ["Signal Statistics"]
+    # Not an exact-list assertion: REPO_PLUGINS_DIR also holds other
+    # committed plugins (e.g. #148's tab_type_fixture) that load alongside
+    # this one.
+    assert "Signal Statistics" in result.loaded
     assert result.failed == []
 
     loader.deactivate_all()

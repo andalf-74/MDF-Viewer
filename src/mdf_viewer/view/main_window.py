@@ -33,7 +33,7 @@ from PyQt6.QtCore import (
     QUrl,
     pyqtSignal,
 )
-from PyQt6.QtGui import QAction, QDesktopServices, QIcon, QKeySequence, QShortcut
+from PyQt6.QtGui import QAction, QCursor, QDesktopServices, QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -90,6 +90,7 @@ if TYPE_CHECKING:
         DockWidgetRegistration,
         MenuActionRegistration,
         PluginRegistry,
+        TabTypeRegistration,
     )
 
 _PANEL_W = 260         # left panel default width in pixels
@@ -142,6 +143,15 @@ class MainWindow(QMainWindow):
         self._update_thread: _UpdateCheckThread | None = None
         self._plugins_menu: QMenu | None = None
         self._plugin_dialogs: dict["DockWidgetRegistration", QDialog] = {}
+        # Populated once from set_controller() (#148, same static-snapshot
+        # timing as _build_plugins_menu/_build_plugin_dock_sections).
+        self._tab_types: list["TabTypeRegistration"] = []
+        # A page's presence here is the one place MainWindow distinguishes
+        # a non-plot tab from a plot tab (which instead carries
+        # .plot_area/.active_signals_table attributes, set by
+        # _make_tab_page()) — AppController stays entirely unaware either
+        # kind exists.
+        self._tab_type_by_page: dict[QWidget, "TabTypeRegistration"] = {}
         self.setWindowTitle("MDF-Viewer — unregistered")
         self.setWindowIcon(QIcon(str(_ICONS_DIR / "app_icon.ico")))
         self.resize(1280, 800)
@@ -178,6 +188,14 @@ class MainWindow(QMainWindow):
             save_config_as=lambda: self._on_save_config_as(),
             show_status=lambda msg, ms: self.show_status(msg, ms),
             clear_status=lambda: self.statusBar().clearMessage(),
+            # #148 — pluggable tab types.
+            is_plot_page=lambda page: self._is_plot_page(page),
+            discard_non_plot_page=lambda page: self._discard_non_plot_page(page),
+            find_tab_type=lambda type_id: self._find_tab_type(type_id),
+            create_non_plot_tab=lambda registration, title: self._create_non_plot_tab(
+                registration, title
+            ),
+            tab_specs=lambda: self._capture_tab_specs(),
         )
 
     # ------------------------------------------------------------------
@@ -221,6 +239,7 @@ class MainWindow(QMainWindow):
         )
         self._build_plugins_menu(controller.plugin_registry)
         self._build_plugin_dock_sections(controller.plugin_registry)
+        self._tab_types = list(controller.plugin_registry.tab_types)
 
     def _build_plugin_dock_sections(self, registry: "PluginRegistry") -> None:
         """Add every docked-mode plugin widget to the Info/Properties drawer (#73).
@@ -443,7 +462,7 @@ class MainWindow(QMainWindow):
         self._apply_config_action.triggered.connect(self._on_apply_config)
 
         self._new_tab_action = QAction("New Tab", self)
-        self._new_tab_action.triggered.connect(self._on_new_tab)
+        self._new_tab_action.triggered.connect(self._on_new_tab_requested)
 
         self._new_stripe_action = QAction("New Stripe", self)
         self._new_stripe_action.triggered.connect(self._on_new_stripe)
@@ -713,7 +732,7 @@ class MainWindow(QMainWindow):
         label = QLabel("No tabs open")
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         new_tab_button = QPushButton("New Tab")
-        new_tab_button.clicked.connect(self._on_new_tab)
+        new_tab_button.clicked.connect(self._on_new_tab_requested)
         layout.addWidget(label)
         layout.addWidget(new_tab_button)
         return placeholder
@@ -730,13 +749,120 @@ class MainWindow(QMainWindow):
         return self._tab_widget.count() - 1
 
     def _all_active_signals_tables(self) -> list[ActiveSignalsTable]:
-        """Every real tab's Active Signals Table, for preferences that apply globally."""
+        """Every real *plot* tab's Active Signals Table, for preferences
+        that apply globally — a non-plot tab's page has no such attribute
+        (#148)."""
         placeholder_index = self._placeholder_index()
         return [
             self._tab_widget.widget(i).active_signals_table
             for i in range(self._tab_widget.count())
-            if i != placeholder_index
+            if i != placeholder_index and self._is_plot_page(self._tab_widget.widget(i))
         ]
+
+    def _is_plot_page(self, page: QWidget) -> bool:
+        """Whether *page* is a Plot tab's page (carries .plot_area/
+        .active_signals_table) rather than a plugin-registered non-plot
+        tab's widget (#148)."""
+        return page not in self._tab_type_by_page
+
+    def _plot_page_count(self) -> int:
+        """Count of real Plot tab pages only, excluding the "+" placeholder
+        and any non-plot tab (#148) — used for the tab-close parking
+        decision, a different question from `_real_tab_count()`'s "any
+        real tab at all," so kept as its own helper rather than reused."""
+        placeholder_index = self._placeholder_index()
+        return sum(
+            1
+            for i in range(self._tab_widget.count())
+            if i != placeholder_index and self._is_plot_page(self._tab_widget.widget(i))
+        )
+
+    def _available_tab_types(self) -> list["TabTypeRegistration"]:
+        return self._tab_types
+
+    def _find_tab_type(self, type_id: str) -> "TabTypeRegistration | None":
+        return next((t for t in self._tab_types if t.type_id == type_id), None)
+
+    def _discard_non_plot_page(self, page: QWidget) -> None:
+        self._tab_type_by_page.pop(page, None)
+
+    def _capture_tab_specs(self) -> list[tuple[str, str, object | None]]:
+        """One (name, view_type, plot_area) triple per real tab, in
+        tab-bar order — what `AppController.capture_config()`'s
+        *tab_specs* needs to capture a session containing non-plot tabs
+        correctly (#148)."""
+        placeholder_index = self._placeholder_index()
+        specs: list[tuple[str, str, object | None]] = []
+        for i in range(self._tab_widget.count()):
+            if i == placeholder_index:
+                continue
+            page = self._tab_widget.widget(i)
+            name = self._tab_widget.tabText(i)
+            if self._is_plot_page(page):
+                specs.append((name, "plot", page.plot_area))
+            else:
+                registration = self._tab_type_by_page[page]
+                specs.append((name, registration.type_id, None))
+        return specs
+
+    def _plot_tab_names(self) -> list[str]:
+        """Every real *plot* tab's current title, in workspace order (#148)
+        — the plugin-facing tab_name_provider (app.py) needs this instead
+        of `_tab_names()`, since `PluginContext._tab_name(index)` is only
+        ever called with a workspace index, never a raw tab-bar position
+        that might include non-plot tabs."""
+        placeholder_index = self._placeholder_index()
+        return [
+            self._tab_widget.tabText(i)
+            for i in range(self._tab_widget.count())
+            if i != placeholder_index and self._is_plot_page(self._tab_widget.widget(i))
+        ]
+
+    def _on_new_tab_requested(self) -> None:
+        """Entry point for all three "New Tab" triggers — the Edit menu
+        action, the empty-state placeholder button, and the pinned "+" tab
+        (#148). With no plugin-registered tab type available, behaves
+        exactly like `_on_new_tab()` always has (REQ-PLUGIN-330 — no UX
+        change). Otherwise offers a popup choice among Plot and every
+        registered type (REQ-PLUGIN-331); dismissing it creates nothing.
+        """
+        types = self._available_tab_types()
+        if not types:
+            self._on_new_tab()
+            return
+        menu = QMenu(self)
+        plot_action = menu.addAction("Plot")
+        type_actions = {menu.addAction(reg.display_name): reg for reg in types}
+        chosen = menu.exec(QCursor.pos())
+        if chosen is None:
+            return
+        if chosen is plot_action:
+            self._on_new_tab()
+            return
+        registration = type_actions.get(chosen)
+        if registration is not None:
+            self._create_non_plot_tab(registration)
+
+    def _create_non_plot_tab(
+        self, registration: "TabTypeRegistration", title: str | None = None
+    ) -> int:
+        """Build and insert one tab instance of a plugin-registered non-plot
+        type (#148). *title* overrides the default `registration.display_name`
+        — used when restoring a `.mvc` session, so a user's rename survives
+        the round-trip. Returns the new tab's index, or -1 if the plugin's
+        factory failed (already logged by `TabTypeRegistration.build()`,
+        REQ-PLUGIN-332) — no tab is created in that case.
+        """
+        widget = registration.build()
+        if widget is None:
+            return -1
+        self._tab_type_by_page[widget] = registration
+        index = self._placeholder_index()  # insert right before the "+" tab
+        self._tab_widget.insertTab(index, widget, title or registration.display_name)
+        self._tab_widget.setCurrentIndex(index)
+        if self._content_stack.currentWidget() is not self._tab_widget:
+            self._content_stack.setCurrentWidget(self._tab_widget)
+        return index
 
     def _on_new_tab(self) -> int:
         """Create a new tab: a fresh plot area + Active Signals Table pair (#99).
@@ -789,6 +915,7 @@ class MainWindow(QMainWindow):
         already appended right after it; the controller resync is skipped
         in that case because nothing needs resyncing.
         """
+        source_page = self._tab_widget.widget(source_index)
         source_name = self._tab_widget.tabText(source_index)
         new_index = self._on_new_tab()
         dest_index = source_index + 1
@@ -796,7 +923,15 @@ class MainWindow(QMainWindow):
             self._tab_widget.tabBar().moveTab(new_index, dest_index)
         self._tab_widget.setTabText(dest_index, "Copy of " + source_name)
         if self._controller is not None:
-            self._controller.copy_signals_to_new_tab(source_index, dest_index)
+            # Both indices translated to workspace space (#148) — raw
+            # tab-bar positions, which is what source_index/dest_index are,
+            # no longer line up with AppController._workspaces the moment a
+            # non-plot tab sits anywhere at or before either position.
+            dest_page = self._tab_widget.widget(dest_index)
+            source_wi = self._controller.tab_index_for_plot(source_page.plot_area)
+            dest_wi = self._controller.tab_index_for_plot(dest_page.plot_area)
+            if source_wi is not None and dest_wi is not None:
+                self._controller.copy_signals_to_new_tab(source_wi, dest_wi)
 
     def _on_duplicate_tab(self, source_index: int) -> None:
         """Full copy of the tab at *source_index*: stripe layout, signals,
@@ -833,11 +968,24 @@ class MainWindow(QMainWindow):
         )
 
         if self._controller is not None:
-            self._controller.duplicate_tab_signals(source_index, dest_index)
+            # Both indices translated to workspace space — see the
+            # identical comment in _on_copy_signals_to_new_tab() (#148).
+            source_wi = self._controller.tab_index_for_plot(source_page.plot_area)
+            dest_wi = self._controller.tab_index_for_plot(dest_page.plot_area)
+            if source_wi is not None and dest_wi is not None:
+                self._controller.duplicate_tab_signals(source_wi, dest_wi)
 
     def _on_tab_changed(self, index: int) -> None:
-        if self._controller is not None and index >= 0 and not self._is_placeholder(index):
-            self._controller.switch_tab(index)
+        if self._controller is None or index < 0 or self._is_placeholder(index):
+            return
+        page = self._tab_widget.widget(index)
+        if not self._is_plot_page(page):
+            # No workspace to switch to — AppController's active-tab
+            # concept is left exactly where it was (#148).
+            return
+        wi = self._controller.tab_index_for_plot(page.plot_area)
+        if wi is not None:
+            self._controller.switch_tab(wi)
 
     def _on_tab_bar_clicked(self, index: int) -> None:
         """Clicking the "+" tab creates a new tab instead of selecting it.
@@ -848,7 +996,7 @@ class MainWindow(QMainWindow):
         NOT auto-create a replacement tab (REQ-PLOT-254).
         """
         if index >= 0 and self._is_placeholder(index):
-            self._on_new_tab()
+            self._on_new_tab_requested()
 
     def _on_tab_bar_tab_moved(self, from_index: int, to_index: int) -> None:
         """Keep the "+" tab pinned last after a drag reorder, then resync the
@@ -865,63 +1013,82 @@ class MainWindow(QMainWindow):
             tab_bar.moveTab(placeholder_index, last)
             return
         if self._controller is not None:
+            # Plot pages only (#148) — reorder_tabs() only cares about
+            # plot tabs' relative order among themselves, and a non-plot
+            # page has no .plot_area to read.
             pages = [
                 self._tab_widget.widget(i)
                 for i in range(self._tab_widget.count())
-                if i != placeholder_index
+                if i != placeholder_index and self._is_plot_page(self._tab_widget.widget(i))
             ]
             self._controller.reorder_tabs([page.plot_area for page in pages])
 
     def _on_tab_close_requested(self, index: int) -> None:
         """Close the tab at *index* (REQ-PLOT-251/252/253).
 
-        Warns before closing a tab that still has active signals, mirroring
-        the stripe-deletion warning (_on_delete_stripe_requested,
-        REQ-PLOT-194). Activates the tab immediately to the left afterward,
-        or the next remaining tab if the closed one was first — QTabBar's
-        default post-removal current index picks the opposite neighbor
-        (SelectRightTab), so the new index is computed explicitly before
-        removal rather than relied on.
+        Warns before closing a *plot* tab that still has active signals,
+        mirroring the stripe-deletion warning (_on_delete_stripe_requested,
+        REQ-PLOT-194) — a non-plot tab has no such concept and never warns
+        (#148, REQ-PLUGIN-342). Activates the tab immediately to the left
+        afterward, or the next remaining tab if the closed one was first —
+        QTabBar's default post-removal current index picks the opposite
+        neighbor (SelectRightTab), so the new index is computed explicitly
+        before removal rather than relied on.
         """
         if self._is_placeholder(index):
             return
-        has_signals = (
-            self._controller is not None and self._controller.tab_has_signals(index)
-        )
-        if has_signals:
-            reply = QMessageBox.question(
-                self,
-                "Close Tab",
-                "This tab still has signals in it. Close anyway?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Cancel,
-            )
-            if reply != QMessageBox.StandardButton.Yes:
-                return
-
-        new_index = max(0, index - 1)
-        # removeTab() only detaches the page from the tab bar — it does not
-        # delete the widget (Qt's own docs say so explicitly). Without an
-        # explicit deleteLater() here, the closed tab's whole PlotStripesArea
-        # (every stripe, curve, ViewBox, axis) and ActiveSignalsTable leak for
-        # the rest of the app session, never destroyed (#120).
-        #
-        # Exception: closing the very last real tab. AppController.remove_tab()
-        # deliberately keeps that one TabWorkspace alive (current_workspace
-        # must never be empty) instead of dropping it, so deleteLater()-ing
-        # its widgets here would leave the controller holding a reference to
-        # already-destroyed Qt objects — the next thing that touched it
-        # crashed with "wrapped C/C++ object ... has been deleted" (#130).
-        # Park it instead so _on_new_tab() can reuse the very same widgets.
-        was_last_real_tab = self._real_tab_count() == 1
         page = self._tab_widget.widget(index)
-        self._tab_widget.removeTab(index)
-        if was_last_real_tab:
-            self._parked_page = page
-        else:
+        new_index = max(0, index - 1)
+
+        if not self._is_plot_page(page):
+            # No workspace, no confirmation, no parking concept — just gone.
+            self._tab_type_by_page.pop(page, None)
+            self._tab_widget.removeTab(index)
             page.deleteLater()
-        if self._controller is not None:
-            self._controller.remove_tab(index)
+        else:
+            wi = self._controller.tab_index_for_plot(page.plot_area) if self._controller else None
+            has_signals = (
+                self._controller is not None and wi is not None
+                and self._controller.tab_has_signals(wi)
+            )
+            if has_signals:
+                reply = QMessageBox.question(
+                    self,
+                    "Close Tab",
+                    "This tab still has signals in it. Close anyway?",
+                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                    QMessageBox.StandardButton.Cancel,
+                )
+                if reply != QMessageBox.StandardButton.Yes:
+                    return
+
+            # removeTab() only detaches the page from the tab bar — it does
+            # not delete the widget (Qt's own docs say so explicitly).
+            # Without an explicit deleteLater() here, the closed tab's
+            # whole PlotStripesArea (every stripe, curve, ViewBox, axis)
+            # and ActiveSignalsTable leak for the rest of the app session,
+            # never destroyed (#120).
+            #
+            # Exception: closing the last *plot* tab (#148 — not "the last
+            # real tab of any kind," which would park a plot page even
+            # though a non-plot tab is still open, or worse, fail to park
+            # one when it's actually needed). AppController.remove_tab()
+            # deliberately keeps that one TabWorkspace alive
+            # (current_workspace must never be empty) instead of dropping
+            # it, so deleteLater()-ing its widgets here would leave the
+            # controller holding a reference to already-destroyed Qt
+            # objects — the next thing that touched it crashed with
+            # "wrapped C/C++ object ... has been deleted" (#130). Park it
+            # instead so _on_new_tab() can reuse the very same widgets.
+            was_last_plot_tab = self._plot_page_count() == 1
+            self._tab_widget.removeTab(index)
+            if was_last_plot_tab:
+                self._parked_page = page
+            else:
+                page.deleteLater()
+            if self._controller is not None and wi is not None:
+                self._controller.remove_tab(wi)
+
         if self._real_tab_count() == 0:
             self._content_stack.setCurrentWidget(self._empty_tabs_placeholder)
         else:
@@ -955,13 +1122,20 @@ class MainWindow(QMainWindow):
         index = tab_bar.tabAt(pos)
         if index < 0 or self._is_placeholder(index):
             return
+        page = self._tab_widget.widget(index)
+        is_plot = self._is_plot_page(page)
         menu = QMenu(self)
         rename_action = menu.addAction("Rename")
         duplicate_action = menu.addAction("Duplicate Tab")
+        # Neither action applies to a non-plot tab — no stripe/signal
+        # state to duplicate or copy from (#148, REQ-PLUGIN-341).
+        duplicate_action.setEnabled(is_plot)
         copy_signals_action = menu.addAction("Copy Signals to new Tab")
-        copy_signals_action.setEnabled(
-            self._controller is not None and self._controller.tab_has_signals(index)
-        )
+        if is_plot and self._controller is not None:
+            wi = self._controller.tab_index_for_plot(page.plot_area)
+            copy_signals_action.setEnabled(wi is not None and self._controller.tab_has_signals(wi))
+        else:
+            copy_signals_action.setEnabled(False)
         close_action = menu.addAction("Close")
         action = menu.exec(tab_bar.mapToGlobal(pos))
         if action is rename_action:
@@ -1808,14 +1982,17 @@ class MainWindow(QMainWindow):
         ]
 
     def _tab_page_splitter_sizes(self) -> list[tuple[int, int]]:
-        """Every real tab's plot|AST divider widths, in workspace order
-        (#106) — `AppController` has no access to these QSplitters
-        (`MainWindow` owns the tab pages), same reasoning as `_tab_names()`."""
+        """Every real *plot* tab's plot|AST divider widths, in workspace
+        order (#106) — `AppController` has no access to these QSplitters
+        (`MainWindow` owns the tab pages), same reasoning as
+        `_plot_tab_names()`. Plot-only (#148) — a non-plot page has no
+        `.sizes()` (it isn't a QSplitter), and `capture_config()` consumes
+        this list in plot-only order to match, never raw tab-bar order."""
         placeholder_index = self._placeholder_index()
         return [
             tuple(self._tab_widget.widget(i).sizes())
             for i in range(self._tab_widget.count())
-            if i != placeholder_index
+            if i != placeholder_index and self._is_plot_page(self._tab_widget.widget(i))
         ]
 
     def _save_config_to(self, path: Path) -> None:

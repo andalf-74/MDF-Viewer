@@ -125,6 +125,7 @@ class ConfigManager:
             "selection": ConfigManager._ref_to_dict(t.selected_signal) if t.selected_signal else None,
             "page_splitter_sizes": list(t.page_splitter_sizes),
             "ast_column_widths": list(t.ast_column_widths),
+            "view_type": t.view_type,
         }
 
     @staticmethod
@@ -293,6 +294,7 @@ class ConfigManager:
             else (500, 260)
         )
         ast_column_widths = tuple(int(w) for w in t.get("ast_column_widths", []))
+        view_type = str(t.get("view_type", "plot"))
 
         return TabConfig(
             name=str(t.get("name", "Tab 1")),
@@ -308,6 +310,7 @@ class ConfigManager:
             selected_signal=selected_signal,
             page_splitter_sizes=page_splitter_sizes,
             ast_column_widths=ast_column_widths,
+            view_type=view_type,
         )
 
     @staticmethod

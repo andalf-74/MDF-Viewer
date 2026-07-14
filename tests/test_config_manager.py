@@ -89,6 +89,44 @@ def _make_config(measurement_path: str = "/data/test.mf4", **kwargs) -> ViewerCo
 # Round-trip
 # ---------------------------------------------------------------------------
 
+@pytest.mark.requirement("REQ-PLUGIN-350")
+def test_round_trip_view_type(tmp_path: Path) -> None:
+    config = _make_config(tabs=(_make_tab(view_type="map_view"),))
+    path = tmp_path / "session.mvc"
+    ConfigManager.save(config, path)
+    loaded = ConfigManager.load(path)
+
+    assert loaded.tabs[0].view_type == "map_view"
+
+
+@pytest.mark.requirement("REQ-PLUGIN-350")
+def test_load_tab_with_no_view_type_key_defaults_to_plot(tmp_path: Path) -> None:
+    """A .mvc saved before #148 has no "view_type" key at all — every tab
+    loads as Plot (REQ-FILE-067 forward-compat convention)."""
+    path = tmp_path / "old.mvc"
+    path.write_text(json.dumps({
+        "format_version": CONFIG_FORMAT_VERSION,
+        "measurements": [{"path": "/data/test.mf4", "label": "M1", "offset_s": 0.0}],
+        "primary_measurement_index": 0,
+        "measurements_synchronized": False,
+        "active_tab_index": 0,
+        "tabs": [{
+            "name": "Tab 1",
+            "stripes": [{"name": "Stripe 1", "size": 1}],
+            "active_stripe_index": 0,
+            "signals": [],
+            "zoom": {"x_range": [0.0, 1.0], "y_ranges": []},
+            "axes": {"merged": [], "synced": []},
+            "cursors": {"mode": "HIDDEN", "positions": [0.0, 0.0]},
+            "selection": None,
+        }],
+    }), encoding="utf-8")
+
+    loaded = ConfigManager.load(path)
+
+    assert loaded.tabs[0].view_type == "plot"
+
+
 @pytest.mark.requirement("REQ-FILE-060")
 def test_save_creates_file(tmp_path: Path) -> None:
     config = _make_config()

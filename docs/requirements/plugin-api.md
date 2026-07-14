@@ -316,3 +316,69 @@ event handler or a registered menu action's callback (REQ-PLUGIN-150),
 which are logged and swallowed silently, a failed signal resolution has an
 existing, established user-facing error path this reuses rather than
 duplicating [REQ-PLUGIN-310].
+
+---
+
+## Pluggable Tab Types (#148)
+
+Extends #73's UI extension points: today every tab is a Plot tab (plot
+stripes + Active Signals Table). This lets a plugin register a tab
+*type* — a template a user can create any number of independent tabs
+from — rather than only a fixed dock widget or menu action. First real
+consumer tracked separately in
+[#118](https://github.com/andalf-74/MDF-Viewer/issues/118) (OpenStreetMap
+View), which depends on this landing first.
+
+**Out of scope here:** a non-plot tab's own internal content survives a
+save to a `.mvc` workspace file and is handed back on restore (deferred to
+a future issue, matching how #147 deferred full virtual-measurement
+serialization) — v1 restores a *fresh, empty* instance of the tab's type
+when the owning plugin is still present, nothing more.
+
+### Registration
+
+A plugin can register a tab type through its context, supplying a stable
+type identifier, a display name, and a factory the application invokes to
+build one tab instance [REQ-PLUGIN-320]. Registration is only valid during
+`activate()`, rendered as a static snapshot the same way menu actions and
+dock widgets already are (REQ-PLUGIN-200) — no live add/remove while the
+application is already running [REQ-PLUGIN-321]. The factory is invoked
+fresh every time a new tab of that type is created, never reused across
+tabs, so any number of independent tabs of the same type can be open at
+once [REQ-PLUGIN-322].
+
+### Tab creation
+
+With no plugin-registered tab type present, creating a new tab behaves
+exactly as it always has, with no visible change [REQ-PLUGIN-330]. Once at
+least one plugin-registered tab type exists (two or more types in total,
+counting the built-in Plot type), every entry point that creates a new tab
+offers a choice among all registered types before creating one
+[REQ-PLUGIN-331]. An exception raised while building a tab's content is
+caught and logged at the point the application invokes the factory, the
+same as any other plugin callback (REQ-PLUGIN-150) — no tab is created for
+that attempt, and the application keeps running [REQ-PLUGIN-332].
+
+### Non-plot tab scope
+
+A non-plot tab's content reads application state solely through the
+existing read surface (active signals, measurements, cursor positions) and
+event subscriptions already available through the plugin's context — no
+additional read surface is added for it [REQ-PLUGIN-340]. Duplicate Tab and
+Copy Signals to New Tab remain available only for Plot tabs — neither
+applies to a non-plot tab [REQ-PLUGIN-341]. Closing a non-plot tab always
+proceeds without the "still has active signals" confirmation Plot-tab
+closing shows, since active signals are not a concept a non-plot tab has
+[REQ-PLUGIN-342].
+
+### Workspace persistence
+
+Which tab type each tab is is included when a workspace is saved to a
+`.mvc` file [REQ-PLUGIN-350]. Restoring a workspace recreates a non-plot
+tab, via a fresh call to its registered type's factory, in the same
+relative position among the session's other tabs, whenever a plugin is
+still registered for that saved type at restore time [REQ-PLUGIN-351]. A
+saved tab whose type is not registered at restore time is skipped, with
+the rest of the saved session still restoring around it, consistent with
+how a measurement that fails to load is already handled during restore
+[REQ-PLUGIN-352].

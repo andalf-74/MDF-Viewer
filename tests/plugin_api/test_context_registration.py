@@ -78,6 +78,17 @@ def test_register_dock_widget_tags_plugin_name(
     assert registry.dock_widgets[0].mode == "dialog"
 
 
+@pytest.mark.requirement("REQ-PLUGIN-320")
+def test_register_tab_type_tags_plugin_name(
+    context: PluginContext, registry: PluginRegistry
+) -> None:
+    context.register_tab_type("map", "Map View", lambda: MagicMock())
+    assert len(registry.tab_types) == 1
+    assert registry.tab_types[0].plugin_name == "exporter"
+    assert registry.tab_types[0].type_id == "map"
+    assert registry.tab_types[0].display_name == "Map View"
+
+
 # ---------------------------------------------------------------------------
 # subscribe / unsubscribe_all (REQ-PLUGIN-140/150)
 # ---------------------------------------------------------------------------
@@ -236,11 +247,13 @@ def test_teardown_unsubscribes_and_removes_registrations(
     context.subscribe("signal_removed", received.append)
     context.register_menu_action("Export", lambda: None)
     context.register_dock_widget("Settings", lambda: MagicMock(), mode="dialog")
+    context.register_tab_type("map", "Map View", lambda: MagicMock())
 
     context._teardown()
 
     assert registry.menu_actions == []
     assert registry.dock_widgets == []
+    assert registry.tab_types == []
     ctrl.events.signal_removed.emit(SignalRemovedEvent(signal=MagicMock()))
     assert received == []
 

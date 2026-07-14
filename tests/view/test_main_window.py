@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from mdf_viewer.controller.app_controller import LoadResult
 from mdf_viewer.errors import MdfLoadError
-from mdf_viewer.plugin_api.registry import PluginRegistry
+from mdf_viewer.plugin_api.registry import PluginRegistry, TabTypeRegistration
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.main_window import MainWindow
 from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
@@ -47,9 +47,29 @@ def mock_controller() -> MagicMock:
     return controller
 
 
+def _plot_index(window: MainWindow, plot_area) -> int | None:
+    """Test double for AppController.tab_index_for_plot()'s identity search
+    (#148) — mock_controller has no real _workspaces to search, so this
+    mirrors it against window's own plot pages instead. For every existing
+    (pre-#148) test, every real tab is a plot tab, so this returns the same
+    value the raw tab-bar index already would — existing assertions like
+    `remove_tab.assert_called_once_with(0)` keep passing unchanged."""
+    placeholder_index = window._placeholder_index()
+    plot_pages = [
+        window._tab_widget.widget(i)
+        for i in range(window._tab_widget.count())
+        if i != placeholder_index and window._is_plot_page(window._tab_widget.widget(i))
+    ]
+    for idx, page in enumerate(plot_pages):
+        if page.plot_area is plot_area:
+            return idx
+    return None
+
+
 @pytest.fixture()
 def wired(window: MainWindow, mock_controller: MagicMock) -> MainWindow:
     window.set_controller(mock_controller)
+    mock_controller.tab_index_for_plot.side_effect = lambda plot_area: _plot_index(window, plot_area)
     return window
 
 
@@ -222,6 +242,244 @@ def test_new_tab_after_closing_last_tab_reuses_the_parked_page(
     wired._on_new_tab()
     assert wired._tab_widget.widget(0) is parked_page
     assert wired._parked_page is None
+
+
+# ---------------------------------------------------------------------------
+# Pluggable Tab Types (#148)
+# ---------------------------------------------------------------------------
+
+def _make_registration(type_id: str = "fixture", display_name: str = "Fixture Tab") -> TabTypeRegistration:
+    return TabTypeRegistration(
+        plugin_name="test_plugin", type_id=type_id, display_name=display_name,
+        view_factory=lambda: QWidget(),
+    )
+
+
+@pytest.mark.requirement("REQ-PLUGIN-330")
+def test_new_tab_requested_behaves_like_new_tab_with_no_registered_types(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired._on_new_tab_requested()
+    assert wired._real_tab_count() == 2
+    assert wired._is_plot_page(wired._tab_widget.widget(1))
+
+
+def test_new_tab_requested_offers_a_choice_once_a_type_is_registered(
+    wired: MainWindow,
+) -> None:
+    wired._tab_types = [_make_registration()]
+    patch_add, patch_exec = _select_menu_action_by_text("Fixture Tab")
+    with patch_add, patch_exec:
+        wired._on_new_tab_requested()
+    assert wired._real_tab_count() == 2
+    new_page = wired._tab_widget.widget(1)
+    assert not wired._is_plot_page(new_page)
+    assert wired._tab_widget.tabText(1) == "Fixture Tab"
+
+
+@pytest.mark.requirement("REQ-PLUGIN-331")
+def test_new_tab_requested_plot_choice_creates_a_plot_tab(wired: MainWindow) -> None:
+    wired._tab_types = [_make_registration()]
+    patch_add, patch_exec = _select_menu_action_by_text("Plot")
+    with patch_add, patch_exec:
+        wired._on_new_tab_requested()
+    assert wired._is_plot_page(wired._tab_widget.widget(1))
+
+
+def test_new_tab_requested_dismissed_menu_creates_nothing(wired: MainWindow) -> None:
+    wired._tab_types = [_make_registration()]
+    with patch("PyQt6.QtWidgets.QMenu.exec", return_value=None):
+        wired._on_new_tab_requested()
+    assert wired._real_tab_count() == 1
+
+
+@pytest.mark.requirement("REQ-PLUGIN-332")
+def test_create_non_plot_tab_failed_factory_creates_nothing(wired: MainWindow) -> None:
+    registration = TabTypeRegistration(
+        plugin_name="p", type_id="broken", display_name="Broken",
+        view_factory=lambda: (_ for _ in ()).throw(ValueError("boom")),
+    )
+    index = wired._create_non_plot_tab(registration)
+    assert index == -1
+    assert wired._real_tab_count() == 1
+
+
+def test_non_plot_tab_is_renamable(wired: MainWindow) -> None:
+    registration = _make_registration()
+    wired._create_non_plot_tab(registration)
+    with patch("PyQt6.QtWidgets.QInputDialog.getText", return_value=("Renamed", True)):
+        wired._on_tab_bar_double_clicked(1)
+    assert wired._tab_widget.tabText(1) == "Renamed"
+
+
+@pytest.mark.requirement("REQ-PLUGIN-341")
+def test_switching_to_non_plot_tab_does_not_call_switch_tab(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired._create_non_plot_tab(_make_registration())
+    mock_controller.switch_tab.reset_mock()
+    wired._tab_widget.setCurrentIndex(1)
+    mock_controller.switch_tab.assert_not_called()
+
+
+def test_switching_back_to_plot_tab_after_non_plot_uses_translated_index(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired._on_new_tab()  # Tab 2 (plot), index 1
+    wired._create_non_plot_tab(_make_registration())  # index 2
+    mock_controller.switch_tab.reset_mock()
+    wired._tab_widget.setCurrentIndex(0)  # Tab 1, workspace index 0
+    mock_controller.switch_tab.assert_called_with(0)
+    wired._tab_widget.setCurrentIndex(1)  # Tab 2 (plot), workspace index 1
+    mock_controller.switch_tab.assert_called_with(1)
+
+
+@pytest.mark.requirement("REQ-PLUGIN-342")
+def test_closing_non_plot_tab_shows_no_confirmation(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired._create_non_plot_tab(_make_registration())
+    with patch("PyQt6.QtWidgets.QMessageBox.question") as mock_question:
+        wired._on_tab_close_requested(1)
+    mock_question.assert_not_called()
+    assert wired._real_tab_count() == 1
+
+
+def test_closing_non_plot_tab_never_calls_remove_tab(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired._create_non_plot_tab(_make_registration())
+    mock_controller.remove_tab.reset_mock()
+    wired._on_tab_close_requested(1)
+    mock_controller.remove_tab.assert_not_called()
+
+
+def test_closing_non_plot_tab_removes_it_from_tab_type_by_page(wired: MainWindow) -> None:
+    wired._create_non_plot_tab(_make_registration())
+    page = wired._tab_widget.widget(1)
+    wired._on_tab_close_requested(1)
+    assert page not in wired._tab_type_by_page
+
+
+def test_closing_last_plot_tab_still_parks_with_a_non_plot_tab_open(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """#130 regression guard: closing the only plot tab must park it even
+    though a non-plot tab keeps _real_tab_count() above 1 (#148)."""
+    mock_controller.tab_has_signals.return_value = False
+    wired._create_non_plot_tab(_make_registration())  # index 1
+    plot_page = wired._tab_widget.widget(0)
+    with patch.object(plot_page, "deleteLater") as mock_delete_later:
+        wired._on_tab_close_requested(0)
+    mock_delete_later.assert_not_called()
+    assert wired._parked_page is plot_page
+
+
+def test_empty_placeholder_shown_only_when_all_real_tabs_gone(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.tab_has_signals.return_value = False
+    wired._create_non_plot_tab(_make_registration())  # index 1
+    wired._on_tab_close_requested(0)  # close the only plot tab
+    assert wired._content_stack.currentWidget() is wired._tab_widget
+    wired._on_tab_close_requested(0)  # close the remaining non-plot tab
+    assert wired._content_stack.currentWidget() is wired._empty_tabs_placeholder
+
+
+def test_context_menu_disables_duplicate_and_copy_for_non_plot_tab(
+    wired: MainWindow,
+) -> None:
+    wired._create_non_plot_tab(_make_registration())
+    from PyQt6.QtWidgets import QMenu
+    captured: dict[str, object] = {}
+    orig_add_action = QMenu.addAction
+
+    def _tracking_add_action(self, text):
+        action = orig_add_action(self, text)
+        captured[text] = action
+        return action
+
+    tab_bar = wired._tab_widget.tabBar()
+    pos = tab_bar.tabRect(1).center()
+    with patch.object(QMenu, "addAction", _tracking_add_action), \
+         patch.object(QMenu, "exec", return_value=None):
+        wired._on_tab_context_menu(pos)
+    assert captured["Duplicate Tab"].isEnabled() is False
+    assert captured["Copy Signals to new Tab"].isEnabled() is False
+
+
+def test_copy_signals_to_new_tab_translates_indices_around_a_non_plot_tab(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """A non-plot tab between two plot tabs must not shift the workspace
+    indices passed to the controller (#148)."""
+    mock_controller.tab_has_signals.return_value = True
+    wired._create_non_plot_tab(_make_registration())  # tab-bar index 1
+    wired._on_new_tab()  # Tab 2 (plot), tab-bar index 2, workspace index 1
+
+    wired._on_copy_signals_to_new_tab(0)  # source is Tab 1, workspace index 0
+
+    mock_controller.copy_signals_to_new_tab.assert_called_once_with(0, 1)
+
+
+def test_duplicate_tab_translates_indices_around_a_non_plot_tab(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.tab_has_signals.return_value = True
+    wired._create_non_plot_tab(_make_registration())  # tab-bar index 1
+    wired._on_new_tab()  # Tab 2 (plot), tab-bar index 2, workspace index 1
+
+    wired._on_duplicate_tab(0)  # source is Tab 1, workspace index 0
+
+    mock_controller.duplicate_tab_signals.assert_called_once_with(0, 1)
+
+
+def test_all_active_signals_tables_skips_non_plot_tabs(wired: MainWindow) -> None:
+    wired._create_non_plot_tab(_make_registration())
+    tables = wired._all_active_signals_tables()
+    assert len(tables) == 1
+    assert tables[0] is wired.active_signals_table
+
+
+def test_tab_page_splitter_sizes_skips_non_plot_tabs(wired: MainWindow) -> None:
+    wired._create_non_plot_tab(_make_registration())
+    sizes = wired._tab_page_splitter_sizes()
+    assert len(sizes) == 1
+
+
+def test_plot_tab_names_excludes_non_plot_tabs(wired: MainWindow) -> None:
+    wired._create_non_plot_tab(_make_registration())
+    wired._on_new_tab()
+    assert wired._plot_tab_names() == ["Tab 1", "Tab 2"]
+
+
+def test_tab_names_includes_non_plot_tabs(wired: MainWindow) -> None:
+    wired._create_non_plot_tab(_make_registration())
+    assert wired._tab_names() == ["Tab 1", "Fixture Tab"]
+
+
+def test_drag_reorder_skips_non_plot_tabs(wired: MainWindow, mock_controller: MagicMock) -> None:
+    wired._create_non_plot_tab(_make_registration())
+    wired._on_new_tab()  # Tab 2 (plot)
+    mock_controller.reorder_tabs.reset_mock()
+
+    wired._on_tab_bar_tab_moved(0, 0)  # placeholder already last; triggers resync
+
+    called_plot_areas = mock_controller.reorder_tabs.call_args[0][0]
+    assert len(called_plot_areas) == 2  # only the 2 plot pages, non-plot excluded
+
+
+def test_cycle_tab_includes_non_plot_tabs_without_crashing(wired: MainWindow) -> None:
+    wired._create_non_plot_tab(_make_registration())
+    wired._on_new_tab()  # Tab 2 (plot)
+    wired._tab_widget.setCurrentIndex(0)
+
+    wired._cycle_tab(1)  # -> non-plot tab
+    assert wired._tab_widget.currentIndex() == 1
+    wired._cycle_tab(1)  # -> Tab 2
+    assert wired._tab_widget.currentIndex() == 2
+    wired._cycle_tab(1)  # wraps back to Tab 1
+    assert wired._tab_widget.currentIndex() == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1728,15 +1986,15 @@ def test_apply_config_skips_mapping_dialog_when_no_measurement_slots(
     ), patch(
         "mdf_viewer.view.measurement_mapping_dialog.MeasurementMappingDialog.__init__",
     ) as mock_dlg_init, patch.object(
-        wired, "_reset_to_single_tab"
+        wired._session, "reset_to_single_tab"
     ), patch.object(
-        wired, "_build_tab_skeletons"
+        wired._session, "build_tab_skeletons", return_value=[],
     ), patch.object(
         wired, "_on_save_config_as"
     ):
         wired._on_apply_config()
     mock_dlg_init.assert_not_called()
-    mock_controller.restore_config.assert_called_once_with(config, {}, [])
+    mock_controller.restore_config.assert_called_once_with(config, {}, [], [])
 
 
 @pytest.mark.requirement("REQ-FILE-117")
@@ -3302,6 +3560,106 @@ def _minimal_config(**overrides):
         else:
             top_fields[key] = value
     return ViewerConfig(tabs=(TabConfig(**tab_fields),), **top_fields)
+
+
+# ---------------------------------------------------------------------------
+# WorkspaceSessionController — Phase 0/2 for non-plot tabs (#148)
+# ---------------------------------------------------------------------------
+
+def _make_view_type_tab_config(name: str, view_type: str = "plot"):
+    from mdf_viewer.model.viewer_config import StripeConfig, TabConfig
+    return TabConfig(
+        name=name, stripes=(StripeConfig(name="Stripe 1", size=1),), active_stripe_index=0,
+        signals=(), x_range=(0.0, 1.0), y_ranges=(), merged_groups=(), synced_groups=(),
+        cursor_mode="HIDDEN", cursor_positions=(0.0, 0.0), selected_signal=None,
+        view_type=view_type,
+    )
+
+
+def test_reset_to_single_tab_removes_non_plot_tabs(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired._create_non_plot_tab(_make_registration("fixture", "Fixture"))
+    wired._create_non_plot_tab(_make_registration("fixture2", "Fixture 2"))
+    assert wired._real_tab_count() == 3
+
+    wired._session.reset_to_single_tab()
+
+    assert wired._real_tab_count() == 1
+    assert wired._is_plot_page(wired._tab_widget.widget(0))
+    assert wired._tab_type_by_page == {}
+
+
+def test_reset_to_single_tab_keeps_first_plot_page_when_earlier_tabs_are_non_plot(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """The survivor must be found by kind, not assumed at index 0 (#148 —
+    the original code's invariant, broken the moment a non-plot tab can
+    precede the one real plot tab)."""
+    original_plot_page = wired._tab_widget.widget(0)
+    # Reorder so a non-plot tab ends up first in the bar.
+    fixture_index = wired._create_non_plot_tab(_make_registration())
+    wired._tab_widget.tabBar().moveTab(fixture_index, 0)
+    assert not wired._is_plot_page(wired._tab_widget.widget(0))
+
+    wired._session.reset_to_single_tab()
+
+    assert wired._real_tab_count() == 1
+    assert wired._tab_widget.widget(0) is original_plot_page
+
+
+@pytest.mark.requirement("REQ-PLUGIN-351")
+def test_build_tab_skeletons_preserves_saved_tab_order_with_mixed_types(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    workspace_sentinel = object()
+    mock_controller.all_workspaces.return_value = [workspace_sentinel]
+    wired._tab_types = [_make_registration("fixture", "Fixture Tab")]
+    tab_configs = [
+        _make_view_type_tab_config("Fixture", "fixture"),
+        _make_view_type_tab_config("Plot Tab", "plot"),
+    ]
+
+    resolved = wired._session.build_tab_skeletons(tab_configs)
+
+    names = [wired._tab_widget.tabText(i) for i in range(wired._real_tab_count())]
+    assert names == ["Fixture", "Plot Tab"]
+    assert not wired._is_plot_page(wired._tab_widget.widget(0))
+    assert wired._is_plot_page(wired._tab_widget.widget(1))
+    assert resolved == [None, workspace_sentinel]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-352")
+def test_build_tab_skeletons_skips_unregistered_type(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    workspace_sentinel = object()
+    mock_controller.all_workspaces.return_value = [workspace_sentinel]
+    wired._tab_types = []  # nothing registered
+    tab_configs = [
+        _make_view_type_tab_config("Unknown", "some_unregistered_type"),
+        _make_view_type_tab_config("Plot Tab", "plot"),
+    ]
+
+    resolved = wired._session.build_tab_skeletons(tab_configs)
+
+    assert wired._real_tab_count() == 1  # only the plot tab was created
+    assert resolved == [None, workspace_sentinel]
+
+
+def test_build_tab_skeletons_with_zero_plot_entries_keeps_survivor_as_implicit_extra(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    survivor_page = wired._tab_widget.widget(0)
+    wired._tab_types = [_make_registration("fixture", "Fixture Tab")]
+    tab_configs = [_make_view_type_tab_config("Fixture A", "fixture"), _make_view_type_tab_config("Fixture B", "fixture")]
+
+    resolved = wired._session.build_tab_skeletons(tab_configs)
+
+    assert resolved == [None, None]
+    assert wired._real_tab_count() == 3  # implicit survivor + 2 restored
+    assert wired._tab_widget.widget(0) is survivor_page
+    assert [wired._tab_widget.tabText(i) for i in range(1, 3)] == ["Fixture A", "Fixture B"]
 
 
 @pytest.mark.requirement("REQ-FILE-061")

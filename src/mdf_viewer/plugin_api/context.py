@@ -18,7 +18,12 @@ import numpy as np
 from mdf_viewer.enums import CursorMode
 from mdf_viewer.model.virtual_measurement_loader import VirtualMeasurementLoader
 from mdf_viewer.model.virtual_signal import VirtualSignal
-from mdf_viewer.plugin_api.registry import DockWidgetMode, DockWidgetRegistration, MenuActionRegistration
+from mdf_viewer.plugin_api.registry import (
+    DockWidgetMode,
+    DockWidgetRegistration,
+    MenuActionRegistration,
+    TabTypeRegistration,
+)
 from mdf_viewer.plugin_api.types import (
     PluginCursorMovedEvent,
     PluginFileLoadedEvent,
@@ -195,6 +200,24 @@ class PluginContext:
         self._registry.add_dock_widget(
             DockWidgetRegistration(
                 plugin_name=self._plugin_name, title=title, widget_factory=widget_factory, mode=mode,
+            )
+        )
+
+    def register_tab_type(
+        self, type_id: str, display_name: str, view_factory: "Callable[[], QWidget]",
+    ) -> None:
+        """Register a tab type — a template a user can create any number of
+        independent tab instances from (#148), unlike register_dock_widget's
+        single cached instance. *type_id* must be globally unique (rejected,
+        logged, if it collides with another plugin's or the reserved
+        built-in "plot" type). Recorded in the shared PluginRegistry; not
+        rendered into the real UI until MainWindow's tab-creation code
+        reads it.
+        """
+        self._registry.add_tab_type(
+            TabTypeRegistration(
+                plugin_name=self._plugin_name, type_id=type_id, display_name=display_name,
+                view_factory=view_factory,
             )
         )
 
