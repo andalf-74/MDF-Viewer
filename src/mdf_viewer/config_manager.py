@@ -163,7 +163,13 @@ class ConfigManager:
                     )
                     for m in data.get("measurements", [])
                 )
-                primary_measurement_index = int(data.get("primary_measurement_index", 0))
+                # None is a valid saved value (#147) — no real measurement
+                # was Primary at save time. int(None) would raise, so only
+                # coerce when a real index was actually saved.
+                raw_primary_index = data.get("primary_measurement_index", 0)
+                primary_measurement_index = (
+                    int(raw_primary_index) if raw_primary_index is not None else None
+                )
                 measurements_synchronized = bool(data.get("measurements_synchronized", False))
                 active_tab_index = int(data.get("active_tab_index", 0))
             else:

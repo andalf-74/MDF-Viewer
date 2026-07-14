@@ -1411,7 +1411,7 @@ def test_replace_measurement_menu_disabled_with_no_measurements(
 def test_replace_measurement_menu_lists_every_measurement_by_short_name(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
-    m1, m2 = MagicMock(label="M1"), MagicMock(label="M2")
+    m1, m2 = MagicMock(label="M1", owner_plugin=None), MagicMock(label="M2", owner_plugin=None)
     mock_controller.measurements = [m1, m2]
     wired._file_menu.aboutToShow.emit()
     assert wired._replace_measurement_menu.isEnabled() is True
@@ -1423,9 +1423,11 @@ def test_replace_measurement_menu_lists_every_measurement_by_short_name(
 def test_replace_measurement_menu_rebuilt_on_each_show(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
-    mock_controller.measurements = [MagicMock(label="M1")]
+    mock_controller.measurements = [MagicMock(label="M1", owner_plugin=None)]
     wired._file_menu.aboutToShow.emit()
-    mock_controller.measurements = [MagicMock(label="M1"), MagicMock(label="M2")]
+    mock_controller.measurements = [
+        MagicMock(label="M1", owner_plugin=None), MagicMock(label="M2", owner_plugin=None),
+    ]
     wired._file_menu.aboutToShow.emit()
     assert len(wired._replace_measurement_menu.actions()) == 2
 
@@ -1434,12 +1436,33 @@ def test_replace_measurement_menu_rebuilt_on_each_show(
 def test_replace_measurement_menu_entry_invokes_replace_flow(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
-    m1 = MagicMock(label="M1")
+    m1 = MagicMock(label="M1", owner_plugin=None)
     mock_controller.measurements = [m1]
     wired._file_menu.aboutToShow.emit()
     with patch.object(wired, "_replace_single_measurement") as mock_replace:
         wired._replace_measurement_menu.actions()[0].trigger()
     mock_replace.assert_called_once_with(m1)
+
+
+@pytest.mark.requirement("REQ-VMEAS-440")
+def test_replace_measurement_menu_excludes_virtual_measurements(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    real = MagicMock(label="M1", owner_plugin=None)
+    virtual = MagicMock(label="Virtual", owner_plugin="p")
+    mock_controller.measurements = [real, virtual]
+    wired._file_menu.aboutToShow.emit()
+    actions = wired._replace_measurement_menu.actions()
+    assert [a.text() for a in actions] == ["M1"]
+
+
+@pytest.mark.requirement("REQ-VMEAS-440")
+def test_replace_measurement_menu_disabled_when_only_virtual_measurements(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.measurements = [MagicMock(label="Virtual", owner_plugin="p")]
+    wired._file_menu.aboutToShow.emit()
+    assert wired._replace_measurement_menu.isEnabled() is False
 
 
 @pytest.mark.requirement("REQ-FILE-102")

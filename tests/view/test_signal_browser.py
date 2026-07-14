@@ -69,7 +69,7 @@ def browser(qtbot: QtBot) -> SignalBrowser:
 
 @pytest.fixture()
 def populated_browser(browser: SignalBrowser, sample_groups) -> SignalBrowser:
-    browser.populate_all([("M1", sample_groups)])
+    browser.populate_all([("M1", sample_groups, False)])
     return browser
 
 
@@ -147,6 +147,36 @@ def test_single_measurement_has_no_prefix(populated_browser: SignalBrowser) -> N
     assert not any(t.startswith("[") for t in texts)
 
 
+@pytest.mark.requirement("REQ-VMEAS-210")
+def test_virtual_measurement_channel_is_marked_even_with_single_measurement(
+    browser: SignalBrowser, sample_groups,
+) -> None:
+    """A lone virtual measurement gets no [label] prefix (single-measurement
+    rule), but must still be marked — otherwise it's indistinguishable from
+    a real one with no other measurement loaded for contrast."""
+    browser.populate_all([("M1", sample_groups, True)])
+    texts = [browser._model.item(r).text() for r in range(browser._model.rowCount())]
+    assert all(t.startswith("(virtual)") for t in texts)
+
+
+@pytest.mark.requirement("REQ-VMEAS-210")
+def test_real_measurement_channel_is_not_marked(populated_browser: SignalBrowser) -> None:
+    texts = [populated_browser._model.item(r).text() for r in range(populated_browser._model.rowCount())]
+    assert not any(t.startswith("(virtual)") for t in texts)
+
+
+@pytest.mark.requirement("REQ-VMEAS-210")
+def test_virtual_measurement_channel_marked_alongside_real_measurement(
+    browser: SignalBrowser, sample_groups, other_groups,
+) -> None:
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, True)])
+    texts = [browser._model.item(r).text() for r in range(browser._model.rowCount())]
+    real_texts = [t for t in texts if t.startswith("[M1]")]
+    virtual_texts = [t for t in texts if t.startswith("[M2]")]
+    assert real_texts and not any("(virtual)" in t for t in real_texts)
+    assert virtual_texts and all("(virtual)" in t for t in virtual_texts)
+
+
 def test_channel_label_includes_unit(populated_browser: SignalBrowser) -> None:
     texts = [populated_browser._model.item(r).text() for r in range(populated_browser._model.rowCount())]
     assert "sin [V]" in texts
@@ -175,7 +205,7 @@ def test_add_button_disabled_after_populate(populated_browser: SignalBrowser) ->
 def test_populate_all_replaces_previous_content(
     browser: SignalBrowser, sample_groups
 ) -> None:
-    browser.populate_all([("M1", sample_groups)])
+    browser.populate_all([("M1", sample_groups, False)])
     tiny = [
         ChannelGroupInfo(
             name="Solo",
@@ -183,16 +213,16 @@ def test_populate_all_replaces_previous_content(
             channels=(_make_metadata("x", "", 0, 0),),
         )
     ]
-    browser.populate_all([("M1", tiny)])
+    browser.populate_all([("M1", tiny, False)])
     assert browser._model.rowCount() == 1
     assert browser._model.item(0).text() == "x"
 
 
 @pytest.mark.requirement("REQ-BROWSER-012")
 def test_populate_all_clears_filter(browser: SignalBrowser, sample_groups) -> None:
-    browser.populate_all([("M1", sample_groups)])
+    browser.populate_all([("M1", sample_groups, False)])
     browser._filter_edit.setText("sin")
-    browser.populate_all([("M1", sample_groups)])
+    browser.populate_all([("M1", sample_groups, False)])
     assert browser._filter_edit.text() == ""
 
 
@@ -445,7 +475,7 @@ def test_no_prefix_and_no_filter_with_one_measurement(populated_browser: SignalB
 def test_two_measurements_prefixes_every_row(
     browser: SignalBrowser, sample_groups, other_groups
 ) -> None:
-    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
     texts = [browser._model.item(r).text() for r in range(browser._model.rowCount())]
     assert "[M1] sin [V]" in texts
     assert "[M2] sin [V]" in texts
@@ -456,7 +486,7 @@ def test_two_measurements_prefixes_every_row(
 def test_measurement_filter_combo_shown_only_with_multiple(
     browser: SignalBrowser, sample_groups, other_groups
 ) -> None:
-    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
     assert browser._measurement_filter_combo.isHidden() is False
     assert browser._measurement_filter_combo.count() == 3  # "All", M1, M2
     assert browser._measurement_filter_combo.itemText(0) == "All"
@@ -470,7 +500,7 @@ def test_sort_groups_identically_named_channels_from_different_measurements(
 ) -> None:
     """Sorting is keyed on the bare channel name, not the prefix, so
     "[M1] sin" and "[M2] sin" land adjacent despite the prefix ordering."""
-    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
     texts = [_row_text(browser, r) for r in range(browser._proxy.rowCount())]
     sin_positions = [i for i, t in enumerate(texts) if "sin" in t]
     assert sin_positions == [sin_positions[0], sin_positions[0] + 1]
@@ -482,7 +512,7 @@ def test_sort_groups_identically_named_channels_from_different_measurements(
 def test_measurement_filter_narrows_to_one_measurement(
     browser: SignalBrowser, sample_groups, other_groups
 ) -> None:
-    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
     browser._measurement_filter_combo.setCurrentIndex(2)  # M2
     texts = [_row_text(browser, r) for r in range(browser._proxy.rowCount())]
     assert texts == ["[M2] sin [V]", "[M2] torque [Nm]"]
@@ -492,7 +522,7 @@ def test_measurement_filter_narrows_to_one_measurement(
 def test_measurement_filter_defaults_to_all(
     browser: SignalBrowser, sample_groups, other_groups
 ) -> None:
-    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
     assert browser._measurement_filter_combo.currentIndex() == 0
     assert browser._proxy.rowCount() == 7  # 5 + 2
 
@@ -501,7 +531,7 @@ def test_measurement_filter_defaults_to_all(
 def test_text_filter_and_measurement_filter_compose(
     browser: SignalBrowser, sample_groups, other_groups
 ) -> None:
-    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
     browser._measurement_filter_combo.setCurrentIndex(1)  # M1 only
     browser._filter_edit.setText("sin")
     browser._apply_filter()
@@ -513,10 +543,10 @@ def test_text_filter_and_measurement_filter_compose(
 def test_repopulate_preserves_measurement_filter_by_label(
     browser: SignalBrowser, sample_groups, other_groups
 ) -> None:
-    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
     browser._measurement_filter_combo.setCurrentIndex(2)  # M2
 
-    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
 
     assert browser._measurement_filter_combo.currentIndex() == 2
     texts = [_row_text(browser, r) for r in range(browser._proxy.rowCount())]
@@ -527,11 +557,11 @@ def test_repopulate_preserves_measurement_filter_by_label(
 def test_repopulate_resets_filter_to_all_when_filtered_measurement_gone(
     browser: SignalBrowser, sample_groups, other_groups
 ) -> None:
-    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
     browser._measurement_filter_combo.setCurrentIndex(2)  # M2
 
     # M2 closed — only M1 remains.
-    browser.populate_all([("M1", sample_groups)])
+    browser.populate_all([("M1", sample_groups, False)])
 
     assert browser._measurement_filter_combo.currentIndex() == 0
     assert browser._proxy.rowCount() == 5
@@ -540,7 +570,7 @@ def test_repopulate_resets_filter_to_all_when_filtered_measurement_gone(
 def test_clear_hides_measurement_filter(
     browser: SignalBrowser, sample_groups, other_groups
 ) -> None:
-    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
     browser.clear()
     assert browser._measurement_filter_combo.isHidden() is True
 
@@ -549,7 +579,7 @@ def test_clear_hides_measurement_filter(
 def test_add_signals_requested_carries_each_rows_own_measurement(
     browser: SignalBrowser, sample_groups, other_groups, qtbot: QtBot
 ) -> None:
-    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
     torque_item = _item_by_text(browser, "[M2] torque [Nm]")
     with qtbot.waitSignal(browser.add_signals_requested, timeout=500) as blocker:
         browser._tree.doubleClicked.emit(_px(browser, torque_item))
@@ -564,7 +594,7 @@ def test_add_signals_requested_can_span_measurements(
     measurements (#103) — confirmed with the user for the mixed-measurement
     drag case; the same underlying _selected_locations() feeds both drag
     and the Add Signal button."""
-    browser.populate_all([("M1", sample_groups), ("M2", other_groups)])
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
     sm = browser._tree.selectionModel()
     m1_sin = _px(browser, _item_by_text(browser, "[M1] sin [V]"))
     m2_torque = _px(browser, _item_by_text(browser, "[M2] torque [Nm]"))

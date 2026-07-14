@@ -284,6 +284,53 @@ def test_mbox_every_tab_has_its_own_replace_and_close_buttons(
 
 
 # ---------------------------------------------------------------------------
+# MeasurementInfoBox – virtual measurement badge/guard (#147)
+# ---------------------------------------------------------------------------
+
+def _make_virtual_measurement(label: str = "Virtual") -> LoadedMeasurement:
+    from mdf_viewer.model.virtual_measurement_loader import VirtualMeasurementLoader
+
+    return LoadedMeasurement(
+        loader=VirtualMeasurementLoader(owner_plugin="p"),
+        info=MeasurementInfo(file_name=""),
+        label=label,
+        owner_plugin="p",
+    )
+
+
+@pytest.mark.requirement("REQ-VMEAS-210")
+def test_mbox_virtual_measurement_shows_badge(mbox: MeasurementInfoBox) -> None:
+    # isHidden() reflects the widget's own explicit visibility flag,
+    # independent of whether the top-level window itself is shown, which
+    # this test fixture never does (same reasoning as PlotStripe's own
+    # sync-button visibility tests).
+    m = _make_virtual_measurement()
+    mbox.set_measurements([m], None)
+    assert _page(mbox)._virtual_label.isHidden() is False
+
+
+@pytest.mark.requirement("REQ-VMEAS-210")
+def test_mbox_real_measurement_hides_badge(mbox: MeasurementInfoBox) -> None:
+    m = _make_measurement("M1")
+    mbox.set_measurements([m], m)
+    assert _page(mbox)._virtual_label.isHidden() is True
+
+
+@pytest.mark.requirement("REQ-VMEAS-440")
+def test_mbox_virtual_measurement_disables_replace_button(mbox: MeasurementInfoBox) -> None:
+    m = _make_virtual_measurement()
+    mbox.set_measurements([m], None)
+    assert not _page(mbox).replace_button.isEnabled()
+
+
+@pytest.mark.requirement("REQ-VMEAS-440")
+def test_mbox_real_measurement_keeps_replace_button_enabled(mbox: MeasurementInfoBox) -> None:
+    m = _make_measurement("M1")
+    mbox.set_measurements([m], m)
+    assert _page(mbox).replace_button.isEnabled()
+
+
+# ---------------------------------------------------------------------------
 # MeasurementInfoBox – multiple measurements, tab teardown (#103, #120)
 # ---------------------------------------------------------------------------
 

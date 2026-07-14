@@ -71,3 +71,19 @@ def test_measurement_view_is_frozen() -> None:
     view = PluginMeasurementView.from_measurement(_make_measurement(), is_primary=False)
     with pytest.raises(dataclasses.FrozenInstanceError):
         view.label = "renamed"  # type: ignore[misc]
+
+
+@pytest.mark.requirement("REQ-VMEAS-210")
+def test_measurement_view_from_virtual_measurement_does_not_crash() -> None:
+    """Regression: from_measurement() used to read loader._path directly,
+    which AttributeErrors on VirtualMeasurementLoader (#147)."""
+    from mdf_viewer.model.virtual_measurement_loader import VirtualMeasurementLoader
+
+    measurement = LoadedMeasurement(
+        loader=VirtualMeasurementLoader(owner_plugin="p"),
+        info=MeasurementInfo(file_name=""),
+        label="Virtual",
+        owner_plugin="p",
+    )
+    view = PluginMeasurementView.from_measurement(measurement, is_primary=False)
+    assert view.path == ""

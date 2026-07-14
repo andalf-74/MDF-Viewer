@@ -268,3 +268,51 @@ fails to import, a missing or invalid declared plugin list, or a plugin
 that fails to activate — is caught and logged, and does not prevent any
 other plugin from loading or the application from starting normally
 [REQ-PLUGIN-280].
+
+---
+
+## Virtual Measurement Contribution (#147)
+
+This section extends the facade with the capability explicitly deferred in
+"Out of scope for #71" above: a plugin contributing virtual signals and
+virtual measurements, rather than only reading what the application already
+loaded. The virtual measurement/signal concept itself — what one is and how
+it behaves once it exists — is specified in
+`docs/requirements/virtual-measurements.md` (`REQ-VMEAS-*`); this section
+covers only the plugin-facing surface that creates and owns them.
+
+### Creating and registering
+
+A plugin can create a virtual signal through its context, supplying the
+signal's descriptive metadata and a callback the application invokes to
+resolve its sample data on demand, per REQ-VMEAS-140 [REQ-PLUGIN-290]. A
+plugin can create a virtual measurement through its context and attach
+previously-created virtual signals to it, per REQ-VMEAS-110/120
+[REQ-PLUGIN-291]. A plugin can add a virtual measurement it has built to
+the application's measurement pool, making it visible to the rest of the
+application per the parity requirements in `virtual-measurements.md`
+[REQ-PLUGIN-292].
+
+### Ownership and teardown
+
+A virtual measurement or signal contributed by a plugin is attributed to
+that plugin, so the application can act on that ownership later
+[REQ-PLUGIN-300]. When a plugin is deactivated, every virtual measurement
+and signal it contributed is removed from the application's measurement
+pool, after the plugin's own `deactivate()` has already run — giving the
+plugin a chance to react (e.g. to a future serialization capability) before
+its data disappears, the same ordering `stop()` already guarantees for
+event subscriptions and UI registrations [REQ-PLUGIN-301]. When a user
+closes a virtual measurement through the existing measurement-close UI
+action, the contributing plugin is notified of the closure, separately from
+and in addition to the deactivation case above [REQ-PLUGIN-302].
+
+### Error isolation
+
+An exception raised by a plugin-supplied virtual signal data-resolution
+callback is caught at the point the application invokes it and reported to
+the user the same way a real signal's read failure already is — unlike an
+event handler or a registered menu action's callback (REQ-PLUGIN-150),
+which are logged and swallowed silently, a failed signal resolution has an
+existing, established user-facing error path this reuses rather than
+duplicating [REQ-PLUGIN-310].

@@ -98,7 +98,11 @@ class ViewerConfig:
 
     format_version: str
     measurements: tuple[MeasurementConfig, ...]
-    primary_measurement_index: int
+    # None when no real measurement was Primary at save time — either none
+    # were loaded, or the Primary was itself virtual (#147, REQ-VMEAS-040
+    # allows this in-session; there is no saved measurement slot to point
+    # a virtual Primary's index at).
+    primary_measurement_index: int | None
     measurements_synchronized: bool
     tabs: tuple[TabConfig, ...]
     active_tab_index: int

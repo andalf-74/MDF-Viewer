@@ -121,6 +121,18 @@ def test_round_trip_signal_fields(tmp_path: Path) -> None:
     assert s.visible is True
 
 
+@pytest.mark.requirement("REQ-VMEAS-410")
+def test_round_trip_none_primary_measurement_index(tmp_path: Path) -> None:
+    """A saved workspace with no real Primary (#147 — e.g. it was virtual
+    at save time) round-trips null, not a crash or a coerced 0."""
+    config = _make_config(measurements=(), primary_measurement_index=None)
+    path = tmp_path / "session.mvc"
+    ConfigManager.save(config, path)
+    loaded = ConfigManager.load(path)
+
+    assert loaded.primary_measurement_index is None
+
+
 @pytest.mark.requirement("REQ-PLOT-339")
 def test_round_trip_signal_visible_false(tmp_path: Path) -> None:
     config = _make_config(tabs=(_make_tab(signals=(_make_signal(visible=False),)),))

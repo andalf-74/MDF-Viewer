@@ -37,7 +37,10 @@ class PluginMeasurementView:
     @classmethod
     def from_measurement(cls, measurement: "LoadedMeasurement", *, is_primary: bool) -> "PluginMeasurementView":
         loader = measurement.loader
-        path = str(loader._path) if loader.is_open and loader._path is not None else ""
+        # loader.path (the public MeasurementLoader surface, #147), not the
+        # MdfLoader-only private _path — a virtual measurement's loader
+        # has no _path attribute at all and would AttributeError here.
+        path = str(loader.path) if loader.is_open and loader.path is not None else ""
         return cls(path=path, label=measurement.label, offset_s=measurement.offset_s, is_primary=is_primary)
 
 
@@ -144,3 +147,13 @@ class PluginCursorMovedEvent:
     positions: tuple[float, ...]
     mode: "CursorMode"
     tab_index: int | None
+
+
+@dataclass(frozen=True)
+class PluginMeasurementClosedEvent:
+    """Fires for any measurement close, real or virtual (#147) — broadcast,
+    not targeted; a plugin checks `is_virtual` (and its own bookkeeping,
+    e.g. a label it recognizes) to tell whether this was its own."""
+
+    label: str
+    is_virtual: bool

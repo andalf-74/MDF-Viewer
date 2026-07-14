@@ -95,6 +95,7 @@ class MeasurementInfoBox(QWidget):
             page.set_info(measurement.info)
             page.set_name(measurement.label)
             page.set_primary(measurement is primary)
+            page.set_virtual(measurement.owner_plugin is not None)
             page.primary_checked.connect(
                 lambda m=measurement: self.primary_change_requested.emit(m)
             )
@@ -162,6 +163,13 @@ class _MeasurementInfoPage(QWidget):
         header.addWidget(QLabel("Name:"))
         self._name_edit = QLineEdit()
         header.addWidget(self._name_edit)
+        # Hidden unless the measurement is virtual (#147, REQ-VMEAS-210) —
+        # no persistent file behind it, so the user isn't confused about
+        # why it has no path and can't be replaced below.
+        self._virtual_label = QLabel("(virtual)")
+        self._virtual_label.setStyleSheet("font-style: italic;")
+        self._virtual_label.setVisible(False)
+        header.addWidget(self._virtual_label)
         layout.addLayout(header)
 
         actions = QHBoxLayout()
@@ -212,6 +220,12 @@ class _MeasurementInfoPage(QWidget):
 
     def set_primary(self, is_primary: bool) -> None:
         self._primary_checkbox.setChecked(is_primary)
+
+    def set_virtual(self, is_virtual: bool) -> None:
+        """Show the "(virtual)" badge and disable Replace (REQ-VMEAS-210/440)
+        — a virtual measurement has no file path for Replace to browse to."""
+        self._virtual_label.setVisible(is_virtual)
+        self._replace_button.setEnabled(not is_virtual)
 
     def _on_toggled(self, checked: bool) -> None:
         if checked:

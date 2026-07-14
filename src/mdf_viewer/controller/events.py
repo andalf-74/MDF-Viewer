@@ -54,6 +54,13 @@ class CursorMovedEvent:
     tab: object | None = None
 
 
+@dataclass(frozen=True)
+class MeasurementClosedEvent:
+    label: str
+    is_virtual: bool
+    owner_plugin: str | None = None
+
+
 class EventBus(QObject):
     """Qt signals for AppController lifecycle events. Owned by AppController.
 
@@ -67,8 +74,9 @@ class EventBus(QObject):
     failure mode is deliberate, see #149.
     """
 
-    file_loaded = pyqtSignal(object)       # FileLoadedEvent
-    signal_added = pyqtSignal(object)      # SignalAddedEvent
-    signal_removed = pyqtSignal(object)    # SignalRemovedEvent
-    selection_changed = pyqtSignal(object) # SelectionChangedEvent
-    cursor_moved = pyqtSignal(object)      # CursorMovedEvent
+    file_loaded = pyqtSignal(object)         # FileLoadedEvent
+    signal_added = pyqtSignal(object)        # SignalAddedEvent
+    signal_removed = pyqtSignal(object)      # SignalRemovedEvent
+    selection_changed = pyqtSignal(object)   # SelectionChangedEvent
+    cursor_moved = pyqtSignal(object)        # CursorMovedEvent
+    measurement_closed = pyqtSignal(object)  # MeasurementClosedEvent

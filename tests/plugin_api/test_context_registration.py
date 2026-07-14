@@ -160,6 +160,72 @@ def test_unsubscribe_all_is_safe_to_call_twice(ctrl: AppController, context: Plu
 
 
 # ---------------------------------------------------------------------------
+# Virtual measurement contribution (#147)
+# ---------------------------------------------------------------------------
+
+def _make_signal_data():
+    import numpy as np
+    from mdf_viewer.model.signal_data import SignalData
+
+    return SignalData(timestamps=np.array([0.0, 1.0]), samples=np.array([1.0, 2.0]))
+
+
+def _resolver():
+    from mdf_viewer.model.signal_metadata import SignalMetadata
+
+    return _make_signal_data(), SignalMetadata(name="derived")
+
+
+@pytest.mark.requirement("REQ-PLUGIN-290")
+def test_create_virtual_signal_does_not_call_resolver(context: PluginContext) -> None:
+    calls = []
+
+    def resolver():
+        calls.append(1)
+        return _make_signal_data(), MagicMock()
+
+    context.create_virtual_signal("derived", resolver)
+    assert calls == []
+
+
+@pytest.mark.requirement("REQ-PLUGIN-290")
+def test_create_virtual_signal_carries_metadata_template(context: PluginContext) -> None:
+    signal = context.create_virtual_signal("derived", _resolver, unit="V", comment="c")
+    assert signal.name == "derived"
+    assert signal.template.unit == "V"
+    assert signal.template.comment == "c"
+
+
+@pytest.mark.requirement("REQ-PLUGIN-291")
+def test_create_virtual_measurement_starts_empty_with_no_path(context: PluginContext) -> None:
+    measurement = context.create_virtual_measurement()
+    assert measurement.path is None
+    assert measurement.channel_tree()[0].channels == ()
+
+
+@pytest.mark.requirement("REQ-PLUGIN-291")
+def test_attach_virtual_signal_appears_in_channel_tree(context: PluginContext) -> None:
+    measurement = context.create_virtual_measurement()
+    signal = context.create_virtual_signal("derived", _resolver)
+
+    context.attach_virtual_signal(measurement, signal)
+
+    assert [ch.name for ch in measurement.channel_tree()[0].channels] == ["derived"]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-292")
+def test_register_virtual_measurement_adds_to_pool(
+    ctrl: AppController, context: PluginContext,
+) -> None:
+    measurement = context.create_virtual_measurement()
+    context.register_virtual_measurement(measurement, label="Stats")
+
+    assert len(ctrl.measurements) == 1
+    assert ctrl.measurements[0].label == "Stats"
+    assert ctrl.measurements[0].owner_plugin == "exporter"
+
+
+# ---------------------------------------------------------------------------
 # _teardown (#72) — framework-internal, called by Plugin.start()/stop()
 # ---------------------------------------------------------------------------
 
@@ -192,6 +258,67 @@ def test_teardown_only_affects_this_plugins_registrations(
     assert [r.plugin_name for r in registry.menu_actions] == ["b"]
 
 
+@pytest.mark.requirement("REQ-PLUGIN-301")
+def test_teardown_removes_this_plugins_virtual_measurements(
+    ctrl: AppController, context: PluginContext,
+) -> None:
+    measurement = context.create_virtual_measurement()
+    context.register_virtual_measurement(measurement, label="Stats")
+
+    context._teardown()
+
+    assert ctrl.measurements == []
+
+
+@pytest.mark.requirement("REQ-PLUGIN-301")
+def test_teardown_does_not_remove_another_plugins_virtual_measurement(
+    ctrl: AppController, registry: PluginRegistry,
+) -> None:
+    context_a = PluginContext(plugin_name="a", app=ctrl, registry=registry)
+    context_b = PluginContext(plugin_name="b", app=ctrl, registry=registry)
+    measurement_b = context_b.create_virtual_measurement()
+    context_b.register_virtual_measurement(measurement_b, label="B")
+
+    context_a._teardown()
+
+    assert [m.owner_plugin for m in ctrl.measurements] == ["b"]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-301")
+def test_teardown_does_not_deliver_measurement_closed_to_the_deactivating_plugin_itself(
+    ctrl: AppController, context: PluginContext,
+) -> None:
+    """Ordering guarantee: unsubscribe_all() runs before
+    remove_virtual_measurements_for() inside _teardown(), so this plugin's
+    own measurement_closed subscription is already gone by the time its
+    own virtual measurement is torn down."""
+    received = []
+    context.subscribe("measurement_closed", received.append)
+    measurement = context.create_virtual_measurement()
+    context.register_virtual_measurement(measurement, label="Stats")
+
+    context._teardown()
+
+    assert received == []
+
+
+@pytest.mark.requirement("REQ-PLUGIN-302")
+def test_teardown_still_notifies_other_active_plugins_of_the_closure(
+    ctrl: AppController, registry: PluginRegistry,
+) -> None:
+    context_a = PluginContext(plugin_name="a", app=ctrl, registry=registry)
+    context_b = PluginContext(plugin_name="b", app=ctrl, registry=registry)
+    received = []
+    context_b.subscribe("measurement_closed", received.append)
+    measurement_a = context_a.create_virtual_measurement()
+    context_a.register_virtual_measurement(measurement_a, label="A")
+
+    context_a._teardown()
+
+    assert len(received) == 1
+    assert received[0].is_virtual is True
+
+
 # ---------------------------------------------------------------------------
 # Event-translation coverage guard-rails (#149) — a future event added to
 # EventBus without a matching PluginContext translation must be caught here,
@@ -221,6 +348,7 @@ def test_every_known_event_has_a_working_translation(context: PluginContext) -> 
         "signal_removed": MagicMock(signal=dummy_signal, tab=None),
         "selection_changed": MagicMock(selected=[dummy_signal], tab=None),
         "cursor_moved": MagicMock(positions=[1.0, 2.0], mode=None, tab=None),
+        "measurement_closed": MagicMock(label="M1", is_virtual=False),
     }
     assert set(payloads) == _KNOWN_EVENTS  # this test itself must cover every known event
 

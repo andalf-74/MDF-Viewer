@@ -127,6 +127,19 @@ def test_close_sets_not_open(mdf4_path: Path) -> None:
     assert not ldr.is_open
 
 
+def test_path_reflects_opened_file(mdf4_path: Path) -> None:
+    ldr = MdfLoader()
+    ldr.open(mdf4_path)
+    assert ldr.path == mdf4_path
+
+
+def test_path_is_none_after_close(mdf4_path: Path) -> None:
+    ldr = MdfLoader()
+    ldr.open(mdf4_path)
+    ldr.close()
+    assert ldr.path is None
+
+
 @pytest.mark.requirement("REQ-MDF-070")
 def test_open_nonexistent_raises(tmp_path: Path) -> None:
     ldr = MdfLoader()

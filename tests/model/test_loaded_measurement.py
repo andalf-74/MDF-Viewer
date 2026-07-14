@@ -44,3 +44,11 @@ def test_offset_is_mutable() -> None:
     )
     measurement.offset_s = 5.0
     assert measurement.offset_s == 5.0
+
+
+@pytest.mark.requirement("REQ-VMEAS-210")
+def test_owner_plugin_defaults_to_none_for_a_real_measurement() -> None:
+    measurement = LoadedMeasurement(
+        loader=MdfLoader(), info=MeasurementInfo(file_name="run1.mf4"), label="run1",
+    )
+    assert measurement.owner_plugin is None

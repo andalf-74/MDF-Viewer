@@ -1887,8 +1887,13 @@ class MainWindow(QMainWindow):
         """
         self._replace_measurement_menu.clear()
         measurements = [] if self._controller is None else self._controller.measurements
-        self._replace_measurement_menu.setEnabled(bool(measurements))
-        for measurement in measurements:
+        # A virtual measurement has no file to browse to (#147, REQ-VMEAS-440)
+        # — left off the menu entirely, same as the Measurement Info Box's
+        # Replace button being disabled for it, rather than offering an
+        # action that always fails after a pointless file-picker round trip.
+        replaceable = [m for m in measurements if m.owner_plugin is None]
+        self._replace_measurement_menu.setEnabled(bool(replaceable))
+        for measurement in replaceable:
             action = self._replace_measurement_menu.addAction(measurement.label)
             action.triggered.connect(
                 lambda checked=False, m=measurement: self._replace_single_measurement(m)

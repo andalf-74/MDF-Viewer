@@ -20,6 +20,7 @@ from mdf_viewer.controller.events import (
     CursorMovedEvent,
     EventBus,
     FileLoadedEvent,
+    MeasurementClosedEvent,
     SelectionChangedEvent,
     SignalAddedEvent,
     SignalRemovedEvent,
@@ -27,6 +28,7 @@ from mdf_viewer.controller.events import (
 from mdf_viewer.errors import MdfLoadError
 from mdf_viewer.model.loaded_measurement import LoadedMeasurement, make_label
 from mdf_viewer.model.mdf_loader import MdfLoader
+from mdf_viewer.model.virtual_measurement_loader import VirtualMeasurementLoader
 from mdf_viewer.plugin_api.registry import PluginRegistry
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
@@ -628,6 +630,14 @@ class AppController:
         """
         # Clear existing state; loader.open() closes the old file regardless
         # of whether the new one succeeds, so the UI must clear first.
+        # Tear down every currently-loaded measurement (real or virtual)
+        # before wiping the pool — fixes a latent bug where a discarded
+        # measurement's active signals in a non-current tab were left
+        # orphaned, and gives a plugin-owned virtual measurement its
+        # measurement_closed notification (#147). remove_all() below still
+        # runs as the current tab's final safety-net clear.
+        for old_measurement in self._measurements:
+            self._teardown_measurement(old_measurement)
         self.remove_all()
         self._browser.clear()
         self._info_box.clear()
@@ -666,6 +676,10 @@ class AppController:
         once (REQ-BROWSER-010), and the Measurement Info Box is populated
         from the first.
         """
+        # Tear down every currently-loaded measurement before wiping the
+        # pool — see load_file()'s identical comment above (#147).
+        for old_measurement in self._measurements:
+            self._teardown_measurement(old_measurement)
         self.remove_all()
         self._browser.clear()
         self._info_box.clear()
@@ -755,6 +769,50 @@ class AppController:
             self.refresh_display_names()
         return result
 
+    def add_virtual_measurement(
+        self, loader: VirtualMeasurementLoader, label: str, owner_plugin: str
+    ) -> LoadedMeasurement:
+        """Add a plugin-contributed virtual measurement to the pool (#147, REQ-PLUGIN-292).
+
+        Mirrors add_measurements()'s tail logic (Primary-if-empty, the same
+        refreshes) but skips the file-specific parts — loader.open() and
+        settings.add_recent() — since *loader* is already fully built and
+        there is no file path to remember. *label* is disambiguated against
+        existing labels the same way a collision is handled elsewhere,
+        rather than through make_label()'s "M{n}" numbering, which doesn't
+        fit an arbitrary plugin-supplied name.
+        """
+        existing_labels = [m.label for m in self._measurements]
+        resolved_label = label
+        n = 2
+        while resolved_label in existing_labels:
+            resolved_label = f"{label} ({n})"
+            n += 1
+        measurement = LoadedMeasurement(
+            loader=loader,
+            info=loader.measurement_info(),
+            label=resolved_label,
+            owner_plugin=owner_plugin,
+        )
+        self._measurements.append(measurement)
+        if self._primary_measurement is None:
+            self._primary_measurement = measurement
+        self._refresh_signal_browser()
+        self._refresh_info_box()
+        self._refresh_measurement_axes()
+        self.refresh_display_names()
+        return measurement
+
+    def remove_virtual_measurements_for(self, owner_plugin: str) -> None:
+        """Remove every virtual measurement contributed by *owner_plugin* (#147, REQ-PLUGIN-301).
+
+        Reuses close_measurement()'s already-hardened teardown (active-signal
+        removal, Primary reassignment, refreshes, measurement_closed
+        notification) for each one, rather than duplicating any of it.
+        """
+        for measurement in [m for m in self._measurements if m.owner_plugin == owner_plugin]:
+            self.close_measurement(measurement)
+
     def measurement_has_signals(self, measurement: LoadedMeasurement) -> bool:
         """Whether *measurement* has any active signals in any tab (REQ-FILE-028)."""
         return any(
@@ -780,6 +838,23 @@ class AppController:
         finally:
             self._active_tab_index = saved_index
 
+    def _teardown_measurement(self, measurement: LoadedMeasurement) -> None:
+        """Remove *measurement*'s active signals from every tab and notify
+        that it closed (#147) — shared by close_measurement() and the
+        wholesale-discard paths (load_file(), replace_measurements()), so
+        every removal path gives the same guarantees: a plugin-owned
+        virtual measurement is always notified, and a discarded
+        measurement's signals never linger orphaned in a non-current tab.
+        """
+        self._remove_measurement_signals(measurement)
+        self.events.measurement_closed.emit(
+            MeasurementClosedEvent(
+                label=measurement.label,
+                is_virtual=measurement.owner_plugin is not None,
+                owner_plugin=measurement.owner_plugin,
+            )
+        )
+
     def close_measurement(self, measurement: LoadedMeasurement) -> None:
         """Remove *measurement* and every one of its active signals from every tab (REQ-FILE-028).
 
@@ -787,7 +862,7 @@ class AppController:
         MainWindow's job, mirroring the stripe/tab-close pattern — this
         method always proceeds unconditionally once called.
         """
-        self._remove_measurement_signals(measurement)
+        self._teardown_measurement(measurement)
         # Identity comparison, not `in`/`.remove()`'s `==` — LoadedMeasurement
         # is a mutable dataclass with no custom __eq__, so two structurally
         # matching-but-distinct instances could otherwise compare equal.
@@ -832,6 +907,18 @@ class AppController:
         if not any(m is measurement for m in self._measurements):
             return result
 
+        # A virtual measurement has no file to browse to in the first place
+        # (#147, REQ-VMEAS-440) — rejecting here, not just disabling the UI
+        # button, avoids leaving owner_plugin stuck set on a measurement
+        # that's just swapped in a real MdfLoader (it would keep showing
+        # the virtual badge, stay excluded from .mvc save, and still
+        # vanish if the plugin that "owns" it deactivates).
+        if measurement.owner_plugin is not None:
+            result.failed.append(
+                (str(path), MdfLoadError("Cannot replace a virtual measurement's data."))
+            )
+            return result
+
         loader = self._loader_factory()
         try:
             loader.open(path)
@@ -858,7 +945,7 @@ class AppController:
     def restore_measurements(
         self,
         measurement_configs: "list[MeasurementConfig]",
-        primary_index: int,
+        primary_index: int | None,
         synchronized: bool,
     ) -> "list[LoadedMeasurement | None]":
         """Load every saved MeasurementConfig, index-aligned with the saved
@@ -877,8 +964,10 @@ class AppController:
         (already dropped any the user chose not to continue without).
 
         Sets Primary from *primary_index* into the resulting pool — if
-        that slot is `None` or out of range, falls back to the
-        first-loaded of whatever succeeded (mirrors `close_measurement`'s
+        *primary_index* itself is `None` (no real measurement was Primary
+        at save time, e.g. it was virtual — #147/REQ-VMEAS-040), or that
+        slot is `None` or out of range, falls back to the first-loaded of
+        whatever succeeded (mirrors `close_measurement`'s
         own REQ-PLOT-321 reassignment). Sets Synchronized directly from
         *synchronized*. Resets the load-order naming counter (REQ-FILE-027)
         to the number of measurements attempted, so a later `add_measurements`
@@ -905,7 +994,15 @@ class AppController:
         self._measurements_synchronized = synchronized
         self._measurement_load_counter = len(results)
 
-        primary = results[primary_index] if 0 <= primary_index < len(results) else None
+        # primary_index is None when the saved workspace had no real
+        # measurement to point at — either none were loaded at all, or the
+        # Primary at save time was itself virtual (#147) — same fallback
+        # as an out-of-range index: first-loaded of whatever succeeded.
+        primary = (
+            results[primary_index]
+            if primary_index is not None and 0 <= primary_index < len(results)
+            else None
+        )
         if primary is None:
             primary = self._measurements[0] if self._measurements else None
         self._primary_measurement = primary
@@ -939,7 +1036,9 @@ class AppController:
         did under the old switcher, a real gap caught during the
         architecture review.
         """
-        self._browser.populate_all([(m.label, m.loader.channel_tree()) for m in self._measurements])
+        self._browser.populate_all(
+            [(m.label, m.loader.channel_tree(), m.owner_plugin is not None) for m in self._measurements]
+        )
 
     def _refresh_measurement_axes(self) -> None:
         """Push the current measurement pool and sync state to every tab's
@@ -1708,10 +1807,18 @@ class AppController:
         """
         from mdf_viewer.model.viewer_config import MeasurementConfig, ViewerConfig
 
+        # Virtual measurements are excluded from a saved workspace entirely
+        # (REQ-VMEAS-410) — every index below this point is computed
+        # against this filtered list, never the raw pool, or a virtual
+        # measurement sitting earlier in the pool would silently shift
+        # every real measurement's saved index (#147).
+        real_measurements = [m for m in self._measurements if m.owner_plugin is None]
+
         tabs = tuple(
             self._capture_tab(
                 workspace,
                 tab_names[i] if tab_names is not None and i < len(tab_names) else f"Tab {i + 1}",
+                real_measurements,
                 page_splitter_sizes[i]
                 if page_splitter_sizes is not None and i < len(page_splitter_sizes) else None,
             )
@@ -1720,19 +1827,23 @@ class AppController:
 
         measurements = tuple(
             MeasurementConfig(
-                path=str(m.loader._path) if m.loader.is_open and m.loader._path is not None else "",
+                path=str(m.loader.path) if m.loader.is_open and m.loader.path is not None else "",
                 label=m.label,
                 offset_s=m.offset_s,
             )
-            for m in self._measurements
+            for m in real_measurements
         )
-        if not measurements and self._loader.is_open and self._loader._path is not None:
+        if not measurements and self._loader.is_open and self._loader.path is not None:
             measurements = (
-                MeasurementConfig(path=str(self._loader._path), label="M1", offset_s=0.0),
+                MeasurementConfig(path=str(self._loader.path), label="M1", offset_s=0.0),
             )
 
+        # None when there's no real measurement to point a saved index at —
+        # either the pool has none at all, or the current Primary is
+        # itself virtual (REQ-VMEAS-040 allows this in-session; there is no
+        # slot in *real_measurements* to reference) (#147).
         primary_index = next(
-            (i for i, m in enumerate(self._measurements) if m is self._primary_measurement), 0
+            (i for i, m in enumerate(real_measurements) if m is self._primary_measurement), None
         )
 
         if self._settings is not None:
@@ -1755,18 +1866,34 @@ class AppController:
             display_name_segments=name_segments,
         )
 
-    def _measurement_index(self, measurement) -> int:
-        """Identity-match *measurement* against the current pool (#101/#106) —
+    def _measurement_index(
+        self, measurement, real_measurements: list[LoadedMeasurement]
+    ) -> int | None:
+        """Identity-match *measurement* against *real_measurements* (#101/#106,
+        filtered to exclude virtual measurements — #147/REQ-VMEAS-430) —
         never `.index()`/`in`, since `LoadedMeasurement` is a plain
         `@dataclass` with field-equality `__eq__`, so two distinct
         measurements loaded from the same path/label/offset would
-        otherwise compare equal."""
-        return next((i for i, m in enumerate(self._measurements) if m is measurement), 0)
+        otherwise compare equal.
+
+        `measurement is None` (legacy single-file mode, pool empty) keeps
+        its original fallback of `0`, unchanged by #147. A *virtual*
+        measurement — found in `self._measurements` but never in
+        *real_measurements* — returns `None`, signaling the caller to
+        exclude whatever referenced it from the saved config entirely,
+        rather than write a wrong or dangling index.
+        """
+        if measurement is None:
+            return 0
+        if measurement.owner_plugin is not None:
+            return None
+        return next((i for i, m in enumerate(real_measurements) if m is measurement), 0)
 
     def _capture_tab(
         self,
         workspace: "TabWorkspace",
         name: str,
+        real_measurements: list[LoadedMeasurement],
         page_splitter_sizes: "tuple[int, int] | None" = None,
     ) -> "TabConfig":
         """Capture one tab's stripe layout, active signals (with their
@@ -1782,9 +1909,17 @@ class AppController:
         )
         active_stripe_index = stripe_index_of.get(workspace.plot.get_active_stripe(), 0)
 
+        # A signal plotted from a virtual measurement has no slot in
+        # *real_measurements* to be saved against, so it's excluded here
+        # entirely — from signals, zoom y_ranges, axis grouping, and the
+        # selection below — rather than corrupted with a wrong index
+        # (REQ-VMEAS-430, #147).
         snapshots = self._snapshot_signals(workspace)
         signal_configs = []
         for snap, active in zip(snapshots, workspace.active):
+            midx = self._measurement_index(active.measurement, real_measurements)
+            if midx is None:
+                continue
             stripe = workspace.plot.get_stripe_for_signal(active)
             stripe_idx = stripe_index_of.get(stripe, 0)
             signal_configs.append(SignalConfig(
@@ -1800,29 +1935,33 @@ class AppController:
                 enum_display_cursor=snap.enum_display_cursor,
                 enum_display_yaxis=snap.enum_display_yaxis,
                 stripe_index=stripe_idx,
-                measurement_index=self._measurement_index(active.measurement),
+                measurement_index=midx,
                 visible=snap.visible,
             ))
 
         zoom = workspace.plot.get_zoom_state(workspace.active)
         x_range = tuple(zoom.x_range)  # type: ignore[arg-type]
-        y_ranges = tuple(
-            (
-                SignalRef(name=active.metadata.name, measurement_index=self._measurement_index(active.measurement)),
-                tuple(yr),
-            )
-            for active, yr in zoom.y_ranges.items()
-        )
+        y_ranges = []
+        for active, yr in zoom.y_ranges.items():
+            midx = self._measurement_index(active.measurement, real_measurements)
+            if midx is None:
+                continue
+            y_ranges.append((SignalRef(name=active.metadata.name, measurement_index=midx), tuple(yr)))
+        y_ranges = tuple(y_ranges)
+
+        def _group_refs(group) -> tuple:
+            """SignalRefs for one merge/sync group, dropping any member
+            belonging to a virtual measurement (REQ-VMEAS-430)."""
+            refs = []
+            for n, m in group:
+                midx = self._measurement_index(m, real_measurements)
+                if midx is not None:
+                    refs.append(SignalRef(name=n, measurement_index=midx))
+            return tuple(refs)
 
         merged_raw, synced_raw = workspace.plot.get_axis_grouping()
-        merged_groups = tuple(
-            tuple(SignalRef(name=n, measurement_index=self._measurement_index(m)) for n, m in g)
-            for g in merged_raw
-        )
-        synced_groups = tuple(
-            tuple(SignalRef(name=n, measurement_index=self._measurement_index(m)) for n, m in g)
-            for g in synced_raw
-        )
+        merged_groups = tuple(g for g in (_group_refs(group) for group in merged_raw) if g)
+        synced_groups = tuple(g for g in (_group_refs(group) for group in synced_raw) if g)
 
         cursor_snap: dict = {}
         if workspace.cursor_ctrl is not None:
@@ -1834,12 +1973,15 @@ class AppController:
             float(cursor_pos_raw[1]),
         )
 
-        selected_ref = (
-            SignalRef(
-                name=workspace.selected.metadata.name,
-                measurement_index=self._measurement_index(workspace.selected.measurement),
-            )
+        selected_midx = (
+            self._measurement_index(workspace.selected.measurement, real_measurements)
             if workspace.selected is not None else None
+        )
+        # A selected signal belonging to a virtual measurement is not saved
+        # either — same exclusion as everything else above (REQ-VMEAS-430).
+        selected_ref = (
+            SignalRef(name=workspace.selected.metadata.name, measurement_index=selected_midx)
+            if selected_midx is not None else None
         )
 
         kwargs = dict(

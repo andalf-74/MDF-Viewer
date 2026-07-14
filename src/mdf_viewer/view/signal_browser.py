@@ -166,26 +166,29 @@ class SignalBrowser(QWidget):
     # Public API (called by the controller)
     # ------------------------------------------------------------------
 
-    def populate_all(self, measurements: list[tuple[str, list[ChannelGroupInfo]]]) -> None:
+    def populate_all(self, measurements: list[tuple[str, list[ChannelGroupInfo], bool]]) -> None:
         """Rebuild the flat list from every loaded measurement's channels.
 
-        *measurements* is a (short_name, channel_groups) pair per loaded
-        measurement, in load order (REQ-BROWSER-010/011). Clears the text
-        filter (REQ-BROWSER-012); the measurement filter is preserved by
-        short name across the rebuild, resetting to "All" only if the
+        *measurements* is a (short_name, channel_groups, is_virtual) triple
+        per loaded measurement, in load order (REQ-BROWSER-010/011;
+        is_virtual added #147/REQ-VMEAS-210). Clears the text filter
+        (REQ-BROWSER-012); the measurement filter is preserved by short
+        name across the rebuild, resetting to "All" only if the
         measurement it was set to is no longer present.
         """
         previous_filter_label = self._current_filter_label()
         self._clear_filter()
         self._model.clear()
-        self._labels = [label for label, _ in measurements]
+        self._labels = [label for label, _, _ in measurements]
         show_prefix = len(self._labels) > 1
 
-        for mi, (label, groups) in enumerate(measurements):
+        for mi, (label, groups, is_virtual) in enumerate(measurements):
             for group in groups:
                 for ch in group.channels:
                     self._model.appendRow(
-                        _make_channel_item(ch, mi, label if show_prefix else None, group.name)
+                        _make_channel_item(
+                            ch, mi, label if show_prefix else None, group.name, is_virtual,
+                        )
                     )
         self._proxy.sort(0)
         self._rebuild_measurement_filter_combo(previous_filter_label)
@@ -287,9 +290,13 @@ class SignalBrowser(QWidget):
 # ---------------------------------------------------------------------------
 
 def _make_channel_item(
-    ch, measurement_index: int, prefix: str | None, group_name: str
+    ch, measurement_index: int, prefix: str | None, group_name: str, is_virtual: bool = False,
 ) -> QStandardItem:
     base = f"{ch.name} [{ch.unit}]" if ch.unit else ch.name
+    # Marked regardless of whether the [label] prefix itself is shown
+    # (single-measurement sessions have no prefix at all) — REQ-VMEAS-210.
+    if is_virtual:
+        base = f"(virtual) {base}"
     text = f"[{prefix}] {base}" if prefix else base
     item = QStandardItem(text)
     item.setEditable(False)

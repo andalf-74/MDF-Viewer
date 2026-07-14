@@ -71,6 +71,10 @@ class MdfLoader:
     def is_open(self) -> bool:
         return self._mdf is not None
 
+    @property
+    def path(self) -> Path | None:
+        return self._path
+
     # ------------------------------------------------------------------
     # Data access
     # ------------------------------------------------------------------

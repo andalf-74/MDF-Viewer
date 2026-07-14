@@ -113,7 +113,7 @@ def test_load_file_populates_browser(ctrl: AppController, deps: dict) -> None:
     groups = [MagicMock()]
     deps["loader"].channel_tree.return_value = groups
     ctrl.load_file("test.mf4")
-    deps["browser"].populate_all.assert_called_once_with([("M1", groups)])
+    deps["browser"].populate_all.assert_called_once_with([("M1", groups, False)])
 
 
 @pytest.mark.requirement("REQ-FILE-012")
@@ -1883,7 +1883,7 @@ def test_replace_measurements_populates_browser_with_every_measurement(deps: dic
     loader_b.channel_tree.return_value = groups_b
     ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
     ctrl2.replace_measurements(["run1.mf4", "run2.mf4"])
-    deps["browser"].populate_all.assert_called_with([("M1", groups_a), ("M2", groups_b)])
+    deps["browser"].populate_all.assert_called_with([("M1", groups_a, False), ("M2", groups_b, False)])
 
 
 @pytest.mark.requirement("REQ-BROWSER-010")
@@ -1896,7 +1896,7 @@ def test_add_measurements_repopulates_browser_with_every_measurement(deps: dict)
     ctrl2.replace_measurements(["run1.mf4"])
     deps["browser"].populate_all.reset_mock()
     ctrl2.add_measurements(["run2.mf4"])
-    deps["browser"].populate_all.assert_called_once_with([("M1", groups_a), ("M2", groups_b)])
+    deps["browser"].populate_all.assert_called_once_with([("M1", groups_a, False), ("M2", groups_b, False)])
 
 
 @pytest.mark.requirement("REQ-FILE-028")
@@ -1912,7 +1912,7 @@ def test_close_measurement_updates_browser_to_remaining_measurement(deps: dict) 
 
     ctrl2.close_measurement(m1)
 
-    deps["browser"].populate_all.assert_called_with([(m2.label, groups_b)])
+    deps["browser"].populate_all.assert_called_with([(m2.label, groups_b, False)])
 
 
 @pytest.mark.requirement("REQ-FILE-028")
@@ -1968,6 +1968,129 @@ def test_close_measurement_refreshes_axes_on_every_tab(deps: dict) -> None:
 
     deps["plot"].refresh_measurement_axes.assert_called_with([], False)
     plot2.refresh_measurement_axes.assert_called_with([], False)
+
+
+@pytest.mark.requirement("REQ-FILE-024")
+def test_load_file_does_not_orphan_signals_in_a_non_current_tab(deps: dict) -> None:
+    """Regression: load_file() used to bypass close_measurement()'s per-tab
+    teardown entirely, so a discarded measurement's signals in any tab
+    other than the current one were left referencing a measurement no
+    longer in the pool (#147)."""
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    plot2, table2 = MagicMock(), MagicMock()
+    ctrl2.create_tab(plot2, table2)  # now active
+    ctrl2.switch_tab(0)
+    ctrl2.add_signal(0, 1, measurement=m1)  # lands in tab 0, not the active tab
+    ctrl2.switch_tab(1)
+
+    ctrl2.load_file("b.mf4")
+
+    assert ctrl2._workspaces[0].active == []
+
+
+@pytest.mark.requirement("REQ-FILE-024")
+def test_replace_measurements_does_not_orphan_signals_in_a_non_current_tab(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    plot2, table2 = MagicMock(), MagicMock()
+    ctrl2.create_tab(plot2, table2)
+    ctrl2.switch_tab(0)
+    ctrl2.add_signal(0, 1, measurement=m1)
+    ctrl2.switch_tab(1)
+
+    ctrl2.replace_measurements(["b.mf4"])
+
+    assert ctrl2._workspaces[0].active == []
+
+
+# ---------------------------------------------------------------------------
+# Virtual measurements (#147)
+# ---------------------------------------------------------------------------
+
+def _make_virtual_loader(owner_plugin: str = "test_plugin"):
+    from mdf_viewer.model.virtual_measurement_loader import VirtualMeasurementLoader
+
+    return VirtualMeasurementLoader(owner_plugin=owner_plugin)
+
+
+@pytest.mark.requirement("REQ-PLUGIN-292")
+def test_add_virtual_measurement_appends_to_pool(ctrl: AppController) -> None:
+    loader = _make_virtual_loader()
+    measurement = ctrl.add_virtual_measurement(loader, label="Stats", owner_plugin="test_plugin")
+    assert ctrl.measurements == [measurement]
+    assert measurement.owner_plugin == "test_plugin"
+    assert measurement.label == "Stats"
+
+
+def test_add_virtual_measurement_disambiguates_label_collision(ctrl: AppController) -> None:
+    ctrl.add_virtual_measurement(_make_virtual_loader(), label="Stats", owner_plugin="test_plugin")
+    second = ctrl.add_virtual_measurement(_make_virtual_loader(), label="Stats", owner_plugin="test_plugin")
+    assert second.label == "Stats (2)"
+
+
+def test_add_virtual_measurement_sets_primary_when_pool_was_empty(ctrl: AppController) -> None:
+    measurement = ctrl.add_virtual_measurement(_make_virtual_loader(), label="Stats", owner_plugin="p")
+    assert ctrl.primary_measurement is measurement
+
+
+def test_add_virtual_measurement_does_not_disturb_existing_primary(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    ctrl2.add_virtual_measurement(_make_virtual_loader(), label="Stats", owner_plugin="p")
+    assert ctrl2.primary_measurement is m1
+
+
+def test_add_virtual_measurement_refreshes_signal_browser(ctrl: AppController, deps: dict) -> None:
+    deps["browser"].populate_all.reset_mock()
+    ctrl.add_virtual_measurement(_make_virtual_loader(), label="Stats", owner_plugin="p")
+    deps["browser"].populate_all.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-PLUGIN-301")
+def test_remove_virtual_measurements_for_removes_only_that_plugins_measurements(
+    ctrl: AppController,
+) -> None:
+    a = ctrl.add_virtual_measurement(_make_virtual_loader("plugin_a"), label="A", owner_plugin="plugin_a")
+    b = ctrl.add_virtual_measurement(_make_virtual_loader("plugin_b"), label="B", owner_plugin="plugin_b")
+
+    ctrl.remove_virtual_measurements_for("plugin_a")
+
+    assert ctrl.measurements == [b]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-301")
+def test_remove_virtual_measurements_for_emits_measurement_closed(ctrl: AppController) -> None:
+    ctrl.add_virtual_measurement(_make_virtual_loader("plugin_a"), label="A", owner_plugin="plugin_a")
+    seen = []
+    ctrl.events.measurement_closed.connect(seen.append)
+
+    ctrl.remove_virtual_measurements_for("plugin_a")
+
+    assert len(seen) == 1
+    assert seen[0].is_virtual is True
+    assert seen[0].owner_plugin == "plugin_a"
+
+
+def test_remove_virtual_measurements_for_unknown_plugin_is_a_noop(ctrl: AppController) -> None:
+    measurement = ctrl.add_virtual_measurement(_make_virtual_loader("plugin_a"), label="A", owner_plugin="plugin_a")
+    ctrl.remove_virtual_measurements_for("someone_else")
+    assert ctrl.measurements == [measurement]
+
+
+@pytest.mark.requirement("REQ-VMEAS-440")
+def test_replace_single_measurement_rejects_a_virtual_measurement(ctrl: AppController) -> None:
+    measurement = ctrl.add_virtual_measurement(_make_virtual_loader("p"), label="Virtual", owner_plugin="p")
+
+    result = ctrl.replace_single_measurement(measurement, "real.mf4")
+
+    assert result.succeeded == []
+    assert len(result.failed) == 1
+    assert measurement.owner_plugin == "p"  # untouched
+    assert ctrl.measurements == [measurement]
 
 
 # ---------------------------------------------------------------------------
@@ -2579,7 +2702,7 @@ def test_capture_config_returns_viewer_config(ctrl: AppController, deps: dict, t
     deps["plot"].get_zoom_state.return_value = _make_zoom_state()
     deps["plot"].get_axis_grouping.return_value = ([], [])
     deps["loader"].is_open = True
-    deps["loader"]._path = tmp_path / "test.mf4"
+    deps["loader"].path = tmp_path / "test.mf4"
     config = ctrl.capture_config(tmp_path / "session.mvc")
     assert isinstance(config, ViewerConfig)
 
@@ -2589,7 +2712,7 @@ def test_capture_config_x_range(ctrl: AppController, deps: dict, tmp_path) -> No
     deps["plot"].get_zoom_state.return_value = _make_zoom_state()
     deps["plot"].get_axis_grouping.return_value = ([], [])
     deps["loader"].is_open = True
-    deps["loader"]._path = tmp_path / "test.mf4"
+    deps["loader"].path = tmp_path / "test.mf4"
     config = ctrl.capture_config(tmp_path / "session.mvc")
     assert config.tabs[0].x_range == (0.0, 5.0)
 
@@ -2600,7 +2723,7 @@ def test_capture_config_measurement_path(ctrl: AppController, deps: dict, tmp_pa
     deps["plot"].get_zoom_state.return_value = _make_zoom_state()
     deps["plot"].get_axis_grouping.return_value = ([], [])
     deps["loader"].is_open = True
-    deps["loader"]._path = meas
+    deps["loader"].path = meas
     config = ctrl.capture_config(tmp_path / "session.mvc")
     assert config.measurements[0].path == str(meas)
 
@@ -2613,8 +2736,8 @@ def test_capture_config_captures_every_loaded_measurement(
     just the first one."""
     loader_a, loader_b = _make_pool_loader(), _make_pool_loader()
     meas_a, meas_b = tmp_path / "a.mf4", tmp_path / "b.mf4"
-    loader_a._path = meas_a
-    loader_b._path = meas_b
+    loader_a.path = meas_a
+    loader_b.path = meas_b
     ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
     ctrl2.replace_measurements([str(meas_a)])
     ctrl2.add_measurements([str(meas_b)])
@@ -2816,6 +2939,169 @@ def test_capture_config_active_tab_index(ctrl: AppController, deps: dict, tmp_pa
     config = ctrl.capture_config(tmp_path / "session.mvc")
 
     assert config.active_tab_index == 1
+
+
+# ---------------------------------------------------------------------------
+# Virtual measurements — .mvc capture_config()/restore_measurements() (#147)
+# ---------------------------------------------------------------------------
+
+def _attach_virtual_signal(loader, name: str = "derived") -> None:
+    from mdf_viewer.model.virtual_signal import VirtualSignal
+
+    def resolver():
+        return _make_signal_data(), _make_metadata(name=name)
+
+    loader.attach(VirtualSignal(name=name, resolver=resolver, template=_make_metadata(name=name)))
+
+
+@pytest.mark.requirement("REQ-VMEAS-410")
+def test_capture_config_excludes_virtual_measurement_in_the_middle_of_the_pool(
+    deps: dict, tmp_path
+) -> None:
+    """A virtual measurement sitting earlier in the pool than a real one
+    must not shift that real measurement's saved index."""
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (real1,) = ctrl2.measurements
+    virtual_loader = _make_virtual_loader()
+    _attach_virtual_signal(virtual_loader)
+    ctrl2.add_virtual_measurement(virtual_loader, label="Virtual", owner_plugin="p")
+    ctrl2.add_measurements(["b.mf4"])
+    real1, virtual, real2 = ctrl2.measurements
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    ctrl2.add_signal(0, 1, measurement=real2)
+    config = ctrl2.capture_config(tmp_path / "session.mvc")
+
+    assert [m.label for m in config.measurements] == [real1.label, real2.label]
+    # real2 is index 1 in the filtered (real-only) list, not index 2 as it
+    # would be in the raw pool that includes the virtual measurement.
+    assert config.tabs[0].signals[0].measurement_index == 1
+
+
+@pytest.mark.requirement("REQ-VMEAS-040")
+def test_capture_config_primary_index_is_none_when_primary_is_virtual(
+    deps: dict, tmp_path
+) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    virtual = ctrl2.add_virtual_measurement(_make_virtual_loader(), label="Virtual", owner_plugin="p")
+    ctrl2.set_primary_measurement(virtual)
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    config = ctrl2.capture_config(tmp_path / "session.mvc")
+
+    assert config.primary_measurement_index is None
+
+
+@pytest.mark.requirement("REQ-VMEAS-040")
+def test_restore_measurements_with_none_primary_index_does_not_crash_and_falls_back(
+    deps: dict,
+) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    from mdf_viewer.model.viewer_config import MeasurementConfig
+
+    results = ctrl2.restore_measurements(
+        [MeasurementConfig(path="a.mf4", label="M1", offset_s=0.0),
+         MeasurementConfig(path="b.mf4", label="M2", offset_s=0.0)],
+        None,
+        False,
+    )
+
+    assert all(r is not None for r in results)
+    assert ctrl2.primary_measurement is ctrl2.measurements[0]
+
+
+@pytest.mark.requirement("REQ-VMEAS-410")
+def test_capture_config_all_virtual_pool(ctrl: AppController, deps: dict, tmp_path) -> None:
+    ctrl.add_virtual_measurement(_make_virtual_loader(), label="Virtual", owner_plugin="p")
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    deps["loader"].is_open = False
+
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+
+    assert config.measurements == ()
+    assert config.primary_measurement_index is None
+
+
+@pytest.mark.requirement("REQ-VMEAS-430")
+def test_capture_config_excludes_virtual_signals_across_multiple_tabs(
+    deps: dict, tmp_path
+) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    virtual_loader = _make_virtual_loader()
+    _attach_virtual_signal(virtual_loader)
+    virtual = ctrl2.add_virtual_measurement(virtual_loader, label="Virtual", owner_plugin="p")
+    plot2, table2 = _make_bare_tab_plot(), MagicMock()
+    ctrl2.create_tab(plot2, table2)
+    ctrl2.switch_tab(0)
+    ctrl2.add_signal(0, 0, measurement=virtual)
+    ctrl2.switch_tab(1)
+    ctrl2.add_signal(0, 0, measurement=virtual)
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    plot2.get_zoom_state.return_value = _make_zoom_state()
+    plot2.get_axis_grouping.return_value = ([], [])
+
+    config = ctrl2.capture_config(tmp_path / "session.mvc")
+
+    assert config.tabs[0].signals == ()
+    assert config.tabs[1].signals == ()
+
+
+@pytest.mark.requirement("REQ-VMEAS-430")
+def test_capture_config_tab_with_only_virtual_signals_saves_with_empty_signals(
+    ctrl: AppController, deps: dict, tmp_path
+) -> None:
+    virtual_loader = _make_virtual_loader()
+    _attach_virtual_signal(virtual_loader)
+    virtual = ctrl.add_virtual_measurement(virtual_loader, label="Virtual", owner_plugin="p")
+    ctrl.add_signal(0, 0, measurement=virtual)
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    deps["loader"].is_open = False
+
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+
+    assert config.tabs[0].signals == ()
+
+
+@pytest.mark.requirement("REQ-VMEAS-410")
+def test_capture_config_idempotent_across_repeated_saves_with_mixed_pool(
+    deps: dict, tmp_path
+) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_virtual_measurement(_make_virtual_loader(), label="Virtual", owner_plugin="p")
+    ctrl2.add_measurements(["b.mf4"])
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    first = ctrl2.capture_config(tmp_path / "session.mvc")
+    second = ctrl2.capture_config(tmp_path / "session.mvc")
+
+    assert first.measurements == second.measurements
+    assert first.primary_measurement_index == second.primary_measurement_index
+
+
+@pytest.mark.requirement("REQ-VMEAS-410")
+def test_capture_config_persists_settings_display_name_ignoring_virtual_measurements(
+    ctrl: AppController, deps: dict, tmp_path
+) -> None:
+    """Sanity check: adding a virtual measurement doesn't disturb unrelated
+    capture_config output (display-name settings passthrough)."""
+    ctrl.add_virtual_measurement(_make_virtual_loader(), label="Virtual", owner_plugin="p")
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    deps["loader"].is_open = False
+
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+
+    assert config.display_name_separator == "."
 
 
 @pytest.mark.requirement("REQ-FILE-090")
@@ -3671,6 +3957,41 @@ def test_set_multi_selected_emits_selection_changed(ctrl: AppController, deps: d
     ctrl.events.selection_changed.connect(seen.append)
     ctrl.set_multi_selected(actives)
     assert seen[0].selected == actives
+
+
+def test_close_measurement_emits_measurement_closed(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    seen = []
+    ctrl2.events.measurement_closed.connect(seen.append)
+    ctrl2.close_measurement(m1)
+    assert len(seen) == 1
+    assert seen[0].label == m1.label
+    assert seen[0].is_virtual is False
+    assert seen[0].owner_plugin is None
+
+
+def test_load_file_emits_measurement_closed_for_previous_measurement(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    seen = []
+    ctrl2.events.measurement_closed.connect(seen.append)
+    ctrl2.load_file("b.mf4")
+    assert [e.label for e in seen] == [m1.label]
+
+
+def test_replace_measurements_emits_measurement_closed_for_every_old_measurement(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(
+        deps, [_make_pool_loader(), _make_pool_loader(), _make_pool_loader()],
+    )
+    ctrl2.replace_measurements(["a.mf4", "b.mf4"])
+    m1, m2 = ctrl2.measurements
+    seen = []
+    ctrl2.events.measurement_closed.connect(seen.append)
+    ctrl2.replace_measurements(["c.mf4"])
+    assert {e.label for e in seen} == {m1.label, m2.label}
 
 
 # ---------------------------------------------------------------------------

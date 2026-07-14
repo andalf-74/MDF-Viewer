@@ -20,13 +20,15 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("mdf_viewer.plugin_api")
 
-# EventBus signal name -> Plugin handler method name (#70's five events).
+# EventBus signal name -> Plugin handler method name (#70's five events,
+# plus #147's measurement_closed).
 _EVENT_HANDLER_NAMES = {
     "file_loaded": "on_file_loaded",
     "signal_added": "on_signal_added",
     "signal_removed": "on_signal_removed",
     "selection_changed": "on_selection_changed",
     "cursor_moved": "on_cursor_moved",
+    "measurement_closed": "on_measurement_closed",
 }
 
 
@@ -83,6 +85,14 @@ class Plugin:
 
     def on_cursor_moved(self, event: Any) -> None:
         """Override to receive `cursor_moved` events (REQ-PLUGIN-180/181)."""
+
+    def on_measurement_closed(self, event: Any) -> None:
+        """Override to receive `measurement_closed` events (#147, REQ-PLUGIN-302).
+
+        Fires for any measurement close, real or virtual — broadcast, not
+        targeted; check `event.is_virtual` and your own bookkeeping to tell
+        whether this was a measurement your plugin contributed.
+        """
 
     @property
     def is_active(self) -> bool:

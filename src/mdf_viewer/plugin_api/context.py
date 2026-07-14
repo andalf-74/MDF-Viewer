@@ -16,10 +16,13 @@ from typing import TYPE_CHECKING, Any, Callable
 import numpy as np
 
 from mdf_viewer.enums import CursorMode
+from mdf_viewer.model.virtual_measurement_loader import VirtualMeasurementLoader
+from mdf_viewer.model.virtual_signal import VirtualSignal
 from mdf_viewer.plugin_api.registry import DockWidgetMode, DockWidgetRegistration, MenuActionRegistration
 from mdf_viewer.plugin_api.types import (
     PluginCursorMovedEvent,
     PluginFileLoadedEvent,
+    PluginMeasurementClosedEvent,
     PluginMeasurementView,
     PluginSelectionChangedEvent,
     PluginSignalAddedEvent,
@@ -33,6 +36,8 @@ if TYPE_CHECKING:
     from PyQt6.QtWidgets import QWidget
 
     from mdf_viewer.controller.app_controller import AppController
+    from mdf_viewer.model.signal_data import SignalData
+    from mdf_viewer.model.signal_metadata import SignalMetadata
     from mdf_viewer.view_model.active_signal import ActiveSignal
     from mdf_viewer.plugin_api.registry import PluginRegistry
 
@@ -47,7 +52,10 @@ logger = logging.getLogger("mdf_viewer.plugin_api")
 # added to one but not the other is caught immediately rather than silently
 # leaking a live ActiveSignal/TabWorkspace to plugins.
 _KNOWN_EVENTS = frozenset(
-    {"file_loaded", "signal_added", "signal_removed", "selection_changed", "cursor_moved"}
+    {
+        "file_loaded", "signal_added", "signal_removed", "selection_changed",
+        "cursor_moved", "measurement_closed",
+    }
 )
 
 
@@ -191,6 +199,59 @@ class PluginContext:
         )
 
     # ------------------------------------------------------------------
+    # Virtual measurement contribution (#147)
+    # ------------------------------------------------------------------
+
+    def create_virtual_signal(
+        self,
+        name: str,
+        resolver: "Callable[[], tuple[SignalData, SignalMetadata]]",
+        *,
+        unit: str = "",
+        comment: str = "",
+    ) -> VirtualSignal:
+        """Create a virtual signal, not yet attached to any measurement (REQ-PLUGIN-290).
+
+        *resolver* is called by the application only when the signal is
+        actually needed for display (REQ-VMEAS-140) — never eagerly here.
+        Returns the real VirtualSignal instance directly, not an opaque
+        token: unlike a PluginSignalView (which wraps live, shared,
+        app-mutated state a plugin could otherwise hold a stale reference
+        to), this is data the plugin itself just created and nothing else
+        mutates concurrently.
+        """
+        from mdf_viewer.model.signal_metadata import SignalMetadata
+
+        template = SignalMetadata(name=name, unit=unit, comment=comment)
+        return VirtualSignal(name=name, resolver=resolver, template=template)
+
+    def create_virtual_measurement(self) -> VirtualMeasurementLoader:
+        """Create an empty virtual measurement (REQ-PLUGIN-291).
+
+        Not yet visible anywhere — attach signals via attach_virtual_signal(),
+        then call register_virtual_measurement() to add it to the pool.
+        """
+        return VirtualMeasurementLoader(owner_plugin=self._plugin_name)
+
+    def attach_virtual_signal(
+        self, measurement: VirtualMeasurementLoader, signal: VirtualSignal
+    ) -> None:
+        """Attach *signal* to *measurement*'s channel tree (REQ-PLUGIN-291).
+
+        Callable any number of times before register_virtual_measurement().
+        """
+        measurement.attach(signal)
+
+    def register_virtual_measurement(self, measurement: VirtualMeasurementLoader, label: str) -> None:
+        """Add *measurement* to the application's measurement pool (REQ-PLUGIN-292).
+
+        Makes it visible in the Signal Browser and everywhere else a real
+        measurement would be, attributed to this plugin for later teardown
+        (REQ-PLUGIN-300/301) and user-close notification (REQ-PLUGIN-302).
+        """
+        self._app.add_virtual_measurement(measurement, label, owner_plugin=self._plugin_name)
+
+    # ------------------------------------------------------------------
     # Event subscription (REQ-PLUGIN-140/150)
     # ------------------------------------------------------------------
 
@@ -227,6 +288,8 @@ class PluginContext:
                 mode=payload.mode,
                 tab_index=self._tab_index_for(payload.tab),
             )
+        if event_name == "measurement_closed":
+            return PluginMeasurementClosedEvent(label=payload.label, is_virtual=payload.is_virtual)
         raise AssertionError(f"no plugin-safe translation registered for event '{event_name}'")
 
     def subscribe(self, event_name: str, handler: Callable[[Any], None]) -> None:
@@ -280,3 +343,11 @@ class PluginContext:
         """
         self.unsubscribe_all()
         self._registry.remove_registrations_for(self._plugin_name)
+        # Appended last, deliberately after unsubscribe_all(): this
+        # plugin's own measurement_closed subscription (if any) is already
+        # gone by the time remove_virtual_measurements_for() below triggers
+        # close_measurement()'s measurement_closed emission for its own
+        # measurements — no redundant "your own measurement was closed"
+        # callback while already mid-teardown (#147, REQ-PLUGIN-301). Other,
+        # still-active plugins remain subscribed and do receive it.
+        self._app.remove_virtual_measurements_for(self._plugin_name)
