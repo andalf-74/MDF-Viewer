@@ -4,6 +4,14 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Raster detection (#145): a signal's raster is no longer misdetected as
+  "variable" when it's actually fixed-rate but has occasional dropped
+  samples (e.g. a bus signal that skips a frame under load) — detection now
+  uses the median sample interval and tolerates gaps that are clean
+  multiples of it, instead of a mean that dropped frames could drag off the
+  true rate.
+
 ## [2.2] - 2026-07-12
 
 ### Added

@@ -309,15 +309,24 @@ class MdfLoader:
 # ---------------------------------------------------------------------------
 
 def _compute_raster(timestamps: np.ndarray) -> float | None:
-    """Return the fixed raster in seconds, or None when variable or indeterminate."""
+    """Return the fixed raster in seconds, or None when variable or indeterminate.
+
+    Uses the median interval as the raster candidate (robust against dropped
+    frames dragging a mean off the true rate) and measures each interval's
+    deviation from the nearest integer multiple of that candidate, so a
+    dropped sample — which produces a clean multiple of the raster, not
+    noise — doesn't get counted as evidence of a variable rate.
+    """
     if len(timestamps) < 2:
         return None
     intervals = np.diff(timestamps)
-    mean = float(np.mean(intervals))
-    if mean <= 0:
+    median = float(np.median(intervals))
+    if median <= 0:
         return None
-    if float(np.percentile(np.abs(intervals - mean) / mean, 99)) <= 0.05:
-        return mean
+    multiples = np.maximum(np.round(intervals / median), 1)
+    expected = multiples * median
+    if float(np.percentile(np.abs(intervals - expected) / expected, 99)) <= 0.05:
+        return median
     return None
 
 

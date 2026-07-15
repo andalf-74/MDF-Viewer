@@ -485,6 +485,21 @@ def test_compute_raster_two_samples() -> None:
     assert abs(result - 0.5) < 1e-9
 
 
+@pytest.mark.requirement("REQ-MDF-040")
+def test_compute_raster_dropped_frames_still_fixed() -> None:
+    # a bus signal fixed at 10ms with ~3% dropped frames (gaps are clean
+    # multiples of the raster, not noise) must still resolve to 0.01s (#145)
+    rng = np.random.default_rng(0)
+    base = 0.01
+    t = [0.0]
+    for _ in range(2000):
+        step = base * 2 if rng.random() < 0.03 else base
+        t.append(t[-1] + step)
+    result = _compute_raster(np.array(t))
+    assert result is not None
+    assert abs(result - base) < 1e-9
+
+
 # ---------------------------------------------------------------------------
 # load_signal – raster
 # ---------------------------------------------------------------------------
