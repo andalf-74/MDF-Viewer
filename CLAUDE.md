@@ -26,11 +26,7 @@ The prototype's core problem was that data classes, viewer, and plotter were too
 
 ### Signal Data Model
 
-Three distinct signal classes have been identified from the prototype:
-
-- **SignalData** – Raw timestamps and sample values. No UI knowledge whatsoever.
-- **SignalMetadata** – Descriptive information about a signal: name, unit, min/max, sample count, raster, comment, and any other MDF metadata fields.
-- **ActiveSignal** – Represents a signal that has been added to the plot. Knows its curve object, ViewBox, and color. Bridge between Model and View.
+Three distinct signal classes were identified from the prototype (`SignalData`, `SignalMetadata`, `ActiveSignal`) — see `docs/architecture.md`'s "Signal classes" section for the definitions (module paths, field ownership), which is the source of truth.
 
 ---
 
@@ -101,7 +97,7 @@ This is printed to stderr but does **not** affect app behaviour — `MdfLoader.o
 When asked to look at / check / review the GitHub issues, always fetch and display them grouped by milestone so the current development priority is immediately visible.
 
 ### Grill-Me Skill
-When the user says **"grill me"** about a feature or topic, Claude should enter interview mode: ask focused, one-at-a-time questions to surface requirements, edge cases, and design decisions before writing any code. Summarize findings before proceeding — and write that summary into the relevant `docs/requirements/*.md` file(s), not just into the conversation. For a Feature issue, this *is* the "write requirements before implementation" step from Issue Triage below, not a separate later task.
+"Grill me" about a feature or topic uses the `grilling` skill for the interview mechanics. In this repo, the findings must be written into the relevant `docs/requirements/*.md` file(s), not just left in the conversation — for a Feature issue, this *is* the "write requirements before implementation" step from Issue Triage below, not a separate later task.
 
 ### Requirements Workflow
 
@@ -115,22 +111,7 @@ First file drafted: `docs/requirements/file-handling.md`.
 
 ### Issue Triage
 
-GitHub issues are the only backlog and arrive in different flavors. **Before starting work on an issue, state which flavor it is and get the user's agreement** — don't silently assume it, since the flavor decides which docs must stay in sync. Then follow that flavor's rule below — this is what keeps `docs/requirements/`, `docs/architecture.md`, the user manual, and `CHANGELOG.md` from going stale as issues get closed:
-
-- **Feature** → write or update the relevant `docs/requirements/*.md` file(s) *before* implementation starts.
-- **Bug** → after root-causing, check whether a requirements doc needs updating too: either the requirement was silent on this case, or the code deviated from a requirement that was correct. If the fix is purely a wording correction to a requirements/architecture/ui doc with no code change (e.g. the REQ-PLOT-121 case), that edit *is* the fix — there's no separate "Documentation" flavor for this, it's a Bug variant.
-- **Test-coverage** → tag the new/existing test(s) with the REQ-ID(s) they verify (`@pytest.mark.requirement("REQ-...")`). No requirements doc change unless writing the test surfaces an actual behavior gap — if it does, that part follows the Bug rule above (e.g. #91's MDF3 fixture surfacing a real `channel_tree()` unit/comment bug).
-- **Investigation / Spike** → no doc changes during the investigation itself. Must close by either filing a follow-up Feature/Bug issue, or an explicit no-action note on the issue explaining why nothing further is needed — never leave it closed with no trace of the conclusion.
-- **Documentation** → means the end-user manual (not `docs/requirements/`, `docs/architecture.md`, or `docs/ui.md`, which are internal). Tracked starting with #55, which will establish where it lives. No requirements/architecture doc changes, since app behavior isn't changing.
-- **Refactor / Tech debt** → no requirements doc change (behavior is unchanged by definition). Add a `docs/architecture.md` decision-log entry if the restructuring reflects a real architectural decision worth recording.
-- **Chore / Maintenance** → dependency bumps, CI, packaging. No requirements impact; update `docs/release.md` if it changes the release/build process.
-- **Design / Architecture question** → resolve into a `docs/architecture.md` decision-log entry.
-
-**`docs/ui.md`** update is not gated to one flavor the way requirements/architecture are — whichever flavor (Feature or Bug) actually adds, removes, or moves a menu item, toolbar button, dialog, or panel must update the relevant section of `docs/ui.md` too, in the same commit as the code change. It's the map of what the user currently sees; unlike requirements (stable invariants) it's pure current-state documentation, so it goes stale the moment a layout change lands without a matching edit — which is exactly what happened across #97/#99/#100/#101/#102 before this rule existed.
-
-**`docs/api.md`** gets the same treatment — same reasoning, same risk of drift, just mapping the codebase's module/class structure instead of the visible UI. Whichever flavor adds a new module, or changes a class's public methods/signals/fields enough that the existing entry no longer matches, updates the relevant `api.md` entry in the same commit. A pure-internal change with no altered public surface (most Refactor/Tech debt work) doesn't need an edit.
-
-**CHANGELOG.md** is reserved for user-visible changes only (Keep a Changelog style) — Feature and Bug entries. Test-coverage, Investigation, Refactor/Tech debt, Chore, and Design-question issues do not get a CHANGELOG entry unless they also produce a user-visible side effect.
+GitHub issues are the only backlog and arrive in different flavors. **Before starting work on an issue, state which flavor it is and get the user's agreement** — don't silently assume it, since the flavor decides which docs must stay in sync. The full flavor taxonomy and which docs each flavor must update (`docs/requirements/`, `docs/architecture.md`, `docs/ui.md`, `docs/api.md`, `CHANGELOG.md`) is the source of truth in `docs/agents/issue-tracker.md`'s "Issue Triage flavors" section — follow it before closing any issue.
 
 ### Plugin vs. Built-in Decision Rule
 Before implementing any new feature, ask: **does this belong in the base app, or should it be a plugin?**
@@ -193,8 +174,9 @@ See `docs/release.md` for the full build and publish steps.
 
 2.2 combines two closed GitHub milestones, both reshuffled from earlier planning (see git history for the full renumbering story if needed): **"2.2 Multiview/Multimeasurement"** (#17 umbrella + #97–#106, #119, #122, #124, #130, #131, #133 — multi-file support, Plot Stripes, tabs, per-stripe AST, workspace/config extension, etc.; #104 rejected by user directly) and **"2.2 Additional Bugfixing"** (#134–#140 — a later architecture review's findings plus two more issues added afterward; #139 closed as duplicate/already-implemented, #140 fixed). Both milestones and their umbrella issues are closed on GitHub.
 
-One other active milestone remains on GitHub:
-- **2.3 Plugins** — new plugin architecture effort: #43 (umbrella), #70 (event bus on AppController, done), #71 (PluginContext API facade, done), #72 (Plugin base class/lifecycle, done), #73 (UI extension points in MainWindow, done), #74 (plugin loader/discovery, done), #75 (proof-of-concept built-in plugin, done — see below), #76 (convert update checker into a first-party plugin), #147 (virtual measurements/signals — plugin groundwork for artificial-signal and custom-file-format plugins, implemented — see below), #148 (register_tab_type — pluggable tab types, implemented — see below), #118 (OpenStreetMap View, first real consumer of #148, not yet started).
+Two other active milestones remain on GitHub:
+- **2.3 Plugins** — new plugin architecture effort: #43 (umbrella), #70 (event bus on AppController, done), #71 (PluginContext API facade, done), #72 (Plugin base class/lifecycle, done), #73 (UI extension points in MainWindow, done), #74 (plugin loader/discovery, done), #75 (proof-of-concept built-in plugin, done — see below), #76 (convert update checker into a first-party plugin), #147 (virtual measurements/signals — plugin groundwork for artificial-signal and custom-file-format plugins, implemented — see below), #148 (register_tab_type — pluggable tab types, implemented — see below), #118 (OpenStreetMap View, first real consumer of #148, not yet started; scheduled under Backlog, see below), #150 (rescan/reload plugins without restarting, not yet started), #151 (plugin-author SDK package, not yet started), #152 (PoC plugin exercising virtual measurements, follow-up to #147, not yet started).
+- **2.3.1 Misc Features/Fixes** — smaller user-facing asks collected separately from the 2.3 Plugins effort: #117 (configurable background color), #141 (Tree View selectable via Preferences), #142 (Y autozoom of selected signal), #143 (import/export a list of labels — moved here from 2.4 Artificial Signals), #146 (improve cursor movement by arrow keys). None started yet as of 2026-07-15.
 
 **#71 (PluginContext API facade) implemented, committed (`eb63eee`), pushed, and closed 2026-07-13** via a 6-milestone plan (types → registry → AppController additions → read surface → registration/event surface → e2e harness + docs), full grill-me → requirements (`docs/requirements/plugin-api.md` REQ-PLUGIN-060–150) → architecture (Plan-agent-reviewed, `docs/architecture.md`) workflow. New top-level `src/mdf_viewer/plugin_api/` package (`types.py`/`registry.py`/`context.py`) — `PluginContext` is the only object a plugin will ever import; read-only signal/measurement/cursor projections, `register_menu_action`/`register_dock_widget` (stubs, rendered by #73), event subscription (`subscribe`/`unsubscribe_all`). `AppController` gained `all_workspaces()`, `active_tab_index`, and an opaque per-signal token (`token_for_signal`/`find_active_signal_by_id`) — not `id(active_signal)`, which would be unsafe for a handle a plugin can hold indefinitely. Filed follow-up [#147](https://github.com/andalf-74/MDF-Viewer/issues/147) for a future "virtual measurement" capability (artificial-signal and custom-file-format plugins), out of #71's scope. No CHANGELOG entry (no user-visible surface yet, matching the #70 precedent).
 
@@ -212,10 +194,24 @@ One other active milestone remains on GitHub:
 
 **#148 (pluggable tab types, `register_tab_type`) implemented 2026-07-15** via a 5-milestone plan (foundations → minimal test-fixture plugin → tab creation UI → existing tab-lifecycle fixes → `.mvc` persistence), full grill-me (lighter than #147's — the issue body already recorded real design decisions from prior discussion) → requirements (`docs/requirements/plugin-api.md` REQ-PLUGIN-320–352) → architecture (**three** Plan-agent review passes — two on the technical design, one on the milestone breakdown; 17 real gaps found total and folded in) → plan-mode milestones workflow. Extends #71–#73's UI extension points: `PluginContext.register_tab_type(type_id, display_name, view_factory)` lets a plugin register a whole tab *template*, not just a menu action or dock widget — `AppController`'s `TabWorkspace`/`_workspaces` stays completely plot-tabs-only and unaware non-plot tabs exist, matching the boundary #73 already established for dialog-mode dock widgets. New dev-mode-only `plugins/tab_type_fixture/` (mirrors #75's precedent) exists purely to make the tab-lifecycle bug surface live-testable, since unit tests alone weren't sufficient here (unlike #147). The first design draft's approach — computing a workspace index by *counting* plot pages up to a `QTabWidget` position, redone ad hoc per call site — turned out to have 12 gaps across the first review, several serious (a `restore_config()` bug that would have silently misapplied one tab's saved axis-grouping/zoom/cursor state onto an unrelated tab; a reintroduction of the #130 native-crash class in the tab-close parking decision; `AttributeError` crashes in Preferences with any non-plot tab open). The redesign replaced all counting with **identity-based lookup** (new `AppController.tab_index_for_plot(plot_area)`, mirroring the existing `reorder_tabs()`/`_measurement_index()` identity-search idioms already in the codebase) plus an explicit `resolved_workspaces` correspondence built once during `.mvc` restore's Phase 2 and threaded through to Phase 4 — a second review found 5 more loose ends in that redesign (all folded in), and the milestone-breakdown review found 2 more call sites needing the same treatment (tab-bar drag-reordering; confirmed Ctrl+Tab needed no change). 1937 tests passing (up from 1887 at #147). Live-tested in the real running app at two checkpoints — tab creation/switch/close/duplicate/copy/reorder/Preferences with mixed plot and non-plot tabs (M4), and a full `.mvc` save→reload round-trip with a non-plot tab positioned between two plot tabs, confirming each plot tab's signals/axis-grouping/zoom/cursor state landed on the correct tab and the focused non-plot tab was restored correctly (M5) — both user-confirmed. Serialization of a non-plot tab's own internal content is explicitly deferred to a future issue (v1 persists only existence/name/view_type, recreating an empty instance on restore); #118 (OpenStreetMap View) remains the first real consumer, not yet started. `docs/api.md`/`docs/ui.md` updated. No CHANGELOG entry (no end-user-visible surface until #118 or another real plugin ships a tab type, same reasoning as #71–#75/#147).
 
-The **2.X Artificial Signals** milestone was renamed/versioned to **2.4 Artificial Signals** (#58 umbrella, #86, #110, #121, #123, #143) on GitHub. A **Backlog** milestone (unscheduled) holds #55, #57, #60, #61, #108, #111, #118, #125, #126, #127, #128, #129, #132, #144.
+**Bug #145 (raster mislabeled "variable" on signals with dropped frames) fixed 2026-07-15** (`fe24956`, latest commit on `main`). `_compute_raster()` used the mean sample interval, which occasional dropped frames (common on real bus signals) could drag off the true raster; switched to the median interval as the raster candidate, tolerating gaps that are clean integer multiples of it. `CHANGELOG.md`'s `[Unreleased] → Fixed` section has the user-facing entry.
+
+The **2.X Artificial Signals** milestone was renamed/versioned to **2.4 Artificial Signals** (#58 umbrella, #86, #110, #121, #123) on GitHub — #143 has since moved to 2.3.1 Misc Features/Fixes, see above. A **Backlog** milestone (unscheduled) holds #55, #57, #60, #61, #108, #111, #118, #125, #126, #127, #128, #129, #132, #144.
 
 ### Changelog
 Notable changes are tracked in `CHANGELOG.md` (Keep a Changelog style). Update it alongside `CLAUDE.md` when shipping a fix or feature.
+
+---
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked on GitHub (andalf-74/MDF-Viewer), via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context; domain docs are this repo's existing `docs/requirements/*.md` (the "what") and `docs/architecture.md` (the "how"/decision log) — not a generic `CONTEXT.md`/`docs/adr/`. See `docs/agents/domain.md`.
 
 ---
 

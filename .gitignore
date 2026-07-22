@@ -44,6 +44,10 @@ $RECYCLE.BIN/
 .Spotlight-V100
 .Trashes
 
+# ---- Claude Code ----
+# Personal plugin/permission config — not shared across dev machines.
+.claude/
+
 # ---- Project ----
 # Local sample/measurement data should not be committed.
 *.mf4
