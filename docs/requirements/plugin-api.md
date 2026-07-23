@@ -183,18 +183,20 @@ application invokes it, the same as any other plugin callback
 This section makes #71's registration stubs (`register_menu_action`,
 `register_dock_widget`) actually visible in the running application. It
 is built against whatever has been registered by the time the main
-window is constructed — no plugin can currently activate or deactivate
-after that point (#74, the plugin loader, does not exist yet), so nothing
-here needs to react to registrations changing while the app is already
-running [REQ-PLUGIN-200].
+window is constructed [REQ-PLUGIN-200]. **Superseded in part by #150:**
+at the time this was written, no plugin could activate or deactivate
+after that point, so nothing needed to react to registrations changing
+while the app was already running. Once Rescan/Reload exist, that is no
+longer true — see REQ-PLUGIN-390.
 
 ### The Plugins menu
 
 Every registered menu action appears as an entry in one dedicated
 "Plugins" menu, positioned between the existing Edit and Help menus
-[REQ-PLUGIN-210]. The Plugins menu is not shown at all when nothing has
-registered a menu action and no dock widget has been registered in
-dialog mode, rather than appearing empty or disabled [REQ-PLUGIN-211].
+[REQ-PLUGIN-210]. **Superseded by #150:** the Plugins menu is always
+present, regardless of whether any plugin action, dock widget, or
+Rescan/Reload target currently exists, rather than being hidden when
+empty as originally specified — see REQ-PLUGIN-391 for why.
 
 ### Docked widgets
 
@@ -340,9 +342,11 @@ when the owning plugin is still present, nothing more.
 A plugin can register a tab type through its context, supplying a stable
 type identifier, a display name, and a factory the application invokes to
 build one tab instance [REQ-PLUGIN-320]. Registration is only valid during
-`activate()`, rendered as a static snapshot the same way menu actions and
-dock widgets already are (REQ-PLUGIN-200) — no live add/remove while the
-application is already running [REQ-PLUGIN-321]. The factory is invoked
+`activate()` [REQ-PLUGIN-321]. **Superseded in part by #150:** at the
+time this was written, that meant a static snapshot with no live
+add/remove while the application was already running, the same way menu
+actions and dock widgets were (REQ-PLUGIN-200); Rescan/Reload now change
+the registered tab type set live — see REQ-PLUGIN-390. The factory is invoked
 fresh every time a new tab of that type is created, never reused across
 tabs, so any number of independent tabs of the same type can be open at
 once [REQ-PLUGIN-322].
@@ -382,3 +386,80 @@ saved tab whose type is not registered at restore time is skipped, with
 the rest of the saved session still restoring around it, consistent with
 how a measurement that fails to load is already handled during restore
 [REQ-PLUGIN-352].
+
+---
+
+## Plugin Rescan and Reload (#150)
+
+Today (#74), `PluginLoader.load_all()` runs exactly once, at startup —
+picking up a new plugin, or an edit to an existing one, requires
+restarting the application. This section adds two on-demand capabilities
+that don't: re-scanning the plugins directory for packages that were not
+loaded at startup, and reloading one already-active plugin's code from
+disk without restarting.
+
+### Rescan
+
+The application can re-scan the plugins directory on demand, discovering
+and activating any plugin package that is not currently active — this
+covers both a package added to the directory after startup and a package
+that failed to load on a previous scan, treated identically and retried
+every time rather than remembered as permanently broken [REQ-PLUGIN-360].
+Rescanning never activates a second copy of a plugin that is already
+active, keyed by plugin name across the application's entire running
+session rather than only within one scan [REQ-PLUGIN-361].
+
+A plugin folder that is removed from disk while the application is
+running is not detected by Rescan, and does not, on its own, deactivate
+the plugin that was loaded from it — reacting to on-disk removal is out
+of scope here.
+
+### Reload
+
+The application can reload one specific, already-active plugin, by name,
+on demand — deactivating it and reactivating a freshly re-imported copy
+of its code without restarting the application [REQ-PLUGIN-370].
+Reloading invalidates every cached module reachable under that plugin's
+own import namespace, not only its top-level module, so that a change to
+any file within a multi-file plugin package is picked up, not only a
+change to its `__init__.py` [REQ-PLUGIN-371]. If the freshly reactivated
+copy's `activate()` fails, the plugin ends up deactivated rather than
+reverted to the copy that was running before the reload was requested
+[REQ-PLUGIN-372].
+
+This issue adds no separate way to deactivate a plugin without also
+reloading it — the two bundled capabilities here are Rescan and Reload
+only.
+
+### Live UI teardown on deactivation
+
+Deactivating an already-active plugin while the application is running
+removes every currently visible trace of its contributed UI — its
+docked-panel section, any dialog-mode widget it registered that is
+currently open, and any open tab created from a tab type it registered —
+rather than leaving that UI on screen and disconnected from a plugin that
+is no longer active [REQ-PLUGIN-380].
+
+### Live refresh of the Plugins menu
+
+The Plugins menu, its docked-widget sections, and the set of tab types
+offered when creating a new tab are all rebuilt to reflect the current
+set of active plugins immediately after a Rescan or a Reload completes,
+rather than only once, at startup, as originally specified in
+REQ-PLUGIN-200/321 [REQ-PLUGIN-390]. The Plugins menu is always present,
+regardless of whether any plugin is currently active, so that Rescan
+remains reachable even from a plugins directory with nothing successfully
+loaded — reversing REQ-PLUGIN-211's original "hidden when empty" rule,
+which depended on registrations never changing after startup
+[REQ-PLUGIN-391].
+
+### Trigger UI
+
+A "Rescan Plugins" action and a "Reload Plugin" submenu, listing every
+currently active plugin by name, both appear at the top of the Plugins
+menu, above a separator that precedes any plugin-contributed entries
+[REQ-PLUGIN-400]. Completing a Rescan or a Reload reports a brief summary
+of its outcome to the user through the status bar, rather than only to
+the log as the equivalent startup failures already are, since both are
+actions the user just initiated and expects to see the result of
+[REQ-PLUGIN-401].

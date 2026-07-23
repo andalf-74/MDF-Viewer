@@ -211,10 +211,6 @@ def run(argv: list[str]) -> int:
         lambda plot_area, table: _add_new_tab(controller, plot_area, table, settings)
     )
 
-    # Must run before set_controller() below: it takes a one-time snapshot
-    # of controller.plugin_registry to build the Plugins menu/dock sections
-    # (#73) — any plugin activated after that point would silently never
-    # appear until a restart.
     plugin_loader = PluginLoader(
         app=controller,
         plugins_dir=resolve_plugins_dir(settings),
@@ -226,6 +222,15 @@ def run(argv: list[str]) -> int:
         tab_name_provider=lambda i: window._plot_tab_names()[i],
     )
     plugin_loader.load_all()
+    # Rescan/Reload (#150) let a plugin activated after this point actually
+    # appear/update without restarting — set_controller() below still takes
+    # the first snapshot of controller.plugin_registry, but MainWindow
+    # refreshes it again itself after every Rescan/Reload from here on.
+    window.set_plugin_loader_hooks(
+        rescan=plugin_loader.rescan,
+        reload_plugin=plugin_loader.reload_one,
+        active_plugin_names=plugin_loader.active_plugin_names,
+    )
 
     window.set_settings(settings)
     window.set_controller(controller)

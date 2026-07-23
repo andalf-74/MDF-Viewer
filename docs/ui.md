@@ -39,7 +39,7 @@
   - New Tab / New Stripe (#115 — moved here from File)
   - Undo (Ctrl+Z) / Redo (Ctrl+Shift+Z) — zoom/pan history
   - Sync Measurements — checkable; collapses/restores every loaded measurement's own time axis into one shared ruler (#102); disabled with fewer than 2 measurements loaded
-- **Plugins** (#73) — one entry per plugin-registered menu action, plus one entry per plugin dialog-type dock widget (labeled "\<title\>…", opening it in a modal dialog on demand). Not shown at all when no plugin has registered anything — today's actual state, since the plugin loader (#74) doesn't exist yet and nothing populates this.
+- **Plugins** (#73, #150) — always present now, regardless of whether any plugin is currently active (#150 reverses the original "hidden when empty" rule, since Rescan must be reachable even from a plugins directory with nothing loaded). At the top, above a separator: **Rescan Plugins** (discovers and activates any plugin package not yet active — a new folder dropped in, or one that failed to load before, retried the same way every time) and a **Reload Plugin** submenu (lists every currently active plugin by name; disabled/empty when nothing is active; reloading stops the plugin, re-imports its code from disk, and reactivates it — closing any of its open dock section/dialog/tabs first, and never rolling back if the fresh reactivation fails). Below the separator: one entry per plugin-registered menu action, plus one entry per plugin dialog-type dock widget (labeled "\<title\>…", opening it in a modal dialog on demand). Both actions report a brief status-bar summary of their outcome.
 - **Help**
   - Check for Update… (fetches GitHub releases API; shows update dialog or "up to date" dialog)
   - License (Enter / View/Change)

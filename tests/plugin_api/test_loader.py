@@ -281,7 +281,8 @@ def test_load_all_threads_tab_name_provider_into_context(tmp_path: Path) -> None
 
     loader.load_all()
 
-    module = sys.modules[loader._loaded_module_names[0]]
+    module_name = loader._active["TabReader"].module_name
+    module = sys.modules[module_name]
     assert module._TabReaderPlugin.seen_tab_name == "Custom Tab 0"
 
 
@@ -309,7 +310,7 @@ def test_deactivate_all_stops_every_started_plugin(tmp_path: Path) -> None:
     )
     loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
     loader.load_all()
-    module_name = loader._loaded_module_names[0]
+    module_name = loader._active["Tracked"].module_name
     module = sys.modules[module_name]
 
     loader.deactivate_all()
@@ -319,3 +320,234 @@ def test_deactivate_all_stops_every_started_plugin(tmp_path: Path) -> None:
 
     loader.deactivate_all()  # must be safe to call twice
     assert module._TrackedPlugin.deactivate_calls == 1
+
+
+# ---------------------------------------------------------------------------
+# rescan (#150, REQ-PLUGIN-360/361)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-361")
+def test_rescan_skips_already_active_plugin_without_reimporting(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    marker = tmp_path / "import_marker.txt"
+    marker_repr = repr(str(marker))
+    pkg = plugins_dir / "counted_plugin"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent(f"""
+            from pathlib import Path
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            with Path({marker_repr}).open("a", encoding="utf-8") as _f:
+                _f.write("x")
+
+            class _CountedPlugin(Plugin):
+                name = "Counted"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_CountedPlugin]
+            """),
+        encoding="utf-8",
+    )
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+
+    first = loader.load_all()
+    assert first.loaded == ["Counted"]
+    assert marker.read_text(encoding="utf-8") == "x"
+
+    second = loader.rescan()
+
+    assert second.loaded == []
+    assert second.failed == []
+    assert marker.read_text(encoding="utf-8") == "x"  # not re-imported
+
+
+@pytest.mark.requirement("REQ-PLUGIN-360")
+def test_rescan_retries_a_previously_failed_folder(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    pkg = plugins_dir / "flaky_plugin"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("PLUGINS = []\n", encoding="utf-8")
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+
+    first = loader.load_all()
+    assert first.loaded == []
+    assert first.failed == ["flaky_plugin"]
+
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _FixedPlugin(Plugin):
+                name = "Fixed"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_FixedPlugin]
+            """),
+        encoding="utf-8",
+    )
+
+    second = loader.rescan()
+
+    assert second.loaded == ["Fixed"]
+    assert second.failed == []
+
+
+@pytest.mark.requirement("REQ-PLUGIN-360")
+def test_rescan_activates_a_genuinely_new_folder(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+
+    first = loader.load_all()
+    assert first.loaded == []
+
+    _write_single_file_plugin(plugins_dir, "new_plugin", "NewOne")
+    second = loader.rescan()
+
+    assert second.loaded == ["NewOne"]
+
+
+# ---------------------------------------------------------------------------
+# reload_one (#150, REQ-PLUGIN-370/371/372)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-370")
+def test_reload_one_reactivates_with_fresh_code(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    pkg = plugins_dir / "reloadable"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _V1(Plugin):
+                name = "Reloadable"
+                version = "1"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_V1]
+            """),
+        encoding="utf-8",
+    )
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+    loader.load_all()
+    assert loader._active["Reloadable"].instance.version == "1"
+
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _V2(Plugin):
+                name = "Reloadable"
+                version = "2"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_V2]
+            """),
+        encoding="utf-8",
+    )
+
+    ok = loader.reload_one("Reloadable")
+
+    assert ok is True
+    assert loader._active["Reloadable"].instance.version == "2"
+
+
+def test_reload_one_returns_false_when_not_active(tmp_path: Path) -> None:
+    loader = PluginLoader(app=_make_app(), plugins_dir=tmp_path / "plugins")
+    assert loader.reload_one("Nonexistent") is False
+
+
+@pytest.mark.requirement("REQ-PLUGIN-372")
+def test_reload_one_failed_activate_leaves_plugin_unloaded_no_rollback(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    pkg = plugins_dir / "flaky"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _Good(Plugin):
+                name = "Flaky"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_Good]
+            """),
+        encoding="utf-8",
+    )
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+    loader.load_all()
+    assert "Flaky" in loader._active
+
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _Bad(Plugin):
+                name = "Flaky"
+
+                def activate(self, context) -> None:
+                    raise ValueError("boom")
+
+            PLUGINS = [_Bad]
+            """),
+        encoding="utf-8",
+    )
+
+    ok = loader.reload_one("Flaky")
+
+    assert ok is False
+    assert "Flaky" not in loader._active
+
+
+@pytest.mark.requirement("REQ-PLUGIN-371")
+def test_reload_one_purges_submodule_cache_for_multi_file_package(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    _write_multi_file_plugin(plugins_dir, "toolsuite", "ToolSuite")
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+    loader.load_all()
+    active = loader._active["ToolSuite"]
+    submodule_name = f"{active.module_name}.helper"
+    original_submodule = sys.modules[submodule_name]
+
+    ok = loader.reload_one("ToolSuite")
+
+    assert ok is True
+    new_active = loader._active["ToolSuite"]
+    new_submodule_name = f"{new_active.module_name}.helper"
+    assert new_submodule_name == submodule_name  # same folder, same synthesized name
+    # A fresh module object proves the stale cache entry was purged before
+    # reload re-imported it — otherwise Python's `from . import helper`
+    # would have resolved back to the same cached (stale) object.
+    assert sys.modules[new_submodule_name] is not original_submodule
+
+
+# ---------------------------------------------------------------------------
+# active_plugin_names (#150)
+# ---------------------------------------------------------------------------
+
+def test_active_plugin_names_reflects_current_state(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    _write_single_file_plugin(plugins_dir, "plugin_a", "Alpha")
+    _write_single_file_plugin(plugins_dir, "plugin_b", "Bravo")
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+
+    assert loader.active_plugin_names() == []
+
+    loader.load_all()
+
+    assert loader.active_plugin_names() == ["Alpha", "Bravo"]
+
+    loader.reload_one("Alpha")
+
+    assert loader.active_plugin_names() == ["Alpha", "Bravo"]

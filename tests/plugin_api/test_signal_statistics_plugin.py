@@ -85,8 +85,8 @@ def test_plugin_dock_widget_reflects_min_max_mean_and_resets_on_deselect(
     loader = PluginLoader(app=ctrl, plugins_dir=REPO_PLUGINS_DIR)
     loader.load_all()
 
-    # Mirrors what MainWindow._build_plugin_dock_sections() (#73) does in
-    # the real app: lazily build the registered widget once.
+    # Mirrors what MainWindow._sync_plugin_dock_sections() (#73, #150) does
+    # in the real app: lazily build the registered widget once.
     registration = ctrl.plugin_registry.dock_widgets[0]
     widget = registration.build()
     qtbot.addWidget(widget)

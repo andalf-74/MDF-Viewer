@@ -97,3 +97,21 @@ def test_run_loads_plugins(app_mocks) -> None:
 def test_run_deactivates_plugins_on_shutdown(app_mocks) -> None:
     run(["mdf-viewer"])
     app_mocks["plugin_loader"].deactivate_all.assert_called_once()
+
+
+def test_run_wires_plugin_loader_hooks_to_the_real_loader(app_mocks) -> None:
+    """#150 — MainWindow's Rescan/Reload menu entries must be driven by the
+    real PluginLoader instance, not a stand-in."""
+    run(["mdf-viewer"])
+
+    app_mocks["window"].set_plugin_loader_hooks.assert_called_once()
+    kwargs = app_mocks["window"].set_plugin_loader_hooks.call_args.kwargs
+
+    kwargs["rescan"]()
+    app_mocks["plugin_loader"].rescan.assert_called_once()
+
+    kwargs["reload_plugin"]("SomePlugin")
+    app_mocks["plugin_loader"].reload_one.assert_called_once_with("SomePlugin")
+
+    kwargs["active_plugin_names"]()
+    app_mocks["plugin_loader"].active_plugin_names.assert_called_once()

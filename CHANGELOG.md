@@ -4,6 +4,15 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Rescan/Reload plugins without restarting (#150): the Plugins menu is now
+  always present (previously hidden with no plugins loaded), with two new
+  entries at the top — "Rescan Plugins" discovers and activates any plugin
+  package not yet active (a newly added folder, or one that failed to load
+  before), and "Reload Plugin" (a submenu of every currently active plugin)
+  reloads one plugin's code from disk without restarting the app, cleanly
+  closing its open panel/dialog/tabs first.
+
 ### Fixed
 - Raster detection (#145): a signal's raster is no longer misdetected as
   "variable" when it's actually fixed-rate but has occasional dropped

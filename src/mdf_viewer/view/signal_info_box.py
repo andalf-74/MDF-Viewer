@@ -338,7 +338,7 @@ class SignalInfoBox(QWidget):
     # Plugin dock widgets (#73)
     # ------------------------------------------------------------------
 
-    def add_plugin_section(self, title: str, widget: QWidget) -> None:
+    def add_plugin_section(self, title: str, widget: QWidget) -> QWidget:
         """Add *widget* as another titled section, alongside Info/Properties
         (REQ-PLUGIN-220) — mirrors their own `[QLabel, content]` construction.
 
@@ -351,6 +351,10 @@ class SignalInfoBox(QWidget):
         across every pane once a plugin section exists, rather than trying
         to preserve their original ratio around an arbitrary number of new
         plugin sections.
+
+        Returns the section container widget — #150's MainWindow tracks it
+        per plugin so a later Reload/unload can remove exactly this section
+        via remove_plugin_section() without touching any other plugin's.
         """
         section = QWidget()
         section_layout = QVBoxLayout(section)
@@ -367,6 +371,28 @@ class SignalInfoBox(QWidget):
         self._splitter.setSizes([200] * count)
         for i in range(count):
             self._splitter.setStretchFactor(i, 1)
+        return section
+
+    def remove_plugin_section(self, section: QWidget) -> None:
+        """Remove a section previously returned by add_plugin_section() (#150).
+
+        `setParent(None)` before `deleteLater()` — matching the #120
+        postmortem's rule that dropping a widget from its layout alone
+        (`removeWidget()`/`hide()`) does not destroy it; leaving it alive
+        but orphaned is exactly the class of bug that crash was.
+        Recomputes the remaining panes' stretch factors the same way
+        add_plugin_section() does, so removing one section doesn't leave
+        the others mis-sized.
+        """
+        if self._splitter.indexOf(section) == -1:
+            return
+        section.setParent(None)
+        section.deleteLater()
+        count = self._splitter.count()
+        if count:
+            self._splitter.setSizes([200] * count)
+            for i in range(count):
+                self._splitter.setStretchFactor(i, 1)
 
 
 # ---------------------------------------------------------------------------

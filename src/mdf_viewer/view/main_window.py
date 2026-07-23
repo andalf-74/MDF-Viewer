@@ -86,6 +86,7 @@ from mdf_viewer.view.workspace_session_controller import WorkspaceSessionControl
 
 if TYPE_CHECKING:
     from mdf_viewer.controller.app_controller import AppController
+    from mdf_viewer.plugin_api.loader import PluginLoadResult
     from mdf_viewer.plugin_api.registry import (
         DockWidgetRegistration,
         MenuActionRegistration,
@@ -143,9 +144,21 @@ class MainWindow(QMainWindow):
         self._update_thread: _UpdateCheckThread | None = None
         self._plugins_menu: QMenu | None = None
         self._plugin_dialogs: dict["DockWidgetRegistration", QDialog] = {}
-        # Populated once from set_controller() (#148, same static-snapshot
-        # timing as _build_plugins_menu/_build_plugin_dock_sections).
+        # Populated from set_controller() and refreshed by _sync_plugin_ui()
+        # after every Rescan/Reload (#150) — no longer a one-time snapshot.
         self._tab_types: list["TabTypeRegistration"] = []
+        # plugin_name -> its docked-section container widget(s) currently
+        # in signal_info_box's splitter (#150) — lets _sync_plugin_ui() add
+        # only what's new and _teardown_plugin_ui() remove only one
+        # plugin's own sections, instead of rebuilding every plugin's dock
+        # widget from scratch on every Rescan/Reload.
+        self._plugin_dock_widgets: dict[str, list[QWidget]] = {}
+        # Rescan/Reload/active-name hooks (#150), supplied by app.py via
+        # set_plugin_loader_hooks() against the real PluginLoader — None
+        # (and the corresponding menu entries disabled) until wired.
+        self._rescan_hook: Callable[[], "PluginLoadResult"] | None = None
+        self._reload_plugin_hook: Callable[[str], bool] | None = None
+        self._active_plugin_names_hook: Callable[[], list[str]] | None = None
         # A page's presence here is the one place MainWindow distinguishes
         # a non-plot tab from a plot tab (which instead carries
         # .plot_area/.active_signals_table attributes, set by
@@ -237,39 +250,86 @@ class MainWindow(QMainWindow):
         self.signal_info_box.enum_yaxis_requested.connect(
             controller.on_enum_yaxis_requested
         )
-        self._build_plugins_menu(controller.plugin_registry)
-        self._build_plugin_dock_sections(controller.plugin_registry)
-        self._tab_types = list(controller.plugin_registry.tab_types)
+        self._sync_plugin_ui()
 
-    def _build_plugin_dock_sections(self, registry: "PluginRegistry") -> None:
-        """Add every docked-mode plugin widget to the Info/Properties drawer (#73).
+    def _sync_plugin_ui(self) -> None:
+        """Refresh the Plugins menu, its dock sections, and the tab-type
+        list from the plugin registry's *current* contents (#150).
 
-        Read once, here in set_controller() — same one-time-snapshot
-        reasoning as _build_plugins_menu (REQ-PLUGIN-200).
+        Called once from set_controller() and again after every
+        Rescan/Reload completes — registrations can change while the
+        application is already running now, unlike when this was a
+        one-shot build (REQ-PLUGIN-200/390). A no-op if the controller
+        isn't wired yet — set_plugin_loader_hooks() may run before
+        set_controller() does, depending on app.py's construction order.
+        """
+        if self._controller is None:
+            return
+        registry = self._controller.plugin_registry
+        self._rebuild_plugins_menu(registry)
+        self._sync_plugin_dock_sections(registry)
+        self._tab_types = list(registry.tab_types)
+
+    def _sync_plugin_dock_sections(self, registry: "PluginRegistry") -> None:
+        """Add a docked section for any plugin not yet tracked in
+        self._plugin_dock_widgets (#73, #150).
+
+        Deliberately add-only: an already-active plugin's section(s) are
+        left completely untouched here, never rebuilt from scratch, so
+        in-widget state (typed text, scroll position, ...) survives a
+        Rescan/Reload of some *other* plugin. A reloaded plugin's own
+        stale section(s), if any, are removed first by
+        _teardown_plugin_ui() — by the time this runs, its plugin_name key
+        is already gone from _plugin_dock_widgets, so it's treated as new.
         """
         for dock_reg in registry.dock_widgets:
             if dock_reg.mode != "docked":
                 continue
+            if dock_reg.plugin_name in self._plugin_dock_widgets:
+                continue
             widget = dock_reg.build()
             if widget is None:
                 continue
-            self.signal_info_box.add_plugin_section(dock_reg.title, widget)
+            section = self.signal_info_box.add_plugin_section(dock_reg.title, widget)
+            self._plugin_dock_widgets.setdefault(dock_reg.plugin_name, []).append(section)
 
-    def _build_plugins_menu(self, registry: "PluginRegistry") -> None:
-        """Build the Plugins menu from *registry*'s current contents (#73).
+    def _rebuild_plugins_menu(self, registry: "PluginRegistry") -> None:
+        """(Re)build the Plugins menu from *registry*'s current contents and
+        the Rescan/Reload hooks (#73, #150).
 
-        Read once, here in set_controller() — MainWindow is constructed
-        before AppController exists (see app.py), so this is the earliest
-        point a real PluginRegistry is available. No plugin loader (#74)
-        exists yet to change the registry afterward, so this never needs
-        to run again (REQ-PLUGIN-200). Not shown at all if there's nothing
-        to put in it (REQ-PLUGIN-211).
+        Always created now (REQ-PLUGIN-391) — Rescan must be reachable
+        even with zero plugins active (e.g. bootstrapping from an empty
+        plugins/ folder), reversing the original "hidden when empty" rule
+        (formerly REQ-PLUGIN-211). Fully torn down and rebuilt every time:
+        unlike dock sections and dialogs (handled separately, see
+        _sync_plugin_dock_sections and _teardown_plugin_ui), no live
+        widget survives across a menu rebuild — QActions are stateless,
+        so there's nothing to preserve.
         """
-        has_dialog_widget = any(d.mode == "dialog" for d in registry.dock_widgets)
-        if not registry.menu_actions and not has_dialog_widget:
-            return
+        if self._plugins_menu is not None:
+            self.menuBar().removeAction(self._plugins_menu.menuAction())
+            self._plugins_menu.deleteLater()
+            self._plugins_menu = None
 
         self._plugins_menu = QMenu("&Plugins", self)
+
+        rescan_action = QAction("Rescan Plugins", self)
+        rescan_action.setEnabled(self._rescan_hook is not None)
+        rescan_action.triggered.connect(self._on_rescan_plugins)
+        self._plugins_menu.addAction(rescan_action)
+
+        reload_menu = QMenu("Reload Plugin", self._plugins_menu)
+        active_names = self._active_plugin_names_hook() if self._active_plugin_names_hook else []
+        reload_menu.setEnabled(bool(active_names))
+        for name in active_names:
+            action = QAction(name, self)
+            action.triggered.connect(lambda checked, n=name: self._on_reload_plugin(n))
+            reload_menu.addAction(action)
+        self._plugins_menu.addMenu(reload_menu)
+
+        self._plugins_menu.addSeparator()
+
+        has_dialog_widget = any(d.mode == "dialog" for d in registry.dock_widgets)
         for action_reg in registry.menu_actions:
             action = QAction(action_reg.label, self)
             action.triggered.connect(lambda checked, r=action_reg: self._on_plugin_menu_action(r))
@@ -286,6 +346,67 @@ class MainWindow(QMainWindow):
             self._plugins_menu.addAction(action)
 
         self.menuBar().insertMenu(self._help_menu.menuAction(), self._plugins_menu)
+
+    def _on_rescan_plugins(self) -> None:
+        """Re-scan the plugins directory on demand (#150). No-op with a
+        clear disabled action (see _rebuild_plugins_menu) if no loader is
+        wired — this handler should never actually fire without a hook."""
+        if self._rescan_hook is None:
+            return
+        result = self._rescan_hook()
+        self._sync_plugin_ui()
+        if result.loaded or result.failed:
+            self.show_status(f"Rescan: loaded {len(result.loaded)}, failed {len(result.failed)}", 5000)
+        else:
+            self.show_status("Rescan: nothing new", 5000)
+
+    def _on_reload_plugin(self, name: str) -> None:
+        """Reload one already-active plugin by name (#150).
+
+        Sequencing is deliberate: _teardown_plugin_ui() first (no live
+        widget still pointing at a plugin mid-stop()), then the reload
+        hook itself (stop -> purge caches -> re-import -> reactivate), then
+        _sync_plugin_ui() (the registry only reflects the new state once
+        the hook returns).
+        """
+        if self._reload_plugin_hook is None:
+            return
+        self._teardown_plugin_ui(name)
+        ok = self._reload_plugin_hook(name)
+        self._sync_plugin_ui()
+        if ok:
+            self.show_status(f"Reloaded '{name}'.", 5000)
+        else:
+            self.show_status(f"Reload of '{name}' failed — see log for detail.", 5000)
+
+    def _teardown_plugin_ui(self, plugin_name: str) -> None:
+        """Remove every currently-visible trace of *plugin_name*'s
+        contributed UI (#150): its docked section(s), any open dialog it
+        registered, and any open tab created from one of its tab types.
+
+        Called before deactivating/reloading a plugin so no live widget is
+        left pointing at a plugin mid-teardown — matching the #120
+        postmortem's rule that a removed-but-not-deleteLater()'d Qt object
+        can crash the app much later.
+        """
+        for section in self._plugin_dock_widgets.pop(plugin_name, []):
+            self.signal_info_box.remove_plugin_section(section)
+
+        for registration in list(self._plugin_dialogs):
+            if registration.plugin_name == plugin_name:
+                dialog = self._plugin_dialogs.pop(registration)
+                dialog.close()
+                dialog.deleteLater()
+
+        # Top-down: removeTab() shifts every higher index down, so closing
+        # from the highest index to the lowest never invalidates an index
+        # still to be visited (a naive ascending pass would corrupt every
+        # close after the first).
+        for index in reversed(range(self._tab_widget.count())):
+            page = self._tab_widget.widget(index)
+            registration = self._tab_type_by_page.get(page)
+            if registration is not None and registration.plugin_name == plugin_name:
+                self._on_tab_close_requested(index)
 
     def _on_plugin_menu_action(self, registration: "MenuActionRegistration") -> None:
         if not registration.invoke():
@@ -412,6 +533,22 @@ class MainWindow(QMainWindow):
     def show_status(self, message: str, timeout_ms: int = 3000) -> None:
         """Show a transient status bar message."""
         self.statusBar().showMessage(message, timeout_ms)
+
+    def set_plugin_loader_hooks(
+        self,
+        rescan: Callable[[], "PluginLoadResult"],
+        reload_plugin: Callable[[str], bool],
+        active_plugin_names: Callable[[], list[str]],
+    ) -> None:
+        """Supply the callables that drive Rescan/Reload against the real
+        PluginLoader (#150) — app.py injects these, mirroring
+        set_tab_factory()/set_recent_files_provider()'s callback-injection
+        idiom. PluginLoader itself is never imported by view/.
+        """
+        self._rescan_hook = rescan
+        self._reload_plugin_hook = reload_plugin
+        self._active_plugin_names_hook = active_plugin_names
+        self._sync_plugin_ui()
 
     def set_recent_files_provider(
         self, provider: Callable[[], list[Path]]

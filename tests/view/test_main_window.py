@@ -16,6 +16,7 @@ from PyQt6.QtWidgets import QDialog, QMessageBox, QWidget
 
 from mdf_viewer.controller.app_controller import LoadResult
 from mdf_viewer.errors import MdfLoadError
+from mdf_viewer.plugin_api.loader import PluginLoadResult
 from mdf_viewer.plugin_api.registry import PluginRegistry, TabTypeRegistration
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.main_window import MainWindow
@@ -41,8 +42,8 @@ def mock_controller() -> MagicMock:
     controller = MagicMock()
     # A real, empty PluginRegistry (#73) — a bare MagicMock's auto-iteration
     # (__iter__ defaults to an empty iterator, __bool__ defaults to True)
-    # would silently make `not registry.menu_actions` False, defeating the
-    # "hide the Plugins menu when empty" check in _build_plugins_menu.
+    # would silently make iterating registry.menu_actions/dock_widgets in
+    # _rebuild_plugins_menu behave unpredictably.
     controller.plugin_registry = PluginRegistry()
     return controller
 
@@ -3814,9 +3815,13 @@ def test_load_config_applies_saved_window_geometry(
 # Plugins menu (#73)
 # ---------------------------------------------------------------------------
 
-def test_no_plugins_menu_when_registry_is_empty(wired: MainWindow) -> None:
-    assert wired._plugins_menu is None
-    assert not any(a.text() == "&Plugins" for a in wired.menuBar().actions())
+def test_plugins_menu_always_present_even_when_registry_is_empty(wired: MainWindow) -> None:
+    """REQ-PLUGIN-391 (#150) — reverses the original "hidden when empty"
+    rule (formerly REQ-PLUGIN-211): Rescan must be reachable even with
+    zero plugins active, e.g. bootstrapping from an empty plugins/ folder."""
+    assert wired._plugins_menu is not None
+    assert any(a.text() == "&Plugins" for a in wired.menuBar().actions())
+    assert wired._plugins_menu.actions()[0].text() == "Rescan Plugins"
 
 
 def test_plugins_menu_appears_between_edit_and_help(window: MainWindow) -> None:
@@ -3843,7 +3848,8 @@ def test_plugins_menu_action_calls_invoke(window: MainWindow) -> None:
     controller.plugin_registry = registry
     window.set_controller(controller)
 
-    window._plugins_menu.actions()[0].trigger()
+    action = next(a for a in window._plugins_menu.actions() if a.text() == "Export")
+    action.trigger()
 
     assert calls == [1]
 
@@ -3860,7 +3866,8 @@ def test_plugins_menu_action_failure_shows_status_message(window: MainWindow) ->
     controller.plugin_registry = registry
     window.set_controller(controller)
 
-    window._plugins_menu.actions()[0].trigger()
+    action = next(a for a in window._plugins_menu.actions() if a.text() == "Export")
+    action.trigger()
 
     assert "Export" in window.statusBar().currentMessage()
 
@@ -3876,7 +3883,7 @@ def test_dialog_mode_dock_widget_gets_menu_action(window: MainWindow) -> None:
     controller.plugin_registry = registry
     window.set_controller(controller)
 
-    assert window._plugins_menu.actions()[0].text() == "Exporter Settings…"
+    assert any(a.text() == "Exporter Settings…" for a in window._plugins_menu.actions())
 
 
 def test_dialog_mode_widget_is_built_once_and_cached(window: MainWindow) -> None:
@@ -3956,3 +3963,332 @@ def test_docked_mode_build_failure_adds_no_section(window: MainWindow) -> None:
     window.set_controller(controller)
 
     assert window.signal_info_box._splitter.count() == before
+
+
+# ---------------------------------------------------------------------------
+# Plugin Rescan/Reload — view-layer plumbing (#150)
+# ---------------------------------------------------------------------------
+
+def test_sync_plugin_ui_does_not_rebuild_an_already_tracked_dock_section(window: MainWindow) -> None:
+    """_sync_plugin_ui() is add-only: calling it again with the same
+    registry contents must not touch an already-tracked plugin's section —
+    proven here by the widget factory not being called a second time."""
+    from mdf_viewer.plugin_api.registry import DockWidgetRegistration
+
+    build_calls = []
+
+    def factory() -> QWidget:
+        build_calls.append(1)
+        return QWidget()
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_dock_widget(DockWidgetRegistration("exporter", "Exporter Settings", factory, "docked"))
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+    assert len(build_calls) == 1
+
+    window._sync_plugin_ui()
+
+    assert len(build_calls) == 1
+
+
+def test_teardown_plugin_ui_removes_only_that_plugins_dock_section(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import DockWidgetRegistration
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_dock_widget(DockWidgetRegistration("exporter", "Exporter Settings", lambda: QWidget(), "docked"))
+    registry.add_dock_widget(DockWidgetRegistration("other", "Other Settings", lambda: QWidget(), "docked"))
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+    before = window.signal_info_box._splitter.count()
+
+    window._teardown_plugin_ui("exporter")
+
+    assert window.signal_info_box._splitter.count() == before - 1
+    assert "exporter" not in window._plugin_dock_widgets
+    assert "other" in window._plugin_dock_widgets
+
+
+def test_teardown_plugin_ui_closes_a_torn_down_plugins_cached_dialog(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import DockWidgetRegistration
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registration = DockWidgetRegistration("exporter", "Exporter Settings", lambda: QWidget(), "dialog")
+    registry.add_dock_widget(registration)
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+    with patch.object(QDialog, "exec", return_value=0):
+        window._on_plugin_dialog_action(registration)
+    assert registration in window._plugin_dialogs
+
+    window._teardown_plugin_ui("exporter")
+
+    assert registration not in window._plugin_dialogs
+
+
+def test_teardown_plugin_ui_leaves_other_plugins_cached_dialog_untouched(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import DockWidgetRegistration
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    reg_a = DockWidgetRegistration("exporter", "Exporter Settings", lambda: QWidget(), "dialog")
+    reg_b = DockWidgetRegistration("other", "Other Settings", lambda: QWidget(), "dialog")
+    registry.add_dock_widget(reg_a)
+    registry.add_dock_widget(reg_b)
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+    with patch.object(QDialog, "exec", return_value=0):
+        window._on_plugin_dialog_action(reg_a)
+        window._on_plugin_dialog_action(reg_b)
+
+    window._teardown_plugin_ui("exporter")
+
+    assert reg_b in window._plugin_dialogs
+
+
+def test_teardown_plugin_ui_closes_every_open_tab_of_its_type_not_just_the_first(
+    wired: MainWindow,
+) -> None:
+    """Regression test for the blocking Plan-review finding: closing
+    matching tabs in ascending index order corrupts every close after the
+    first, since removeTab() shifts every higher index down. With 2+ open
+    tabs of the torn-down plugin's own type, both must close."""
+    registration = TabTypeRegistration(
+        plugin_name="fixture_plugin", type_id="fixture", display_name="Fixture Tab",
+        view_factory=lambda: QWidget(),
+    )
+    baseline = wired._real_tab_count()
+    wired._create_non_plot_tab(registration)
+    wired._create_non_plot_tab(registration)
+    wired._create_non_plot_tab(registration)
+    assert wired._real_tab_count() == baseline + 3
+
+    wired._teardown_plugin_ui("fixture_plugin")
+
+    assert wired._real_tab_count() == baseline
+    assert not any(
+        reg.plugin_name == "fixture_plugin" for reg in wired._tab_type_by_page.values()
+    )
+
+
+def test_teardown_plugin_ui_leaves_other_plugins_open_tabs_untouched(wired: MainWindow) -> None:
+    target = TabTypeRegistration(
+        plugin_name="fixture_plugin", type_id="fixture", display_name="Fixture Tab",
+        view_factory=lambda: QWidget(),
+    )
+    other = TabTypeRegistration(
+        plugin_name="other_plugin", type_id="other", display_name="Other Tab",
+        view_factory=lambda: QWidget(),
+    )
+    wired._create_non_plot_tab(target)
+    wired._create_non_plot_tab(other)
+    before = wired._real_tab_count()
+
+    wired._teardown_plugin_ui("fixture_plugin")
+
+    assert wired._real_tab_count() == before - 1
+    assert any(reg.plugin_name == "other_plugin" for reg in wired._tab_type_by_page.values())
+
+
+# ---------------------------------------------------------------------------
+# Rescan trigger (#150)
+# ---------------------------------------------------------------------------
+
+def test_rescan_action_disabled_without_a_hook(wired: MainWindow) -> None:
+    rescan_action = wired._plugins_menu.actions()[0]
+    assert rescan_action.text() == "Rescan Plugins"
+    assert not rescan_action.isEnabled()
+
+
+def test_set_plugin_loader_hooks_enables_the_rescan_action(wired: MainWindow) -> None:
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(), reload_plugin=lambda name: True, active_plugin_names=lambda: [],
+    )
+
+    assert wired._plugins_menu.actions()[0].isEnabled()
+
+
+def test_on_rescan_plugins_does_nothing_without_a_hook(wired: MainWindow) -> None:
+    wired._on_rescan_plugins()  # must not raise
+    assert wired.statusBar().currentMessage() == ""
+
+
+def test_on_rescan_plugins_calls_hook_and_refreshes_ui(wired: MainWindow) -> None:
+    calls = []
+
+    def rescan() -> PluginLoadResult:
+        calls.append(1)
+        return PluginLoadResult(loaded=["NewPlugin"], failed=[])
+
+    wired.set_plugin_loader_hooks(rescan=rescan, reload_plugin=lambda name: True, active_plugin_names=lambda: [])
+
+    wired._on_rescan_plugins()
+
+    assert calls == [1]
+
+
+def test_on_rescan_plugins_shows_loaded_and_failed_counts(wired: MainWindow) -> None:
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(loaded=["A", "B"], failed=["C"]),
+        reload_plugin=lambda name: True,
+        active_plugin_names=lambda: [],
+    )
+
+    wired._on_rescan_plugins()
+
+    assert wired.statusBar().currentMessage() == "Rescan: loaded 2, failed 1"
+
+
+def test_on_rescan_plugins_shows_nothing_new_when_result_is_empty(wired: MainWindow) -> None:
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(), reload_plugin=lambda name: True, active_plugin_names=lambda: [],
+    )
+
+    wired._on_rescan_plugins()
+
+    assert wired.statusBar().currentMessage() == "Rescan: nothing new"
+
+
+# ---------------------------------------------------------------------------
+# Reload trigger (#150)
+# ---------------------------------------------------------------------------
+
+def test_reload_submenu_disabled_when_no_plugins_active(wired: MainWindow) -> None:
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(), reload_plugin=lambda name: True, active_plugin_names=lambda: [],
+    )
+
+    reload_action = wired._plugins_menu.actions()[1]
+    assert reload_action.text() == "Reload Plugin"
+    assert not reload_action.isEnabled()
+
+
+def test_reload_submenu_lists_every_active_plugin_by_name(wired: MainWindow) -> None:
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(),
+        reload_plugin=lambda name: True,
+        active_plugin_names=lambda: ["Alpha", "Bravo"],
+    )
+
+    reload_action = wired._plugins_menu.actions()[1]
+    assert reload_action.isEnabled()
+    submenu = reload_action.menu()
+    assert [a.text() for a in submenu.actions()] == ["Alpha", "Bravo"]
+
+
+def test_reload_submenu_action_reloads_the_correct_name_not_the_last_one(wired: MainWindow) -> None:
+    """Regression test for the loop-variable-capture idiom (minor Plan-
+    review finding): every per-name action must reload its OWN name, not
+    whichever name the loop variable last held."""
+    calls = []
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(),
+        reload_plugin=lambda name: calls.append(name) or True,
+        active_plugin_names=lambda: ["Alpha", "Bravo"],
+    )
+
+    submenu = wired._plugins_menu.actions()[1].menu()
+    submenu.actions()[0].trigger()
+
+    assert calls == ["Alpha"]
+
+
+def test_on_reload_plugin_does_nothing_without_a_hook(wired: MainWindow) -> None:
+    wired._on_reload_plugin("Alpha")  # must not raise
+    assert wired.statusBar().currentMessage() == ""
+
+
+def test_on_reload_plugin_sequences_teardown_then_hook_then_sync(wired: MainWindow) -> None:
+    order = []
+    original_teardown = wired._teardown_plugin_ui
+    original_sync = wired._sync_plugin_ui
+
+    def tracked_teardown(name: str) -> None:
+        order.append(("teardown", name))
+        original_teardown(name)
+
+    def tracked_hook(name: str) -> bool:
+        order.append(("hook", name))
+        return True
+
+    def tracked_sync() -> None:
+        order.append(("sync", None))
+        original_sync()
+
+    wired._teardown_plugin_ui = tracked_teardown
+    wired._sync_plugin_ui = tracked_sync
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(), reload_plugin=tracked_hook, active_plugin_names=lambda: [],
+    )
+    order.clear()  # drop the sync call set_plugin_loader_hooks() itself triggers
+
+    wired._on_reload_plugin("Alpha")
+
+    assert order == [("teardown", "Alpha"), ("hook", "Alpha"), ("sync", None)]
+
+
+def test_on_reload_plugin_shows_success_status_message(wired: MainWindow) -> None:
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(), reload_plugin=lambda name: True, active_plugin_names=lambda: [],
+    )
+
+    wired._on_reload_plugin("Alpha")
+
+    assert wired.statusBar().currentMessage() == "Reloaded 'Alpha'."
+
+
+def test_on_reload_plugin_shows_failure_status_message_no_rollback(wired: MainWindow) -> None:
+    """Reload failure is reported plainly — REQ-PLUGIN-372's no-rollback
+    rule means there is no "back" to report succeeding at."""
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(), reload_plugin=lambda name: False, active_plugin_names=lambda: [],
+    )
+
+    wired._on_reload_plugin("Alpha")
+
+    assert wired.statusBar().currentMessage() == "Reload of 'Alpha' failed — see log for detail."
+
+
+def test_on_reload_plugin_tears_down_live_ui_before_calling_the_hook(wired: MainWindow) -> None:
+    """End-to-end (within MainWindow) proof that Reload actually closes a
+    plugin's open tab, cached dialog, and dock section before reloading —
+    not just that the pieces work in isolation (covered by the M2 tests)."""
+    from mdf_viewer.plugin_api.registry import DockWidgetRegistration
+
+    registry = PluginRegistry()
+    registry.add_dock_widget(DockWidgetRegistration("Alpha", "Alpha Settings", lambda: QWidget(), "docked"))
+    dialog_reg = DockWidgetRegistration("Alpha", "Alpha Dialog", lambda: QWidget(), "dialog")
+    registry.add_dock_widget(dialog_reg)
+    wired._controller.plugin_registry = registry
+    wired._sync_plugin_ui()
+    with patch.object(QDialog, "exec", return_value=0):
+        wired._on_plugin_dialog_action(dialog_reg)
+    tab_registration = TabTypeRegistration(
+        plugin_name="Alpha", type_id="alpha_tab", display_name="Alpha Tab", view_factory=lambda: QWidget(),
+    )
+    wired._create_non_plot_tab(tab_registration)
+    before_tab_count = wired._real_tab_count()
+    assert "Alpha" in wired._plugin_dock_widgets
+    assert dialog_reg in wired._plugin_dialogs
+
+    def fake_reload(name: str) -> bool:
+        # Mirrors what the real reload_one() does to the registry via
+        # Plugin.stop() -> PluginContext._teardown() ->
+        # remove_registrations_for() — without this, _sync_plugin_ui()'s
+        # add-only pass would just see the (untouched) old registration
+        # still present and re-add it, which isn't what a real reload that
+        # registers nothing fresh would do.
+        registry.remove_registrations_for(name)
+        return True
+
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(), reload_plugin=fake_reload, active_plugin_names=lambda: [],
+    )
+    wired._on_reload_plugin("Alpha")
+
+    assert "Alpha" not in wired._plugin_dock_widgets
+    assert dialog_reg not in wired._plugin_dialogs
+    assert wired._real_tab_count() == before_tab_count - 1
