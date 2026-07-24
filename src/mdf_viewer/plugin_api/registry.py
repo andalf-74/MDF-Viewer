@@ -87,6 +87,25 @@ class TabTypeRegistration:
             return None
 
 
+@dataclass(frozen=True)
+class PreferencesPageRegistration:
+    """A plugin-registered preferences page — at most one per plugin (#159),
+    shown as one tab in the shared "Plugin Preferences…" dialog."""
+
+    plugin_name: str
+    title: str
+    widget_factory: "Callable[[], QWidget]"
+
+    def build(self) -> "QWidget | None":
+        try:
+            return self.widget_factory()
+        except Exception:
+            logger.exception(
+                "Plugin '%s' preferences page '%s' failed to build", self.plugin_name, self.title,
+            )
+            return None
+
+
 @dataclass
 class PluginRegistry:
     """Shared container of every plugin's UI-contribution registrations."""
@@ -94,12 +113,26 @@ class PluginRegistry:
     menu_actions: list[MenuActionRegistration] = field(default_factory=list)
     dock_widgets: list[DockWidgetRegistration] = field(default_factory=list)
     tab_types: list[TabTypeRegistration] = field(default_factory=list)
+    preferences_pages: list[PreferencesPageRegistration] = field(default_factory=list)
 
     def add_menu_action(self, registration: MenuActionRegistration) -> None:
         self.menu_actions.append(registration)
 
     def add_dock_widget(self, registration: DockWidgetRegistration) -> None:
         self.dock_widgets.append(registration)
+
+    def add_preferences_page(self, registration: PreferencesPageRegistration) -> None:
+        """Record *registration*, unless this plugin already registered one
+        (REQ-PLUGIN-422) — a plugin gets at most one preferences tab; a
+        second attempt is logged and dropped, the first one wins, mirroring
+        `add_tab_type`'s collision-drop shape."""
+        if any(r.plugin_name == registration.plugin_name for r in self.preferences_pages):
+            logger.error(
+                "Plugin '%s' tried to register a second preferences page — ignored",
+                registration.plugin_name,
+            )
+            return
+        self.preferences_pages.append(registration)
 
     def add_tab_type(self, registration: TabTypeRegistration) -> None:
         """Record *registration*, unless its type_id collides with the
@@ -126,3 +159,6 @@ class PluginRegistry:
         self.menu_actions = [r for r in self.menu_actions if r.plugin_name != plugin_name]
         self.dock_widgets = [r for r in self.dock_widgets if r.plugin_name != plugin_name]
         self.tab_types = [r for r in self.tab_types if r.plugin_name != plugin_name]
+        self.preferences_pages = [
+            r for r in self.preferences_pages if r.plugin_name != plugin_name
+        ]

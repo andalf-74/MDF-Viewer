@@ -463,3 +463,80 @@ of its outcome to the user through the status bar, rather than only to
 the log as the equivalent startup failures already are, since both are
 actions the user just initiated and expects to see the result of
 [REQ-PLUGIN-401].
+
+---
+
+## Plugin Preferences API (#159)
+
+Extends #71's per-plugin `PluginContext` with a settings-persistence
+primitive and a matching UI surface, so a plugin has a standard place to
+put user-configurable options instead of inventing its own storage and
+dialog. Surfaced while scoping #76 (converting the update checker into a
+first-party plugin), which becomes the first real consumer — this issue
+ships the general capability with no real consumer of its own yet, the
+same way #71/#147/#148 each did.
+
+### Per-plugin setting storage
+
+A plugin can persist a value under a key of its own choosing through its
+context, and read it back later — including across application restarts
+— namespaced separately per plugin so no two plugins' keys can collide
+[REQ-PLUGIN-410]. A persisted value is restricted to JSON-serializable
+primitives (strings, numbers, booleans, `None`, and lists/dicts of the
+same); a value that is not is rejected and logged at the point it is
+written, rather than surfacing later as a generic failure when the
+application's settings file is saved [REQ-PLUGIN-411]. Reading a setting
+that has never been written returns the caller-supplied default without
+persisting it — a read never has the side effect of writing anything
+[REQ-PLUGIN-412]. Both reading and writing a setting are available at any
+point after a plugin has received its context — including from within
+`activate()` itself, or from inside a preferences page being built —
+with no narrower lifecycle restriction, unlike the UI registration
+methods below [REQ-PLUGIN-413]. A plugin's persisted settings are not
+automatically removed if the plugin is later renamed or is no longer
+discovered — an orphaned entry is left in place indefinitely rather than
+pruned [REQ-PLUGIN-414].
+
+### Registering a preferences page
+
+A plugin can register one preferences page through its context, supplying
+a title and a factory the application invokes to build its content
+[REQ-PLUGIN-420]. Registration is only valid during `activate()`, the
+same as the application's other UI registration methods [REQ-PLUGIN-421].
+A second registration attempt from the same plugin is rejected and
+logged, rather than replacing the first or adding a second page — a
+plugin registers at most one preferences page [REQ-PLUGIN-422].
+
+### The Plugin Preferences dialog
+
+A "Plugin Preferences…" entry in the Plugins menu opens a single dialog
+listing one tab per plugin that has registered a preferences page
+[REQ-PLUGIN-430]. The entry is always present, disabled when no plugin
+has registered a page, and positioned alongside Rescan Plugins and Reload
+Plugin rather than among plugin-contributed entries lower in the menu
+[REQ-PLUGIN-431]. A plugin's preferences page is responsible for
+persisting its own changes as the user edits it, through its own calls to
+its context; the dialog itself provides no separate Apply/OK step and no
+way to discard an in-progress edit — closing it is the only action
+available [REQ-PLUGIN-432]. A plugin's preferences page content is built
+once, the first time it is needed, and the same instance is reused across
+every later opening of the dialog, the same way a plugin's dialog-mode
+dock widget is already cached [REQ-PLUGIN-433]. An exception raised while
+building a plugin's preferences page is caught and logged at the point
+the application invokes the factory; that plugin's tab is omitted and
+every other plugin's tab still appears, rather than the dialog failing to
+open at all [REQ-PLUGIN-434].
+
+### Interaction with Rescan and Reload
+
+Deactivating a plugin — including as part of a Reload — removes its
+preferences page registration and, if the Plugin Preferences dialog
+currently has a tab open for it, removes that tab and its built content,
+the same as the application already does for a deactivated plugin's other
+contributed UI [REQ-PLUGIN-440].
+
+### Out of scope here
+
+Migrating the existing "check for updates on startup" setting, and the
+core Preferences dialog it lives in today, onto this mechanism is
+explicitly deferred to #76.

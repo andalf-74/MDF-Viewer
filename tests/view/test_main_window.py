@@ -3928,6 +3928,154 @@ def test_dialog_mode_widget_build_failure_does_nothing(window: MainWindow) -> No
 
 
 # ---------------------------------------------------------------------------
+# Plugin Preferences dialog (#159)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-431")
+def test_plugin_preferences_action_present_and_disabled_when_registry_empty(
+    window: MainWindow,
+) -> None:
+    controller = MagicMock()
+    controller.plugin_registry = PluginRegistry()
+    window.set_controller(controller)
+
+    action = next(a for a in window._plugins_menu.actions() if a.text() == "Plugin Preferences…")
+    assert not action.isEnabled()
+
+
+@pytest.mark.requirement("REQ-PLUGIN-431")
+def test_plugin_preferences_action_enabled_when_a_page_is_registered(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import PreferencesPageRegistration
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_preferences_page(PreferencesPageRegistration("exporter", "Export", lambda: QWidget()))
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+
+    action = next(a for a in window._plugins_menu.actions() if a.text() == "Plugin Preferences…")
+    assert action.isEnabled()
+
+
+@pytest.mark.requirement("REQ-PLUGIN-430")
+def test_plugin_preferences_dialog_gets_one_tab_per_plugin(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import PreferencesPageRegistration
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_preferences_page(PreferencesPageRegistration("a", "A Prefs", lambda: QWidget()))
+    registry.add_preferences_page(PreferencesPageRegistration("b", "B Prefs", lambda: QWidget()))
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+
+    with patch.object(QDialog, "exec", return_value=0):
+        window._on_plugin_preferences(registry)
+
+    tabs = window._plugin_preferences_dialog.tabs
+    assert tabs.count() == 2
+    assert {tabs.tabText(i) for i in range(tabs.count())} == {"A Prefs", "B Prefs"}
+
+
+@pytest.mark.requirement("REQ-PLUGIN-433")
+def test_plugin_preferences_widget_is_built_once_and_cached(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import PreferencesPageRegistration
+
+    build_calls = []
+
+    def factory() -> QWidget:
+        build_calls.append(1)
+        return QWidget()
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_preferences_page(PreferencesPageRegistration("exporter", "Export", factory))
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+
+    with patch.object(QDialog, "exec", return_value=0):
+        window._on_plugin_preferences(registry)
+        window._on_plugin_preferences(registry)
+
+    assert len(build_calls) == 1
+
+
+@pytest.mark.requirement("REQ-PLUGIN-434")
+def test_plugin_preferences_page_build_failure_is_omitted_others_still_appear(
+    window: MainWindow,
+) -> None:
+    from mdf_viewer.plugin_api.registry import PreferencesPageRegistration
+
+    def boom() -> QWidget:
+        raise ValueError("plugin bug")
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_preferences_page(PreferencesPageRegistration("broken", "Broken", boom))
+    registry.add_preferences_page(PreferencesPageRegistration("ok", "OK Prefs", lambda: QWidget()))
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+
+    with patch.object(QDialog, "exec", return_value=0):
+        window._on_plugin_preferences(registry)  # must not raise
+
+    tabs = window._plugin_preferences_dialog.tabs
+    assert tabs.count() == 1
+    assert tabs.tabText(0) == "OK Prefs"
+    assert "broken" not in window._plugin_preferences_tab_widgets
+
+
+@pytest.mark.requirement("REQ-PLUGIN-432")
+def test_plugin_preferences_dialog_has_only_a_close_button(window: MainWindow) -> None:
+    from PyQt6.QtWidgets import QDialogButtonBox
+
+    from mdf_viewer.plugin_api.registry import PreferencesPageRegistration
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_preferences_page(PreferencesPageRegistration("exporter", "Export", lambda: QWidget()))
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+
+    with patch.object(QDialog, "exec", return_value=0):
+        window._on_plugin_preferences(registry)
+
+    box = window._plugin_preferences_dialog.findChild(QDialogButtonBox)
+    assert box.standardButtons() == QDialogButtonBox.StandardButton.Close
+
+
+@pytest.mark.requirement("REQ-PLUGIN-440")
+def test_teardown_plugin_ui_removes_only_that_plugins_preferences_tab(window: MainWindow) -> None:
+    from mdf_viewer.plugin_api.registry import PreferencesPageRegistration
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_preferences_page(PreferencesPageRegistration("exporter", "Export", lambda: QWidget()))
+    registry.add_preferences_page(PreferencesPageRegistration("other", "Other", lambda: QWidget()))
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+    with patch.object(QDialog, "exec", return_value=0):
+        window._on_plugin_preferences(registry)
+
+    window._teardown_plugin_ui("exporter")
+
+    tabs = window._plugin_preferences_dialog.tabs
+    assert tabs.count() == 1
+    assert tabs.tabText(0) == "Other"
+    assert "exporter" not in window._plugin_preferences_tab_widgets
+    assert "other" in window._plugin_preferences_tab_widgets
+
+
+def test_teardown_plugin_ui_preferences_tab_removal_is_safe_when_dialog_never_opened(
+    window: MainWindow,
+) -> None:
+    controller = MagicMock()
+    controller.plugin_registry = PluginRegistry()
+    window.set_controller(controller)
+
+    window._teardown_plugin_ui("exporter")  # must not raise
+
+
+# ---------------------------------------------------------------------------
 # Docked-mode plugin widgets (#73)
 # ---------------------------------------------------------------------------
 
@@ -4256,16 +4404,18 @@ def test_on_reload_plugin_tears_down_live_ui_before_calling_the_hook(wired: Main
     """End-to-end (within MainWindow) proof that Reload actually closes a
     plugin's open tab, cached dialog, and dock section before reloading —
     not just that the pieces work in isolation (covered by the M2 tests)."""
-    from mdf_viewer.plugin_api.registry import DockWidgetRegistration
+    from mdf_viewer.plugin_api.registry import DockWidgetRegistration, PreferencesPageRegistration
 
     registry = PluginRegistry()
     registry.add_dock_widget(DockWidgetRegistration("Alpha", "Alpha Settings", lambda: QWidget(), "docked"))
     dialog_reg = DockWidgetRegistration("Alpha", "Alpha Dialog", lambda: QWidget(), "dialog")
     registry.add_dock_widget(dialog_reg)
+    registry.add_preferences_page(PreferencesPageRegistration("Alpha", "Alpha Prefs", lambda: QWidget()))
     wired._controller.plugin_registry = registry
     wired._sync_plugin_ui()
     with patch.object(QDialog, "exec", return_value=0):
         wired._on_plugin_dialog_action(dialog_reg)
+        wired._on_plugin_preferences(registry)
     tab_registration = TabTypeRegistration(
         plugin_name="Alpha", type_id="alpha_tab", display_name="Alpha Tab", view_factory=lambda: QWidget(),
     )
@@ -4273,6 +4423,7 @@ def test_on_reload_plugin_tears_down_live_ui_before_calling_the_hook(wired: Main
     before_tab_count = wired._real_tab_count()
     assert "Alpha" in wired._plugin_dock_widgets
     assert dialog_reg in wired._plugin_dialogs
+    assert "Alpha" in wired._plugin_preferences_tab_widgets
 
     def fake_reload(name: str) -> bool:
         # Mirrors what the real reload_one() does to the registry via
@@ -4291,4 +4442,5 @@ def test_on_reload_plugin_tears_down_live_ui_before_calling_the_hook(wired: Main
 
     assert "Alpha" not in wired._plugin_dock_widgets
     assert dialog_reg not in wired._plugin_dialogs
+    assert "Alpha" not in wired._plugin_preferences_tab_widgets
     assert wired._real_tab_count() == before_tab_count - 1

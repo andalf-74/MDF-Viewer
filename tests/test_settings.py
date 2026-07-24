@@ -850,3 +850,117 @@ def test_plugins_dir_handles_missing_key_in_saved_file(tmp_path: Path) -> None:
     s = Settings(path=path)
 
     assert s.plugins_dir is None
+
+
+# ---------------------------------------------------------------------------
+# Per-plugin settings (#159)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-410")
+def test_get_plugin_setting_returns_default_when_never_set(settings: Settings) -> None:
+    assert settings.get_plugin_setting("my_plugin", "threshold", 42) == 42
+
+
+@pytest.mark.requirement("REQ-PLUGIN-412")
+def test_get_plugin_setting_does_not_persist_a_read(settings: Settings, monkeypatch) -> None:
+    calls = []
+    monkeypatch.setattr(settings, "_save", lambda: calls.append(1))
+
+    settings.get_plugin_setting("my_plugin", "threshold", 42)
+
+    assert calls == []
+
+
+@pytest.mark.requirement("REQ-PLUGIN-410")
+def test_set_plugin_setting_then_get_returns_value(settings: Settings) -> None:
+    settings.set_plugin_setting("my_plugin", "threshold", 42)
+    assert settings.get_plugin_setting("my_plugin", "threshold", None) == 42
+
+
+@pytest.mark.requirement("REQ-PLUGIN-410")
+def test_set_plugin_setting_namespaces_by_plugin_name(settings: Settings) -> None:
+    settings.set_plugin_setting("plugin_a", "key", "a-value")
+    settings.set_plugin_setting("plugin_b", "key", "b-value")
+
+    assert settings.get_plugin_setting("plugin_a", "key", None) == "a-value"
+    assert settings.get_plugin_setting("plugin_b", "key", None) == "b-value"
+
+
+@pytest.mark.requirement("REQ-PLUGIN-410")
+def test_set_plugin_setting_persists_across_reload(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    s1 = Settings(path=path)
+    s1.set_plugin_setting("my_plugin", "threshold", 42)
+
+    s2 = Settings(path=path)
+
+    assert s2.get_plugin_setting("my_plugin", "threshold", None) == 42
+
+
+@pytest.mark.requirement("REQ-PLUGIN-411")
+def test_set_plugin_setting_rejects_non_str_key(settings: Settings, caplog) -> None:
+    settings.set_plugin_setting("my_plugin", 1, "value")
+    assert settings.get_plugin_setting("my_plugin", 1, "missing") == "missing"
+    assert "my_plugin" in caplog.text
+
+
+@pytest.mark.requirement("REQ-PLUGIN-411")
+def test_set_plugin_setting_rejects_empty_str_key(settings: Settings, caplog) -> None:
+    settings.set_plugin_setting("my_plugin", "", "value")
+    assert settings.get_plugin_setting("my_plugin", "", "missing") == "missing"
+
+
+@pytest.mark.requirement("REQ-PLUGIN-411")
+def test_set_plugin_setting_rejects_non_json_safe_value(settings: Settings, caplog) -> None:
+    settings.set_plugin_setting("my_plugin", "key", {1, 2, 3})
+    assert settings.get_plugin_setting("my_plugin", "key", "missing") == "missing"
+    assert "my_plugin" in caplog.text
+
+
+@pytest.mark.requirement("REQ-PLUGIN-411")
+def test_set_plugin_setting_rejects_non_str_dict_keys_nested_in_value(
+    settings: Settings, caplog
+) -> None:
+    settings.set_plugin_setting("my_plugin", "key", {1: "x"})
+    assert settings.get_plugin_setting("my_plugin", "key", "missing") == "missing"
+
+
+@pytest.mark.requirement("REQ-PLUGIN-411")
+def test_set_plugin_setting_rejects_nan_and_infinity_floats(settings: Settings) -> None:
+    settings.set_plugin_setting("my_plugin", "key", float("nan"))
+    settings.set_plugin_setting("my_plugin", "other", float("inf"))
+    assert settings.get_plugin_setting("my_plugin", "key", "missing") == "missing"
+    assert settings.get_plugin_setting("my_plugin", "other", "missing") == "missing"
+
+
+@pytest.mark.requirement("REQ-PLUGIN-411")
+def test_set_plugin_setting_accepts_nested_list_and_dict_of_primitives(
+    settings: Settings,
+) -> None:
+    value = {"a": [1, 2.5, True, None, {"nested": "ok"}]}
+    settings.set_plugin_setting("my_plugin", "key", value)
+    assert settings.get_plugin_setting("my_plugin", "key", None) == value
+
+
+@pytest.mark.requirement("REQ-PLUGIN-410")
+def test_load_falls_back_to_empty_dict_when_plugin_settings_key_is_malformed(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps({"check_for_updates": False, "plugin_settings": ["not", "a", "dict"]}),
+        encoding="utf-8",
+    )
+
+    s = Settings(path=path)
+
+    assert s.get_plugin_setting("anything", "key", "missing") == "missing"
+
+
+def test_plugin_settings_defaults_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"check_for_updates": False}), encoding="utf-8")
+
+    s = Settings(path=path)
+
+    assert s.get_plugin_setting("anything", "key", "missing") == "missing"

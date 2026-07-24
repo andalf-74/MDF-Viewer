@@ -286,6 +286,40 @@ def test_load_all_threads_tab_name_provider_into_context(tmp_path: Path) -> None
     assert module._TabReaderPlugin.seen_tab_name == "Custom Tab 0"
 
 
+@pytest.mark.requirement("REQ-PLUGIN-410")
+def test_load_all_threads_settings_into_context(tmp_path: Path) -> None:
+    from mdf_viewer.settings import Settings
+
+    plugins_dir = tmp_path / "plugins"
+    pkg = plugins_dir / "settings_user_plugin"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _SettingsUserPlugin(Plugin):
+                name = "SettingsUser"
+                seen_value = None
+
+                def activate(self, context) -> None:
+                    context.set_setting("threshold", 42)
+                    type(self).seen_value = context.get_setting("threshold", None)
+
+            PLUGINS = [_SettingsUserPlugin]
+            """),
+        encoding="utf-8",
+    )
+    real_settings = Settings(path=tmp_path / "settings.json")
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir, settings=real_settings)
+
+    loader.load_all()
+
+    module_name = loader._active["SettingsUser"].module_name
+    module = sys.modules[module_name]
+    assert module._SettingsUserPlugin.seen_value == 42
+    assert real_settings.get_plugin_setting("SettingsUser", "threshold", None) == 42
+
+
 def test_deactivate_all_stops_every_started_plugin(tmp_path: Path) -> None:
     plugins_dir = tmp_path / "plugins"
     pkg = plugins_dir / "tracked_plugin"

@@ -10,6 +10,7 @@ from mdf_viewer.plugin_api.registry import (
     DockWidgetRegistration,
     MenuActionRegistration,
     PluginRegistry,
+    PreferencesPageRegistration,
     TabTypeRegistration,
 )
 
@@ -64,12 +65,15 @@ def test_remove_registrations_for_only_removes_matching_plugin() -> None:
     registry.add_dock_widget(DockWidgetRegistration("b", "B dock", lambda: None, "dialog"))
     registry.add_tab_type(TabTypeRegistration("a", "map_a", "Map A", lambda: None))
     registry.add_tab_type(TabTypeRegistration("b", "map_b", "Map B", lambda: None))
+    registry.add_preferences_page(PreferencesPageRegistration("a", "A Prefs", lambda: None))
+    registry.add_preferences_page(PreferencesPageRegistration("b", "B Prefs", lambda: None))
 
     registry.remove_registrations_for("a")
 
     assert [r.plugin_name for r in registry.menu_actions] == ["b"]
     assert [r.plugin_name for r in registry.dock_widgets] == ["b"]
     assert [r.plugin_name for r in registry.tab_types] == ["b"]
+    assert [r.plugin_name for r in registry.preferences_pages] == ["b"]
 
 
 # ---------------------------------------------------------------------------
@@ -116,3 +120,48 @@ def test_add_tab_type_rejects_reserved_plot_id(caplog: pytest.LogCaptureFixture)
     with caplog.at_level(logging.ERROR, logger="mdf_viewer.plugin_api"):
         registry.add_tab_type(TabTypeRegistration("a", "plot", "My Plot", lambda: None))
     assert registry.tab_types == []
+
+
+# ---------------------------------------------------------------------------
+# PreferencesPageRegistration / add_preferences_page (#159)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-420")
+def test_add_preferences_page_tags_plugin_name() -> None:
+    registry = PluginRegistry()
+    registration = PreferencesPageRegistration("exporter", "Export Settings", lambda: None)
+    registry.add_preferences_page(registration)
+    assert registry.preferences_pages == [registration]
+
+
+def test_preferences_page_build_swallows_and_logs_exception(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    def boom() -> object:
+        raise ValueError("plugin bug")
+
+    registration = PreferencesPageRegistration("exporter", "Export Settings", boom)
+    with caplog.at_level(logging.ERROR, logger="mdf_viewer.plugin_api"):
+        result = registration.build()
+    assert result is None
+    assert "exporter" in caplog.text
+
+
+def test_preferences_page_build_returns_widget_on_success() -> None:
+    sentinel = object()
+    registration = PreferencesPageRegistration("exporter", "Export Settings", lambda: sentinel)
+    assert registration.build() is sentinel
+
+
+@pytest.mark.requirement("REQ-PLUGIN-422")
+def test_add_preferences_page_rejects_second_registration_from_same_plugin(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    registry = PluginRegistry()
+    first = PreferencesPageRegistration("exporter", "First Page", lambda: None)
+    second = PreferencesPageRegistration("exporter", "Second Page", lambda: None)
+    registry.add_preferences_page(first)
+    with caplog.at_level(logging.ERROR, logger="mdf_viewer.plugin_api"):
+        registry.add_preferences_page(second)
+    assert registry.preferences_pages == [first]
+    assert "exporter" in caplog.text

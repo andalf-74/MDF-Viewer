@@ -5,6 +5,11 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Plugin Preferences (#159): plugins now have a standard place to expose
+  their own user-configurable settings — a new "Plugin Preferences…" entry
+  in the Plugins menu (disabled until a plugin registers a page) opens a
+  dialog with one tab per plugin that has one, each persisting its own
+  changes immediately as they're edited.
 - Rescan/Reload plugins without restarting (#150): the Plugins menu is now
   always present (previously hidden with no plugins loaded), with two new
   entries at the top — "Rescan Plugins" discovers and activates any plugin

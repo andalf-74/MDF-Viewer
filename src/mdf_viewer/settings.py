@@ -8,9 +8,14 @@ Config path:
 from __future__ import annotations
 
 import json
+import logging
+import math
 import os
 import sys
 from pathlib import Path
+from typing import Any
+
+logger = logging.getLogger("mdf_viewer.settings")
 
 MAX_RECENT = 4
 
@@ -62,6 +67,29 @@ DEFAULT_CONFIG_PATH_MODE = "absolute"
 DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE = True
 
 
+def _is_json_safe(value: Any) -> bool:
+    """True if *value* is a JSON primitive, or a list/dict built entirely of
+    the same, with plain `str` dict keys throughout (REQ-PLUGIN-411).
+
+    Deliberately stricter than "would `json.dumps()` succeed" — Python's
+    encoder silently stringifies non-`str` dict keys and accepts
+    NaN/Infinity floats rather than raising, either of which would let a
+    value "pass" here and then silently change shape (or become invalid
+    JSON) the next time it round-trips through `_save()`/`_load()`.
+    """
+    if value is None or isinstance(value, (str, bool, int)):
+        return True
+    if isinstance(value, float):
+        return not (math.isnan(value) or math.isinf(value))
+    if isinstance(value, list):
+        return all(_is_json_safe(item) for item in value)
+    if isinstance(value, dict):
+        return all(isinstance(k, str) for k in value) and all(
+            _is_json_safe(v) for v in value.values()
+        )
+    return False
+
+
 def _default_config_path() -> Path:
     if sys.platform == "win32":
         base = Path(os.environ.get("APPDATA", Path.home())) / "mdf-viewer"
@@ -102,6 +130,7 @@ class Settings:
         self._config_path_mode: str = DEFAULT_CONFIG_PATH_MODE
         self._prompt_save_config_on_close: bool = DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE
         self._plugins_dir: Path | None = None
+        self._plugin_settings: dict[str, dict[str, Any]] = {}
         self._load()
 
     # ------------------------------------------------------------------
@@ -358,6 +387,40 @@ class Settings:
         self._prompt_save_config_on_close = bool(value)
         self._save()
 
+    def get_plugin_setting(self, plugin_name: str, key: str, default: Any = None) -> Any:
+        """Read a plugin's own persisted setting, namespaced by *plugin_name*
+        (REQ-PLUGIN-410). A miss returns *default* without writing it back —
+        reading never has the side effect of persisting anything
+        (REQ-PLUGIN-412).
+        """
+        return self._plugin_settings.get(plugin_name, {}).get(key, default)
+
+    def set_plugin_setting(self, plugin_name: str, key: str, value: Any) -> None:
+        """Persist a plugin's own setting, namespaced by *plugin_name*
+        (REQ-PLUGIN-410/411).
+
+        *key* must be a non-empty `str` and *value* must be JSON-safe (see
+        `_is_json_safe`) — either rejected, logged, and left unwritten
+        rather than silently corrupting on the next save/load round-trip
+        (a non-`str` key or a non-`str` dict key nested inside *value*
+        would otherwise be silently stringified by `json.dumps()` and come
+        back different after a restart).
+        """
+        if not isinstance(key, str) or not key:
+            logger.error(
+                "Plugin '%s' tried to set a setting with a non-str/empty key %r — ignored",
+                plugin_name, key,
+            )
+            return
+        if not _is_json_safe(value):
+            logger.error(
+                "Plugin '%s' tried to set setting '%s' to a non-JSON-safe value %r — ignored",
+                plugin_name, key, value,
+            )
+            return
+        self._plugin_settings.setdefault(plugin_name, {})[key] = value
+        self._save()
+
     def get_and_prune(self) -> list[Path]:
         """Return only paths that exist on disk; save if any were removed."""
         existing = [p for p in self._recent if p.exists()]
@@ -403,6 +466,12 @@ class Settings:
             self._prompt_save_config_on_close = bool(data.get("prompt_save_config_on_close", DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE))
             raw_plugins_dir = data.get("plugins_dir")
             self._plugins_dir = Path(raw_plugins_dir) if raw_plugins_dir else None
+            raw_plugin_settings = data.get("plugin_settings", {})
+            if not isinstance(raw_plugin_settings, dict) or not all(
+                isinstance(v, dict) for v in raw_plugin_settings.values()
+            ):
+                raise TypeError("plugin_settings must be a dict of dicts")
+            self._plugin_settings = raw_plugin_settings
         except (FileNotFoundError, json.JSONDecodeError, TypeError, KeyError):
             self._recent = []
             self._check_for_updates = True
@@ -431,6 +500,7 @@ class Settings:
             self._config_path_mode = DEFAULT_CONFIG_PATH_MODE
             self._prompt_save_config_on_close = DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE
             self._plugins_dir = None
+            self._plugin_settings = {}
 
     @staticmethod
     def _load_color(
@@ -473,6 +543,7 @@ class Settings:
                     "config_path_mode": self._config_path_mode,
                     "prompt_save_config_on_close": self._prompt_save_config_on_close,
                     "plugins_dir": str(self._plugins_dir) if self._plugins_dir else None,
+                    "plugin_settings": self._plugin_settings,
                 },
                 indent=2,
             ),

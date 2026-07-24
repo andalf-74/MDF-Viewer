@@ -220,6 +220,7 @@ def run(argv: list[str]) -> int:
         # _tab_names() (all tab-bar positions), which .mvc capture uses
         # separately (#148).
         tab_name_provider=lambda i: window._plot_tab_names()[i],
+        settings=settings,
     )
     plugin_loader.load_all()
     # Rescan/Reload (#150) let a plugin activated after this point actually

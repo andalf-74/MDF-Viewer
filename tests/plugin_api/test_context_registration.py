@@ -89,6 +89,16 @@ def test_register_tab_type_tags_plugin_name(
     assert registry.tab_types[0].display_name == "Map View"
 
 
+@pytest.mark.requirement("REQ-PLUGIN-420")
+def test_register_preferences_page_tags_plugin_name(
+    context: PluginContext, registry: PluginRegistry
+) -> None:
+    context.register_preferences_page("Export Settings", lambda: MagicMock())
+    assert len(registry.preferences_pages) == 1
+    assert registry.preferences_pages[0].plugin_name == "exporter"
+    assert registry.preferences_pages[0].title == "Export Settings"
+
+
 # ---------------------------------------------------------------------------
 # subscribe / unsubscribe_all (REQ-PLUGIN-140/150)
 # ---------------------------------------------------------------------------
@@ -248,16 +258,19 @@ def test_teardown_unsubscribes_and_removes_registrations(
     context.register_menu_action("Export", lambda: None)
     context.register_dock_widget("Settings", lambda: MagicMock(), mode="dialog")
     context.register_tab_type("map", "Map View", lambda: MagicMock())
+    context.register_preferences_page("Export Settings", lambda: MagicMock())
 
     context._teardown()
 
     assert registry.menu_actions == []
     assert registry.dock_widgets == []
     assert registry.tab_types == []
+    assert registry.preferences_pages == []
     ctrl.events.signal_removed.emit(SignalRemovedEvent(signal=MagicMock()))
     assert received == []
 
 
+@pytest.mark.requirement("REQ-PLUGIN-440")
 def test_teardown_only_affects_this_plugins_registrations(
     ctrl: AppController, registry: PluginRegistry,
 ) -> None:
@@ -265,10 +278,13 @@ def test_teardown_only_affects_this_plugins_registrations(
     context_b = PluginContext(plugin_name="b", app=ctrl, registry=registry)
     context_a.register_menu_action("A action", lambda: None)
     context_b.register_menu_action("B action", lambda: None)
+    context_a.register_preferences_page("A Prefs", lambda: MagicMock())
+    context_b.register_preferences_page("B Prefs", lambda: MagicMock())
 
     context_a._teardown()
 
     assert [r.plugin_name for r in registry.menu_actions] == ["b"]
+    assert [r.plugin_name for r in registry.preferences_pages] == ["b"]
 
 
 @pytest.mark.requirement("REQ-PLUGIN-301")

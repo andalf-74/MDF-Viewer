@@ -37,6 +37,7 @@ from PyQt6.QtGui import QAction, QCursor, QDesktopServices, QIcon, QKeySequence,
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QLabel,
     QMainWindow,
@@ -91,6 +92,7 @@ if TYPE_CHECKING:
         DockWidgetRegistration,
         MenuActionRegistration,
         PluginRegistry,
+        PreferencesPageRegistration,
         TabTypeRegistration,
     )
 
@@ -122,6 +124,26 @@ class _TabBar(QTabBar):
 
 
 
+class _PluginPreferencesDialog(QDialog):
+    """One tab per plugin that registered a preferences page (#159).
+
+    No OK/Cancel/Apply (REQ-PLUGIN-432) — a plugin's page is responsible
+    for persisting its own edits live, through its own `context.set_setting`
+    calls; this dialog offers only Close.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Plugin Preferences")
+        self.tabs = QTabWidget()
+        layout = QVBoxLayout(self)
+        layout.addWidget(self.tabs)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.accept)
+        buttons.accepted.connect(self.accept)
+        layout.addWidget(buttons)
+
+
 _MDF_FILE_FILTER = "MDF Files (*.mf4 *.mdf *.dat);;All Files (*)"
 _ALL_FILE_FILTER = "All Supported Files (*.mf4 *.mdf *.dat *.mvc);;MDF Files (*.mf4 *.mdf *.dat);;MDF Viewer Config (*.mvc);;All Files (*)"
 _MVC_FILE_FILTER = "MDF Viewer Config (*.mvc);;All Files (*)"
@@ -144,6 +166,11 @@ class MainWindow(QMainWindow):
         self._update_thread: _UpdateCheckThread | None = None
         self._plugins_menu: QMenu | None = None
         self._plugin_dialogs: dict["DockWidgetRegistration", QDialog] = {}
+        # Shared "Plugin Preferences…" dialog (#159): one QTabWidget with
+        # one tab per plugin, built lazily and reused across opens (like
+        # _plugin_dialogs above), rather than one dialog per registration.
+        self._plugin_preferences_dialog: "_PluginPreferencesDialog | None" = None
+        self._plugin_preferences_tab_widgets: dict[str, QWidget] = {}
         # Populated from set_controller() and refreshed by _sync_plugin_ui()
         # after every Rescan/Reload (#150) — no longer a one-time snapshot.
         self._tab_types: list["TabTypeRegistration"] = []
@@ -327,6 +354,13 @@ class MainWindow(QMainWindow):
             reload_menu.addAction(action)
         self._plugins_menu.addMenu(reload_menu)
 
+        preferences_action = QAction("Plugin Preferences…", self)
+        preferences_action.setEnabled(bool(registry.preferences_pages))
+        preferences_action.triggered.connect(
+            lambda checked, r=registry: self._on_plugin_preferences(r)
+        )
+        self._plugins_menu.addAction(preferences_action)
+
         self._plugins_menu.addSeparator()
 
         has_dialog_widget = any(d.mode == "dialog" for d in registry.dock_widgets)
@@ -398,6 +432,16 @@ class MainWindow(QMainWindow):
                 dialog.close()
                 dialog.deleteLater()
 
+        # Evict this plugin's preferences tab (#159), if it was ever built —
+        # unconditional, the same as the dialog-mode teardown above, not
+        # gated on the shared dialog currently being visible.
+        preferences_widget = self._plugin_preferences_tab_widgets.pop(plugin_name, None)
+        if preferences_widget is not None and self._plugin_preferences_dialog is not None:
+            index = self._plugin_preferences_dialog.tabs.indexOf(preferences_widget)
+            if index != -1:
+                self._plugin_preferences_dialog.tabs.removeTab(index)
+            preferences_widget.deleteLater()
+
         # Top-down: removeTab() shifts every higher index down, so closing
         # from the highest index to the lowest never invalidates an index
         # still to be visited (a naive ascending pass would corrupt every
@@ -427,6 +471,32 @@ class MainWindow(QMainWindow):
             layout.addWidget(widget)
             self._plugin_dialogs[registration] = dialog
         dialog.exec()
+
+    def _on_plugin_preferences(self, registry: "PluginRegistry") -> None:
+        """Open the shared "Plugin Preferences…" dialog (#159).
+
+        The dialog instance and each plugin's built tab widget are both
+        cached across opens (REQ-PLUGIN-433) — only a plugin not yet
+        represented in `self._plugin_preferences_tab_widgets` gets a fresh
+        `.build()` call, mirroring `_on_plugin_dialog_action`'s lazy-build
+        pattern. Safe to rely on nothing changing mid-dialog because
+        `.exec()` below is modal — Rescan/Reload cannot run while this
+        dialog is open, so `_teardown_plugin_ui` never has to fight a
+        concurrent tab insertion here.
+        """
+        if self._plugin_preferences_dialog is None:
+            self._plugin_preferences_dialog = _PluginPreferencesDialog(self)
+
+        for page_reg in registry.preferences_pages:
+            if page_reg.plugin_name in self._plugin_preferences_tab_widgets:
+                continue
+            widget = page_reg.build()
+            if widget is None:
+                continue
+            self._plugin_preferences_dialog.tabs.addTab(widget, page_reg.title)
+            self._plugin_preferences_tab_widgets[page_reg.plugin_name] = widget
+
+        self._plugin_preferences_dialog.exec()
 
     def _wire_tab_view(
         self, plot_area: PlotStripesArea, active_signals_table: ActiveSignalsTable

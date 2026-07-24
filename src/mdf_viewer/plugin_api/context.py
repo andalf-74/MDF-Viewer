@@ -22,6 +22,7 @@ from mdf_viewer.plugin_api.registry import (
     DockWidgetMode,
     DockWidgetRegistration,
     MenuActionRegistration,
+    PreferencesPageRegistration,
     TabTypeRegistration,
 )
 from mdf_viewer.plugin_api.types import (
@@ -45,6 +46,7 @@ if TYPE_CHECKING:
     from mdf_viewer.model.signal_metadata import SignalMetadata
     from mdf_viewer.view_model.active_signal import ActiveSignal
     from mdf_viewer.plugin_api.registry import PluginRegistry
+    from mdf_viewer.settings import Settings
 
 logger = logging.getLogger("mdf_viewer.plugin_api")
 
@@ -73,11 +75,13 @@ class PluginContext:
         app: "AppController",
         registry: "PluginRegistry",
         tab_name_provider: Callable[[int], str] | None = None,
+        settings: "Settings | None" = None,
     ) -> None:
         self._plugin_name = plugin_name
         self._app = app
         self._registry = registry
         self._tab_name_provider = tab_name_provider
+        self._settings = settings
         # (event_name, wrapped_handler) pairs, for unsubscribe_all() teardown.
         self._subscriptions: list[tuple[str, Callable[[Any], None]]] = []
 
@@ -174,6 +178,38 @@ class PluginContext:
         return active.display_timestamps.copy(), active.data.samples.copy()
 
     # ------------------------------------------------------------------
+    # Per-plugin settings (#159, REQ-PLUGIN-410-414)
+    # ------------------------------------------------------------------
+
+    def get_setting(self, key: str, default: Any = None) -> Any:
+        """Read this plugin's own persisted setting (REQ-PLUGIN-410).
+
+        Returns *default*, without persisting it, if the key was never set
+        or no settings backend is available (REQ-PLUGIN-412). Usable at any
+        point after this context exists — including from `activate()`
+        itself, or from inside a preferences page's `widget_factory` — with
+        no narrower lifecycle restriction (REQ-PLUGIN-413).
+        """
+        if self._settings is None:
+            return default
+        return self._settings.get_plugin_setting(self._plugin_name, key, default)
+
+    def set_setting(self, key: str, value: Any) -> None:
+        """Persist this plugin's own setting (REQ-PLUGIN-410/411).
+
+        A no-op (logged, not raised) if no settings backend is available —
+        that absence is not this plugin's fault. *key*/*value* validation
+        (non-empty str key, JSON-safe value) happens in `Settings` itself.
+        """
+        if self._settings is None:
+            logger.debug(
+                "Plugin '%s' called set_setting('%s', ...) with no settings backend available",
+                self._plugin_name, key,
+            )
+            return
+        self._settings.set_plugin_setting(self._plugin_name, key, value)
+
+    # ------------------------------------------------------------------
     # UI registration — stubs: recorded here, rendered by #73 (REQ-PLUGIN-120/130)
     # ------------------------------------------------------------------
 
@@ -218,6 +254,22 @@ class PluginContext:
             TabTypeRegistration(
                 plugin_name=self._plugin_name, type_id=type_id, display_name=display_name,
                 view_factory=view_factory,
+            )
+        )
+
+    def register_preferences_page(
+        self, title: str, widget_factory: "Callable[[], QWidget]",
+    ) -> None:
+        """Register this plugin's preferences page — at most one per plugin
+        (REQ-PLUGIN-420/422), shown as one tab in the shared "Plugin
+        Preferences…" dialog. A second call from the same plugin is
+        rejected and logged; the first registration wins. Recorded in the
+        shared PluginRegistry; not rendered into the real UI until #159's
+        MainWindow wiring.
+        """
+        self._registry.add_preferences_page(
+            PreferencesPageRegistration(
+                plugin_name=self._plugin_name, title=title, widget_factory=widget_factory,
             )
         )
 

@@ -82,10 +82,12 @@ class PluginLoader:
         app: "AppController",
         plugins_dir: Path,
         tab_name_provider: Callable[[int], str] | None = None,
+        settings: "Settings | None" = None,
     ) -> None:
         self._app = app
         self._plugins_dir = plugins_dir
         self._tab_name_provider = tab_name_provider
+        self._settings = settings
         self._active: dict[str, _ActivePlugin] = {}
 
     def load_all(self) -> PluginLoadResult:
@@ -240,6 +242,7 @@ class PluginLoader:
             app=self._app,
             registry=self._app.plugin_registry,
             tab_name_provider=self._tab_name_provider,
+            settings=self._settings,
         )
         if instance.start(context):
             seen_names.add(instance.name)

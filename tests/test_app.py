@@ -43,6 +43,8 @@ def app_mocks():
             "controller": mock_controller_cls.return_value,
             "message_box": mock_msgbox_cls,
             "plugin_loader": mock_loader_cls.return_value,
+            "plugin_loader_cls": mock_loader_cls,
+            "settings": mock_settings_cls.return_value,
         }
 
 
@@ -97,6 +99,13 @@ def test_run_loads_plugins(app_mocks) -> None:
 def test_run_deactivates_plugins_on_shutdown(app_mocks) -> None:
     run(["mdf-viewer"])
     app_mocks["plugin_loader"].deactivate_all.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-PLUGIN-410")
+def test_run_threads_settings_into_plugin_loader(app_mocks) -> None:
+    run(["mdf-viewer"])
+    kwargs = app_mocks["plugin_loader_cls"].call_args.kwargs
+    assert kwargs["settings"] is app_mocks["settings"]
 
 
 def test_run_wires_plugin_loader_hooks_to_the_real_loader(app_mocks) -> None:
