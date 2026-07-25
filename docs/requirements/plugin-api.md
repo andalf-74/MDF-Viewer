@@ -540,3 +540,27 @@ contributed UI [REQ-PLUGIN-440].
 Migrating the existing "check for updates on startup" setting, and the
 core Preferences dialog it lives in today, onto this mechanism is
 explicitly deferred to #76.
+
+---
+
+## Application Window & Version Access (#76)
+
+Surfaced while scoping #76 (converting the update checker into a
+first-party plugin): a plugin that wants to show a modal dialog of its
+own — as opposed to a docked widget or a preferences page, both already
+parented for it by the application — has no widget available to parent
+it to; none of the existing registration methods pass one to a plugin's
+callback. Separately, a plugin that needs to know the running
+application's own version (e.g. to compare against a fetched release
+version) has no way to obtain it without importing `mdf_viewer.__version__`
+directly, outside the documented plugin-import boundary.
+
+A plugin can obtain the application's main window through its context,
+for use as the parent of a dialog the plugin constructs itself
+[REQ-PLUGIN-450]. The returned object is the application's real main
+window, the same way a dock widget's or preferences page's
+`widget_factory` already deals in real, live `QWidget`s rather than a
+wrapped projection — unlike the read-only signal/measurement views
+described above, there is no narrower facade over it [REQ-PLUGIN-451]. A
+plugin can obtain the application's own running version string through
+its context [REQ-PLUGIN-452].

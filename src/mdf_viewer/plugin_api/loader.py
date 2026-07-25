@@ -27,6 +27,8 @@ from mdf_viewer.plugin_api.context import PluginContext
 from mdf_viewer.plugin_api.plugin import Plugin
 
 if TYPE_CHECKING:
+    from PyQt6.QtWidgets import QMainWindow
+
     from mdf_viewer.controller.app_controller import AppController
     from mdf_viewer.settings import Settings
 
@@ -83,11 +85,15 @@ class PluginLoader:
         plugins_dir: Path,
         tab_name_provider: Callable[[int], str] | None = None,
         settings: "Settings | None" = None,
+        main_window: "QMainWindow | None" = None,
+        app_version: str = "",
     ) -> None:
         self._app = app
         self._plugins_dir = plugins_dir
         self._tab_name_provider = tab_name_provider
         self._settings = settings
+        self._main_window = main_window
+        self._app_version = app_version
         self._active: dict[str, _ActivePlugin] = {}
 
     def load_all(self) -> PluginLoadResult:
@@ -243,6 +249,8 @@ class PluginLoader:
             registry=self._app.plugin_registry,
             tab_name_provider=self._tab_name_provider,
             settings=self._settings,
+            main_window=self._main_window,
+            app_version=self._app_version,
         )
         if instance.start(context):
             seen_names.add(instance.name)

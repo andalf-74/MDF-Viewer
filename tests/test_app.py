@@ -36,7 +36,6 @@ def app_mocks():
         patch("mdf_viewer.plugin_api.loader.PluginLoader") as mock_loader_cls,
     ):
         mock_qapp_cls.return_value.primaryScreen.return_value.devicePixelRatio.return_value = 1.0
-        mock_settings_cls.return_value.check_for_updates = False
         mock_settings_cls.return_value.plugins_dir = None
         yield {
             "window": mock_window_cls.return_value,

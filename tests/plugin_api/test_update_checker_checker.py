@@ -1,19 +1,45 @@
-"""Tests for update_checker — version comparison and network fetch."""
+"""Tests for plugins/update_checker/checker.py — version comparison and
+network fetch (#76).
+
+Imports the real, committed checker.py directly by file path rather than
+through the full PluginLoader — these are pure-function unit tests with no
+dependency on plugin lifecycle machinery, mirroring how the equivalent
+core-module tests worked before the module moved into the plugin package.
+"""
 
 from __future__ import annotations
 
+import importlib.util
 import json
-from io import BytesIO
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from mdf_viewer.update_checker import (
-    ReleaseInfo,
-    UpdateCheckError,
-    fetch_latest_release,
-    is_newer,
+_CHECKER_PATH = (
+    Path(__file__).resolve().parents[2] / "plugins" / "update_checker" / "checker.py"
 )
+
+
+def _load_checker():
+    module_name = "_update_checker_checker_under_test"
+    spec = importlib.util.spec_from_file_location(module_name, _CHECKER_PATH)
+    module = importlib.util.module_from_spec(spec)
+    # Registered in sys.modules before exec_module() — @dataclass's own
+    # machinery looks up its defining module there, mirroring the same
+    # requirement PluginLoader._import_plugin_classes() already works
+    # around for the real plugin-loading path.
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_checker = _load_checker()
+ReleaseInfo = _checker.ReleaseInfo
+UpdateCheckError = _checker.UpdateCheckError
+fetch_latest_release = _checker.fetch_latest_release
+is_newer = _checker.is_newer
 
 
 # ---------------------------------------------------------------------------
@@ -63,7 +89,7 @@ def _mock_response(tag: str, html_url: str) -> MagicMock:
 
 
 class TestFetchLatestRelease:
-    @pytest.mark.requirement("REQ-NFR-030")
+    @pytest.mark.requirement("REQ-UPDATE-010")
     def test_returns_release_info(self):
         mock_resp = _mock_response("v2.0", "https://github.com/example/releases/tag/v2.0")
         with patch("urllib.request.urlopen", return_value=mock_resp):

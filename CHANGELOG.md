@@ -5,6 +5,11 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Update Checker converted to a plugin (#76): "Check for Update…" moved
+  from the Help menu into the Plugins menu, and the "Check for updates on
+  startup" checkbox moved from the core Preferences dialog into its own
+  tab in Plugins → Plugin Preferences…. Behavior is otherwise unchanged;
+  an existing preference is carried over automatically.
 - Plugin Preferences (#159): plugins now have a standard place to expose
   their own user-configurable settings — a new "Plugin Preferences…" entry
   in the Plugins menu (disabled until a plugin registers a page) opens a

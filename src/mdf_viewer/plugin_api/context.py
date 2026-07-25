@@ -39,7 +39,7 @@ from mdf_viewer.plugin_api.types import (
 )
 
 if TYPE_CHECKING:
-    from PyQt6.QtWidgets import QWidget
+    from PyQt6.QtWidgets import QMainWindow, QWidget
 
     from mdf_viewer.controller.app_controller import AppController
     from mdf_viewer.model.signal_data import SignalData
@@ -76,12 +76,16 @@ class PluginContext:
         registry: "PluginRegistry",
         tab_name_provider: Callable[[int], str] | None = None,
         settings: "Settings | None" = None,
+        main_window: "QMainWindow | None" = None,
+        app_version: str = "",
     ) -> None:
         self._plugin_name = plugin_name
         self._app = app
         self._registry = registry
         self._tab_name_provider = tab_name_provider
         self._settings = settings
+        self._main_window = main_window
+        self._app_version = app_version
         # (event_name, wrapped_handler) pairs, for unsubscribe_all() teardown.
         self._subscriptions: list[tuple[str, Callable[[Any], None]]] = []
 
@@ -176,6 +180,40 @@ class PluginContext:
         if active is None:
             return None
         return active.display_timestamps.copy(), active.data.samples.copy()
+
+    # ------------------------------------------------------------------
+    # Application window/version access (#76, REQ-PLUGIN-450-452)
+    # ------------------------------------------------------------------
+
+    @property
+    def main_window(self) -> "QMainWindow | None":
+        """The application's real main window, for parenting a plugin's own
+        modal dialogs (REQ-PLUGIN-450).
+
+        Unlike every other accessor on this class, this is the live object
+        itself, not a read-only projection (REQ-PLUGIN-451) — the same way
+        a dock widget's or preferences page's `widget_factory` already
+        deals in real, live `QWidget`s. `None` only in a test/headless
+        context with no window constructed.
+
+        `activate()` runs before the window is shown — a plugin that calls
+        `.exec()` on a modal dialog synchronously from inside `activate()`
+        itself would block application startup until the dialog is
+        dismissed. Only show dialogs from a later callback (a menu action,
+        an event handler, a background thread's result), not from
+        `activate()` directly.
+        """
+        return self._main_window
+
+    @property
+    def app_version(self) -> str:
+        """The running application's own version string, e.g. `"2.2"`
+        (REQ-PLUGIN-452) — for a plugin that needs to compare against it
+        (e.g. an update checker) without importing `mdf_viewer.__version__`
+        directly, which would reach outside the documented plugin-import
+        boundary.
+        """
+        return self._app_version
 
     # ------------------------------------------------------------------
     # Per-plugin settings (#159, REQ-PLUGIN-410-414)

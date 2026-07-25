@@ -13,6 +13,7 @@ from mdf_viewer.settings import (
     DEFAULT_CURSOR_COLOR_CL,
     DEFAULT_CURSOR_COLOR_CR,
     MAX_RECENT,
+    UPDATE_CHECKER_PLUGIN_NAME,
     Settings,
 )
 
@@ -171,32 +172,40 @@ def test_get_and_prune_empty_list(settings: Settings) -> None:
 
 
 # ---------------------------------------------------------------------------
-# check_for_updates
+# check_for_updates migration (#76, REQ-UPDATE-320)
 # ---------------------------------------------------------------------------
 
-@pytest.mark.requirement("REQ-NFR-030")
-def test_check_for_updates_default_true(settings: Settings) -> None:
-    assert settings.check_for_updates is True
+@pytest.mark.requirement("REQ-UPDATE-320")
+def test_check_for_updates_migrates_old_top_level_key_into_plugin_setting(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"check_for_updates": False}), encoding="utf-8")
+
+    s = Settings(path=path)
+
+    assert s.get_plugin_setting(UPDATE_CHECKER_PLUGIN_NAME, "check_for_updates", True) is False
 
 
-@pytest.mark.requirement("REQ-NFR-030")
-def test_check_for_updates_can_be_disabled(settings: Settings) -> None:
-    settings.check_for_updates = False
-    assert settings.check_for_updates is False
-
-
-@pytest.mark.requirement("REQ-NFR-021")
-def test_check_for_updates_persists(settings: Settings) -> None:
-    settings.check_for_updates = False
-    reloaded = Settings(path=settings._path)
-    assert reloaded.check_for_updates is False
-
-
-@pytest.mark.requirement("REQ-NFR-020")
-def test_check_for_updates_defaults_to_true_on_missing_key(tmp_path) -> None:
+@pytest.mark.requirement("REQ-UPDATE-320")
+def test_check_for_updates_migration_does_not_fire_without_old_key(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text("{}", encoding="utf-8")
-    assert Settings(path=path).check_for_updates is True
+
+    s = Settings(path=path)
+
+    assert s.get_plugin_setting(UPDATE_CHECKER_PLUGIN_NAME, "check_for_updates", "missing") == "missing"
+
+
+@pytest.mark.requirement("REQ-UPDATE-320")
+def test_check_for_updates_old_key_is_dropped_on_next_save(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"check_for_updates": False}), encoding="utf-8")
+    s = Settings(path=path)
+
+    s.add_recent(tmp_path)  # any change that triggers a _save()
+
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    assert "check_for_updates" not in raw
+    assert raw["plugin_settings"][UPDATE_CHECKER_PLUGIN_NAME]["check_for_updates"] is False
 
 
 # ---------------------------------------------------------------------------

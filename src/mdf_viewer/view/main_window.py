@@ -29,11 +29,8 @@ from PyQt6.QtCore import (
     QEvent,
     QSize,
     Qt,
-    QThread,
-    QUrl,
-    pyqtSignal,
 )
-from PyQt6.QtGui import QAction, QCursor, QDesktopServices, QIcon, QKeySequence, QShortcut
+from PyQt6.QtGui import QAction, QCursor, QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
     QDialog,
@@ -163,7 +160,6 @@ class MainWindow(QMainWindow):
         self._license_info: LicenseInfo | None = None
         self._license_manager: LicenseManager | None = None
         self._settings: Settings | None = None
-        self._update_thread: _UpdateCheckThread | None = None
         self._plugins_menu: QMenu | None = None
         self._plugin_dialogs: dict["DockWidgetRegistration", QDialog] = {}
         # Shared "Plugin Preferences…" dialog (#159): one QTabWidget with
@@ -643,12 +639,6 @@ class MainWindow(QMainWindow):
         """Store the Settings instance (needed by Preferences dialog)."""
         self._settings = settings
 
-    def trigger_startup_update_check(self) -> None:
-        """Run an update check in the background; silently show a dialog if newer."""
-        self._update_thread = _UpdateCheckThread(__version__, self)
-        self._update_thread.update_available.connect(self._on_update_available)
-        self._update_thread.start()
-
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
@@ -763,9 +753,6 @@ class MainWindow(QMainWindow):
         self._preferences_action = QAction("Preferences…", self)
         self._preferences_action.triggered.connect(self._on_preferences)
 
-        self._check_update_action = QAction("Check for Update…", self)
-        self._check_update_action.triggered.connect(self._on_check_for_update)
-
         self._about_action = QAction("About MDF-Viewer", self)
         self._about_action.triggered.connect(self._on_about)
 
@@ -804,8 +791,6 @@ class MainWindow(QMainWindow):
         self._edit_menu.addAction(self._sync_measurements_action)
 
         self._help_menu = self.menuBar().addMenu("&Help")
-        self._help_menu.addAction(self._check_update_action)
-        self._help_menu.addSeparator()
         self._help_menu.addAction(self._license_action)
         self._help_menu.addSeparator()
         self._help_menu.addAction(self._about_action)
@@ -2057,35 +2042,6 @@ class MainWindow(QMainWindow):
             return
         self._controller.on_sync_y_axis_requested(signals)
 
-    def _on_check_for_update(self) -> None:
-        from mdf_viewer.update_checker import UpdateCheckError, fetch_latest_release, is_newer
-        with busy_cursor():
-            try:
-                release = fetch_latest_release()
-            except UpdateCheckError as exc:
-                QMessageBox.warning(self, "Update Check Failed", str(exc))
-                return
-        if is_newer(release.tag, __version__):
-            self._on_update_available(release.tag, release.url)
-        else:
-            QMessageBox.information(
-                self,
-                "Up to Date",
-                f"MDF-Viewer {__version__} is the latest version.",
-            )
-
-    def _on_update_available(self, tag: str, url: str) -> None:
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Update Available")
-        msg.setIcon(QMessageBox.Icon.Information)
-        msg.setText(f"Version <b>{tag}</b> is available.")
-        msg.setInformativeText(f"You are running version {__version__}.")
-        open_btn = msg.addButton("Open Release Page", QMessageBox.ButtonRole.ActionRole)
-        msg.addButton(QMessageBox.StandardButton.Close)
-        msg.exec()
-        if msg.clickedButton() is open_btn:
-            QDesktopServices.openUrl(QUrl(url))
-
     def _on_about(self) -> None:
         info = self._license_info
         if info is not None:
@@ -2334,20 +2290,3 @@ class MainWindow(QMainWindow):
             self._load_config(Path(path))
         else:
             self._load_file(path)
-
-
-class _UpdateCheckThread(QThread):
-    update_available = pyqtSignal(str, str)  # tag, url
-
-    def __init__(self, current_version: str, parent=None) -> None:
-        super().__init__(parent)
-        self._current = current_version
-
-    def run(self) -> None:
-        from mdf_viewer.update_checker import UpdateCheckError, fetch_latest_release, is_newer
-        try:
-            release = fetch_latest_release()
-            if is_newer(release.tag, self._current):
-                self.update_available.emit(release.tag, release.url)
-        except UpdateCheckError:
-            pass

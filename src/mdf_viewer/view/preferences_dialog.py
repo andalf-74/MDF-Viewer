@@ -66,9 +66,6 @@ class PreferencesDialog(QDialog):
 
         general = QWidget()
         general_layout = QVBoxLayout(general)
-        self._update_check = QCheckBox("Check for updates on startup")
-        self._update_check.setChecked(self._settings.check_for_updates)
-        general_layout.addWidget(self._update_check)
 
         undo_row = QHBoxLayout()
         undo_row.addWidget(QLabel("Undo steps:"))
@@ -308,7 +305,6 @@ class PreferencesDialog(QDialog):
         layout.addWidget(buttons)
 
     def _apply(self) -> None:
-        self._settings.check_for_updates = self._update_check.isChecked()
         self._settings.max_undo_steps = self._undo_steps.value()
         bid = self._keep_signals_group.checkedId()
         self._settings.keep_signals_on_load = ("always", "ask", "never")[bid] if bid >= 0 else DEFAULT_KEEP_SIGNALS_ON_LOAD

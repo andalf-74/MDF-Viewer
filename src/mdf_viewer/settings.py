@@ -19,6 +19,11 @@ logger = logging.getLogger("mdf_viewer.settings")
 
 MAX_RECENT = 4
 
+# Must match plugins/update_checker's Plugin.name exactly — see the
+# migration in Settings._load() (REQ-UPDATE-320). Guarded by a regression
+# test in tests/plugin_api/test_update_checker_plugin.py.
+UPDATE_CHECKER_PLUGIN_NAME = "Update Checker"
+
 # Default cursor line colors as (R, G, B) tuples
 DEFAULT_CURSOR_COLOR_C1 = (220, 220, 50)
 DEFAULT_CURSOR_COLOR_C2 = (255, 140, 0)
@@ -104,7 +109,6 @@ class Settings:
     def __init__(self, path: Path | None = None) -> None:
         self._path = path if path is not None else _default_config_path()
         self._recent: list[Path] = []
-        self._check_for_updates: bool = True
         self._cursor_persistent: bool = True
         self._cursor_mode: str = "1/2"
         self._cursor_color_c1: tuple[int, int, int] = DEFAULT_CURSOR_COLOR_C1
@@ -147,15 +151,6 @@ class Settings:
     def recent_files(self) -> list[Path]:
         """Return the current recent files list (may include missing paths)."""
         return list(self._recent)
-
-    @property
-    def check_for_updates(self) -> bool:
-        return self._check_for_updates
-
-    @check_for_updates.setter
-    def check_for_updates(self, value: bool) -> None:
-        self._check_for_updates = value
-        self._save()
 
     @property
     def plugins_dir(self) -> Path | None:
@@ -437,7 +432,6 @@ class Settings:
         try:
             data = json.loads(self._path.read_text(encoding="utf-8"))
             self._recent = [Path(p) for p in data.get("recent_files", [])]
-            self._check_for_updates = bool(data.get("check_for_updates", True))
             self._cursor_persistent = bool(data.get("cursor_persistent", True))
             self._cursor_mode = str(data.get("cursor_mode", "1/2"))
             self._cursor_color_c1 = self._load_color(data, "cursor_color_c1", DEFAULT_CURSOR_COLOR_C1)
@@ -472,9 +466,22 @@ class Settings:
             ):
                 raise TypeError("plugin_settings must be a dict of dicts")
             self._plugin_settings = raw_plugin_settings
+            # One-time migration (REQ-UPDATE-320): the update checker used
+            # to be a built-in feature with its own top-level setting. If
+            # an old settings.json still has that key, fold its value into
+            # the plugin's namespaced setting so an existing user's choice
+            # survives the upgrade, rather than silently reverting to the
+            # default. This is key-presence-based, not a version marker —
+            # once the user next changes any setting, _save() stops writing
+            # the old top-level key at all, so this branch naturally never
+            # fires again; no explicit "already migrated" flag is needed,
+            # and no immediate _save() is forced here for that reason.
+            if "check_for_updates" in data:
+                self._plugin_settings.setdefault(UPDATE_CHECKER_PLUGIN_NAME, {})[
+                    "check_for_updates"
+                ] = bool(data["check_for_updates"])
         except (FileNotFoundError, json.JSONDecodeError, TypeError, KeyError):
             self._recent = []
-            self._check_for_updates = True
             self._cursor_persistent = True
             self._cursor_mode = "1/2"
             self._cursor_color_c1 = DEFAULT_CURSOR_COLOR_C1
@@ -517,7 +524,6 @@ class Settings:
             json.dumps(
                 {
                     "recent_files": [str(p) for p in self._recent],
-                    "check_for_updates": self._check_for_updates,
                     "cursor_persistent": self._cursor_persistent,
                     "cursor_mode": self._cursor_mode,
                     "cursor_color_c1": list(self._cursor_color_c1),

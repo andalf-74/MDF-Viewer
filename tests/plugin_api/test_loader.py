@@ -320,6 +320,65 @@ def test_load_all_threads_settings_into_context(tmp_path: Path) -> None:
     assert real_settings.get_plugin_setting("SettingsUser", "threshold", None) == 42
 
 
+@pytest.mark.requirement("REQ-PLUGIN-450")
+def test_load_all_threads_main_window_into_context(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    pkg = plugins_dir / "window_user_plugin"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _WindowUserPlugin(Plugin):
+                name = "WindowUser"
+                seen_window = "unset"
+
+                def activate(self, context) -> None:
+                    type(self).seen_window = context.main_window
+
+            PLUGINS = [_WindowUserPlugin]
+            """),
+        encoding="utf-8",
+    )
+    sentinel_window = object()
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir, main_window=sentinel_window)
+
+    loader.load_all()
+
+    module_name = loader._active["WindowUser"].module_name
+    module = sys.modules[module_name]
+    assert module._WindowUserPlugin.seen_window is sentinel_window
+
+
+@pytest.mark.requirement("REQ-PLUGIN-452")
+def test_load_all_threads_app_version_into_context(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    pkg = plugins_dir / "version_user_plugin"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _VersionUserPlugin(Plugin):
+                name = "VersionUser"
+                seen_version = None
+
+                def activate(self, context) -> None:
+                    type(self).seen_version = context.app_version
+
+            PLUGINS = [_VersionUserPlugin]
+            """),
+        encoding="utf-8",
+    )
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir, app_version="2.3")
+
+    loader.load_all()
+
+    module_name = loader._active["VersionUser"].module_name
+    module = sys.modules[module_name]
+    assert module._VersionUserPlugin.seen_version == "2.3"
+
+
 def test_deactivate_all_stops_every_started_plugin(tmp_path: Path) -> None:
     plugins_dir = tmp_path / "plugins"
     pkg = plugins_dir / "tracked_plugin"

@@ -214,6 +214,8 @@ def run(argv: list[str]) -> int:
     plugin_loader = PluginLoader(
         app=controller,
         plugins_dir=resolve_plugins_dir(settings),
+        main_window=window,
+        app_version=__version__,
         # PluginContext._tab_name(index) is only ever called with a
         # workspace index (all_workspaces() enumeration) — _plot_tab_names()
         # filters out non-plot tabs to match that index space, unlike
@@ -244,9 +246,6 @@ def run(argv: list[str]) -> int:
 
     window.show()
     splash.finish(window)
-
-    if settings.check_for_updates:
-        window.trigger_startup_update_check()
 
     # Load a file passed on the command line (e.g. via file association).
     if len(argv) > 1:

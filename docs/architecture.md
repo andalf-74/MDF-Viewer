@@ -59,9 +59,12 @@ view/         main_window, workspace_session_controller, signal_browser,
               signal_info_box, preferences_dialog, license_dialog,
               _display_name_controls, _mime, widgets/
 license/      license_info, license_manager
-(top level)   app.py, config_manager.py, errors.py, enums.py, settings.py,
-              update_checker.py
+(top level)   app.py, config_manager.py, errors.py, enums.py, settings.py
 ```
+
+`update_checker.py` moved out of this module map in #76 — it now lives at
+`plugins/update_checker/checker.py`, part of the first-party plugin
+described in "Update Checker converted to a plugin (#76)" below.
 
 ## Glossary
 
@@ -682,3 +685,39 @@ New `_PluginPreferencesDialog(QDialog)`: a `QTabWidget` plus a `QDialogButtonBox
 #### CHANGELOG
 
 Gets an entry — the "Plugin Preferences…" item appears in the Plugins menu for every user (disabled until some plugin registers a page), the same justification #150 already used for its own CHANGELOG entry, unlike #71/#147/#148's "no end-user-visible surface" reasoning.
+
+### Update Checker converted to a plugin (#76)
+
+Requirements: `docs/requirements/update-checker.md` REQ-UPDATE-010–320 (the feature's own behavior, cross-referencing `docs/requirements/non-functional.md` REQ-NFR-030–033 rather than restating them) and `docs/requirements/plugin-api.md`'s "Application Window & Version Access" section, REQ-PLUGIN-450–452. Grill-me settled the menu moving from Help to the Plugins menu, the Preferences checkbox moving to the plugin's own `register_preferences_page()` (#159), atomic removal of the old built-in code, and no fallback if the plugin fails to load. A Plan-agent architecture review then found 7 gaps, two load-bearing (below); implementation surfaced two more real issues the review itself missed (`PluginContext.app_version` and the manual-check test race), both folded in before landing.
+
+#### `PluginContext.main_window` / `app_version` (REQ-PLUGIN-450–452)
+
+Threaded through exactly like #159 threaded `Settings` — `app.py`'s local `window`/`__version__` pass straight into `PluginLoader.__init__`'s new `main_window`/`app_version` params, then into every `PluginContext(...)` construction. `main_window` is deliberately the live `QMainWindow` itself, not a read-only projection like every other accessor — a dialog's parent has to be the real widget. `app_version` was not part of the architecture review's original scope; it surfaced during implementation when porting the manual-check/startup-check logic revealed there was no way for a plugin to learn the running application's own version without importing `mdf_viewer.__version__` directly, outside the documented plugin-import boundary.
+
+#### Settings migration (REQ-UPDATE-320)
+
+`Settings._load()` copies the old top-level `check_for_updates` JSON key (if present) into `self._plugin_settings["Update Checker"]["check_for_updates"]`, keyed by a module-level `UPDATE_CHECKER_PLUGIN_NAME` constant that must match `UpdateCheckerPlugin.name` exactly — guarded by a regression test in `tests/plugin_api/test_update_checker_plugin.py` rather than any structural cross-check, since the two live in different packages with no natural import relationship. The migration is key-presence-based, not a version marker: once `_save()` (which no longer ever writes the old top-level key) runs once for any reason, the stale key is gone from disk and the branch simply never fires again on a later startup — no explicit "already migrated" flag needed.
+
+#### `plugins/update_checker/` package and the QThread teardown fix (Gap 1)
+
+First genuinely multi-file plugin package (`__init__.py` + `checker.py`, `from .checker import ...`) — validates the `sys.modules`-registration-before-`exec_module()` machinery #74 built for this case but no prior plugin had exercised. `checker.py` is a verbatim move of the old `update_checker.py`'s pure logic (`fetch_latest_release`/`is_newer`/`ReleaseInfo`/`UpdateCheckError`), zero Qt dependency.
+
+The architecture review's Gap 1 — an in-flight `_UpdateCheckThread` has no teardown path, and Reload (#150) makes that newly reachable — turned out to be a real, immediately-reproducible bug during implementation, not just a theoretical risk: a test that called `PluginLoader.load_all()` then `deactivate_all()` back-to-back crashed the process outright (`QCursor`/`QPixmap` fatal abort by way of a `QThread` destroyed while `isRunning()`), because with no real `main_window` the thread's only Qt-parent chain was gone the moment the plugin dropped its own Python reference. Fixed with a module-level `_LIVE_THREADS: set` that holds a strong reference to any running `_UpdateCheckThread` until its own `finished` signal fires (`thread.finished.connect(lambda: _LIVE_THREADS.discard(thread))`, plus `finished.connect(thread.deleteLater)`) — independent of the plugin instance's lifetime or of `main_window` being real. `deactivate()` separately disconnects the thread's `update_available` signal (`try/except TypeError`, the same idiom as `PluginContext.unsubscribe_all()`) so a result arriving after Reload can never call into a torn-down instance — not a synchronous `.wait()`, which would freeze the GUI thread for up to the network timeout on every Reload. Reload re-running the startup check (a fresh instance's `activate()` starts its own thread) is deliberate, accepted behavior, not a race to close.
+
+`_on_check_for_update`'s busy-cursor wrapper is a small local `_busy_cursor()` duplicate of `mdf_viewer.view.widgets.busy_cursor`, not an import of it — a plugin may only import `mdf_viewer.plugin_api`.
+
+#### Test hygiene: the plugin is discovered by every test that scans `plugins/`
+
+Because `plugins/update_checker/` now sits alongside the dev-mode-only example plugins, every existing test that points a `PluginLoader` at the real repo `plugins/` directory (`test_signal_statistics_plugin.py`, `test_tab_type_fixture_plugin.py`, etc.) now activates it too, and its `activate()` starts a real background network thread by default. `tests/plugin_api/conftest.py` adds an autouse fixture patching `urllib.request.urlopen` to fail instantly for the whole `tests/plugin_api/` package, so unrelated plugin tests never make (or wait on) a real HTTP request. A second, subtler version of the same problem surfaced within the plugin's own white-box tests: a test that both let `activate()` start its real thread *and* patched `fetch_latest_release` to test the manual-check path raced the two, occasionally invoking the "Update Available" dialog twice (once from each path) or, if the background thread outlived that test function's `monkeypatch` scope, falling through to a real network call after the patch reverted — the actual cause of intermittent multi-second stalls during implementation, not an infinite hang. Fixed by having every white-box test that isn't specifically testing the startup-check thread disable `check_for_updates` before `activate()`, and by two tests that need `plugin._thread` populated (the Reload-mid-check tests) attaching a thread manually without ever calling `.start()`.
+
+#### Packaging (Gap 2) — `installer/mdf_viewer.spec` / `docs/release.md`
+
+The first plugin ever required to ship in the real installer/portable build (#75/#148/#159's example plugins are all deliberately dev-mode-only). `pyinstaller>=6.0` (pinned in `pyproject.toml`; 6.20.0 confirmed installed) defaults onedir builds to routing everything given to `Analysis(datas=...)` — including the existing icons entry — into `dist/MDF-Viewer/_internal/`, while `plugin_api/loader.py`'s frozen-mode default (`Path(sys.executable).parent / "plugins"`) looks for a plugins folder as a *sibling* of the `.exe`, not of `_internal/`.
+
+The first fix attempted — passing `Tree(plugins/update_checker, prefix=...)` directly into `COLLECT(exe, a.binaries, a.datas, Tree(...), ...)` instead of through `Analysis(datas=...)`, on the theory that items given straight to `COLLECT()` bypass the `_internal/` routing — was verified with an actual local build (`pyinstaller installer/mdf_viewer.spec`, macOS) rather than assumed, and turned out **not** to work: `COLLECT.assemble()`'s own source shows `contents_directory` (inherited from the `EXE` instance, defaulting to `"_internal"`) applied uniformly to every entry's destination path except `EXECUTABLE`/`PKG` typecodes — there is no way to exempt one `Tree()` from it via `Analysis`/`EXE`/`COLLECT`'s declarative model alone. The plugin landed at `dist/MDF-Viewer/_internal/plugins/update_checker/`, not the sibling-of-`.exe` location `_default_plugins_dir()` actually looks for — confirming this needed a real build to catch, exactly the kind of gap a spec-syntax read-through would have missed.
+
+Fixed instead with a **post-build copy step** in `docs/release.md` (`Copy-Item -Recurse plugins\update_checker dist\MDF-Viewer\plugins\update_checker`, run immediately after the `pyinstaller` step and before both the Inno Setup and portable-zip steps) — `installer/mdf_viewer.spec` collects nothing extra for the plugin at all. Considered and declined: `contents_directory=''` on `EXE(...)`, which would flatten `_internal/` away entirely and restore PyInstaller <6's top-level layout for the *whole* bundle (every already-working packaged file, not just this one plugin); and pointing `_default_plugins_dir()` itself at `_internal/plugins` instead, which is a smaller code diff but buries a packaged user's plugins folder inside Python-internals territory, reversing #74's original "travels with a portable copy, easy to find" design intent for a build-tooling limitation, not a real reason to change the documented default. The Inno Setup `[Files]` entry and the portable-zip step need no changes — both already copy the whole `dist/MDF-Viewer/` tree recursively, so whatever the copy step puts there is picked up automatically. Verifying the actual placement in the *shipped* (Windows) build still requires someone to run the real `docs/release.md` steps; this repo's dev environment is macOS, so only the "does `Tree()`-into-`COLLECT()` behave as claimed" half could be verified locally — which is exactly the half that turned out to be wrong.
+
+#### CHANGELOG
+
+Gets an entry — the menu action moves from Help to the Plugins menu and the "Check for updates on startup" checkbox moves out of the core Preferences dialog into its own Plugin Preferences page, both visible chrome changes for every user, matching #150/#159's reasoning rather than #71–#75/#147/#148's "no end-user-visible surface."

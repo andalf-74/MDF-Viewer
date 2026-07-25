@@ -59,3 +59,13 @@ coll = COLLECT(
     upx_exclude=[],
     name="MDF-Viewer",
 )
+
+# plugins/update_checker (#76) is NOT collected above — PyInstaller >=6's
+# COLLECT.assemble() routes every non-executable entry (regardless of
+# whether it came from Analysis(datas=...) or was passed directly into
+# COLLECT()) through EXE's contents_directory, which defaults to
+# "_internal". plugin_api/loader.py's frozen-mode default plugins
+# directory is Path(sys.executable).parent / "plugins" — a sibling of
+# MDF-Viewer.exe, not of _internal/ — so there is no way to place it there
+# via Analysis/EXE/COLLECT's declarative model alone. See docs/release.md's
+# build steps for the post-build copy that puts it in the right place.

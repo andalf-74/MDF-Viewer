@@ -1,4 +1,9 @@
-"""Checks GitHub releases for a newer version of MDF-Viewer."""
+"""Checks GitHub releases for a newer version of MDF-Viewer.
+
+Pure logic, zero Qt/`mdf_viewer` dependency — verbatim move out of the
+core application as part of #76 (converting the update checker into a
+first-party plugin).
+"""
 
 from __future__ import annotations
 
