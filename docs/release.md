@@ -20,6 +20,12 @@ Two files must be updated — `pyproject.toml` derives its version dynamically, 
 
 Commit, tag (`git tag vX.Y`), and push before building so the tag lands on the correct commit.
 
+## Plugin-author SDK sync (#151)
+
+The separate [`mdf-viewer-plugin-sdk`](https://github.com/andalf-74/mdf-viewer-plugin-sdk) repo hand-maintains type stubs (`.pyi`) for `src/mdf_viewer/plugin_api/` (`context.py`, `plugin.py`, `registry.py`, `types.py`), `enums.py`'s `CursorMode`, and the virtual-measurement model types (`model/signal_data.py`, `model/signal_metadata.py`, `model/virtual_signal.py`, `model/virtual_measurement_loader.py`). There is no automated sync (CI push or `git subtree`) — deliberately, since stubs are hand-distilled (signatures + behavior notes, no implementation) rather than a raw copy, and `plugin_api` changes infrequently enough that automation isn't worth the cross-repo credential/tooling overhead.
+
+**Whenever a change in this repo adds, removes, or changes the signature/behavior of anything in that surface** (not gated to version bumps — check on every PR that touches `plugin_api/`, `enums.py`'s `CursorMode`, or the virtual-measurement model types), update the matching stub(s) and docs in the SDK repo in the same spirit as this repo's own `docs/api.md`/`docs/ui.md` same-commit-update convention.
+
 ## Build steps
 
 1. `pyinstaller installer/mdf_viewer.spec --distpath dist --workpath dist/_build -y` → produces `dist/MDF-Viewer/`
