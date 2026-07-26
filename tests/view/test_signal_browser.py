@@ -79,6 +79,12 @@ def _px(browser: SignalBrowser, item):
     return browser._proxy.mapFromSource(src)
 
 
+def test_tree_selection_uses_accent_token(browser: SignalBrowser) -> None:
+    from mdf_viewer.view import theme
+
+    assert theme.ACCENT in browser._tree.styleSheet()
+
+
 def _row_text(browser: SignalBrowser, row: int) -> str:
     return browser._proxy.index(row, 0).data()
 

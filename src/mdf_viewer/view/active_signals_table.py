@@ -60,6 +60,7 @@ from mdf_viewer.view._mime import (
     decode_signal_payload,
     encode_row_payload,
 )
+from mdf_viewer.view import theme
 from mdf_viewer.view.widgets import ColorSwatch, VisibilityToggleButton, make_splitter
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
@@ -612,7 +613,7 @@ class ActiveSignalsTable(QWidget):
         seg.setShowGrid(True)
         seg.setStyleSheet(
             "QTableWidget { gridline-color: #d0d0d0; outline: 0; }"
-            "QTableWidget::item:selected { background-color: #e0e0e0; color: black; }"
+            f"QTableWidget::item:selected {{ background-color: {theme.ACCENT}; color: {theme.ACCENT_TEXT}; }}"
         )
         # Every segment (and the header, above) always reserves the same
         # vertical-scrollbar gutter width, whether or not it actually needs
@@ -718,7 +719,9 @@ class ActiveSignalsTable(QWidget):
         seg.setCellWidget(row, _COL_COLOR, _centered_cell_widget(swatch))
         seg.setItem(row, _COL_NAME, _ro_item(self._name_formatter(active)))
         for col in _CURSOR_COLS:
-            seg.setItem(row, col, _ro_item(""))
+            item = _ro_item("")
+            item.setFont(theme.monospace_font())
+            seg.setItem(row, col, item)
 
     def _on_header_column_resized(self, index: int, old_size: int, new_size: int) -> None:
         for seg in self._segments:

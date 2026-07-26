@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
 
 from mdf_viewer.model.loaded_measurement import LoadedMeasurement
 from mdf_viewer.model.measurement import MeasurementInfo
+from mdf_viewer.view import theme
 
 
 class MeasurementInfoBox(QWidget):
@@ -159,6 +160,12 @@ class _MeasurementInfoPage(QWidget):
 
         header = QHBoxLayout()
         self._primary_checkbox = QCheckBox("Primary")
+        # Native indicator rendering is left alone (overriding its QSS
+        # background is a known way to lose the checkmark glyph) — the
+        # accent thread shows on the label text instead.
+        self._primary_checkbox.setStyleSheet(
+            f"QCheckBox:checked {{ color: {theme.ACCENT}; font-weight: bold; }}"
+        )
         header.addWidget(self._primary_checkbox)
         header.addWidget(QLabel("Name:"))
         self._name_edit = QLineEdit()

@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
-from PyQt6.QtWidgets import QLabel
+from PyQt6.QtWidgets import QLabel, QWidget
 from pytestqt.qtbot import QtBot
 
 from mdf_viewer.model.loaded_measurement import LoadedMeasurement
@@ -225,6 +225,14 @@ def test_mbox_checkboxes_are_mutually_exclusive(mbox: MeasurementInfoBox) -> Non
     mbox.set_measurements([m1, m2], m1)
     _page(mbox, 1).checkbox.setChecked(True)
     assert _page(mbox, 0).checkbox.isChecked() is False
+
+
+def test_mbox_primary_checkbox_uses_accent_token(mbox: MeasurementInfoBox) -> None:
+    from mdf_viewer.view import theme
+
+    m1 = _make_measurement("M1")
+    mbox.set_measurements([m1], m1)
+    assert theme.ACCENT in _page(mbox, 0).checkbox.styleSheet()
 
 
 @pytest.mark.requirement("REQ-FILE-027")
@@ -602,6 +610,36 @@ def test_sbox_set_metadata_replaces_previous(sbox: SignalInfoBox) -> None:
     assert "first" not in texts
 
 
+def _separator_count(sbox: SignalInfoBox) -> int:
+    from mdf_viewer.view import theme
+
+    return sum(
+        1
+        for w in sbox._content.findChildren(QWidget)
+        if theme.ACCENT_DIM in w.styleSheet()
+    )
+
+
+def test_sbox_set_metadata_separates_identity_shape_text_groups(sbox: SignalInfoBox) -> None:
+    # identity (Name, Unit) | shape (Samples, Raster, Min, Max) | text (Comment)
+    # -> two group boundaries.
+    sbox.set_metadata(_make_meta())
+    assert _separator_count(sbox) == 2
+
+
+def test_sbox_set_metadata_no_separator_for_single_group(sbox: SignalInfoBox) -> None:
+    meta = SignalMetadata(name="x", unit="V")  # identity only
+    sbox.set_metadata(meta)
+    assert _separator_count(sbox) == 0
+
+
+def test_sbox_set_metadata_extra_fields_join_preceding_group(sbox: SignalInfoBox) -> None:
+    # Comment (text) then an unmapped extra field — no extra separator for it.
+    meta = SignalMetadata(name="x", comment="note", extra={"source": "CAN1"})
+    sbox.set_metadata(meta)
+    assert _separator_count(sbox) == 1  # identity(Name) -> text(Comment) only
+
+
 # ---------------------------------------------------------------------------
 # SignalInfoBox – clear
 # ---------------------------------------------------------------------------
@@ -627,6 +665,16 @@ def test_sbox_clear_removes_form_rows(sbox: SignalInfoBox) -> None:
 @pytest.mark.requirement("REQ-PLOT-226")
 def test_sbox_has_info_and_properties_sections(sbox: SignalInfoBox) -> None:
     assert sbox._splitter.count() == 2
+
+
+def test_sbox_info_and_properties_headers_use_section_header_style(sbox: SignalInfoBox) -> None:
+    from PyQt6.QtGui import QFont
+
+    from mdf_viewer.view import theme
+
+    for label in (sbox._info_label, sbox._props_label):
+        assert theme.ACCENT in label.styleSheet()
+        assert label.font().weight() == QFont.Weight.DemiBold
 
 
 @pytest.mark.requirement("REQ-PLOT-152")
@@ -911,6 +959,17 @@ def test_add_plugin_section_gives_every_pane_a_nonzero_size(sbox: SignalInfoBox)
 
     sbox.add_plugin_section("Exporter", QWidget())
     assert all(size > 0 for size in sbox._splitter.sizes())
+
+
+def test_add_plugin_section_header_uses_section_header_style(sbox: SignalInfoBox) -> None:
+    from PyQt6.QtWidgets import QLabel, QWidget
+
+    from mdf_viewer.view import theme
+
+    section = sbox.add_plugin_section("Signal Statistics", QWidget())
+    label = section.findChild(QLabel)
+    assert label is not None
+    assert theme.ACCENT in label.styleSheet()
 
 
 def test_add_plugin_section_twice_adds_two_panes(sbox: SignalInfoBox) -> None:

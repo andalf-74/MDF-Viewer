@@ -76,6 +76,13 @@ def test_initially_empty(table: ActiveSignalsTable) -> None:
     assert table._segments == []
 
 
+def test_segment_selection_uses_accent_token(table: ActiveSignalsTable) -> None:
+    from mdf_viewer.view import theme
+
+    seg = table._add_segment()
+    assert theme.ACCENT in seg.styleSheet()
+
+
 @pytest.mark.requirement("REQ-PLOT-141")
 def test_remove_button_disabled_initially(table: ActiveSignalsTable) -> None:
     assert not table._remove_btn.isEnabled()
@@ -106,6 +113,14 @@ def test_add_multiple_rows(table: ActiveSignalsTable) -> None:
 def test_add_row_shows_signal_name(table: ActiveSignalsTable) -> None:
     table.add_row(_make_active("engine_speed"))
     assert table._segments[0].item(0, _COL_NAME).text() == "engine_speed"
+
+
+def test_add_row_cursor_columns_use_monospace_font(table: ActiveSignalsTable) -> None:
+    from mdf_viewer.view import theme
+
+    table.add_row(_make_active("engine_speed"))
+    item = table._segments[0].item(0, _COL_C1)
+    assert item.font().family() == theme.monospace_font().family()
 
 
 @pytest.mark.requirement("REQ-PLOT-120")

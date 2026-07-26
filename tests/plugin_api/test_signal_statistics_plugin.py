@@ -113,6 +113,26 @@ def test_plugin_dock_widget_reflects_min_max_mean_and_resets_on_deselect(
     loader.deactivate_all()
 
 
+def test_plugin_labels_use_monospace_font(qtbot: QtBot, ctrl: AppController) -> None:
+    from PyQt6.QtGui import QFontDatabase
+
+    loader = PluginLoader(app=ctrl, plugins_dir=REPO_PLUGINS_DIR)
+    loader.load_all()
+
+    registration = ctrl.plugin_registry.dock_widgets[0]
+    widget = registration.build()
+    qtbot.addWidget(widget)
+    form = widget.layout()
+    labels = [
+        form.itemAt(i, QFormLayout.ItemRole.FieldRole).widget() for i in range(3)
+    ]
+    expected_family = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont).family()
+    for label in labels:
+        assert label.font().family() == expected_family
+
+    loader.deactivate_all()
+
+
 def test_plugin_shows_placeholder_for_multi_selection(qtbot: QtBot, ctrl: AppController) -> None:
     loader = PluginLoader(app=ctrl, plugins_dir=REPO_PLUGINS_DIR)
     loader.load_all()

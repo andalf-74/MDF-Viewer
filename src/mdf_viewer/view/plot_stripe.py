@@ -29,6 +29,7 @@ from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QPen
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QPushButton, QWidget
 
+from mdf_viewer.view import theme
 from mdf_viewer.view._mime import (
     ROW_MIME_TYPE,
     SIGNAL_MIME_TYPE,
@@ -340,6 +341,7 @@ class PlotStripe(QWidget):
         self._pi.hideAxis('right')
         self._pi.showGrid(x=True, y=False)
         self._pi.setLabel('bottom', 'Time', units='s')
+        self._pi.getAxis('bottom').setTickFont(theme.monospace_font())
 
         # Maps ActiveSignal → its rendering objects (identity-based, see __hash__).
         self._data: dict[ActiveSignal, _SignalPlotData] = {}
@@ -421,7 +423,7 @@ class PlotStripe(QWidget):
 
     def set_active(self, active: bool) -> None:
         """Show/hide the colored left-edge marker indicating the active stripe."""
-        color = "palette(highlight)" if active else "transparent"
+        color = theme.ACCENT if active else "transparent"
         self._active_marker.setStyleSheet(f"background: {color};")
 
     def set_show_x_axis_ticks(self, enabled: bool) -> None:
@@ -490,6 +492,7 @@ class PlotStripe(QWidget):
                 textPen=pg.mkPen(color=_NEUTRAL_AXIS_COLOR),
             )
             axis.setLabel(measurement.label)
+            axis.setTickFont(theme.monospace_font())
             row = self._MEASUREMENT_AXIS_BASE_ROW + i
             self._pi.layout.setRowPreferredHeight(row, 0)
             self._pi.layout.setRowMinimumHeight(row, 0)
@@ -623,6 +626,7 @@ class PlotStripe(QWidget):
             integer_ticks=integer_ticks,
             enum_map=active.metadata.enum_map or None,
         )
+        axis.setTickFont(theme.monospace_font())
         self._pi.layout.addItem(axis, 2, col)
 
         if active.display_mode != "line":
@@ -1534,6 +1538,7 @@ class PlotStripe(QWidget):
             enum_map=active.metadata.enum_map or None,
         )
         axis.set_enum_display(active.enum_display_yaxis)
+        axis.setTickFont(theme.monospace_font())
         self._pi.layout.addItem(axis, 2, col)
 
         self._data[active] = _SignalPlotData(

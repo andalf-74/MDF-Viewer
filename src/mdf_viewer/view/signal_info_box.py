@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 )
 
 from mdf_viewer.model.signal_metadata import SignalMetadata
+from mdf_viewer.view import theme
 from mdf_viewer.view.measurement_info_box import _add_row, _add_wrapped_row, _clear_form
 from mdf_viewer.view.widgets import make_splitter
 
@@ -211,7 +212,7 @@ class SignalInfoBox(QWidget):
         info_layout.setSpacing(2)
 
         self._info_label = QLabel("Info")
-        self._info_label.setStyleSheet("font-weight: bold;")
+        theme.style_section_header(self._info_label)
         info_layout.addWidget(self._info_label)
 
         self._stack = QStackedWidget()
@@ -239,7 +240,7 @@ class SignalInfoBox(QWidget):
         props_layout.setSpacing(2)
 
         self._props_label = QLabel("Properties")
-        self._props_label.setStyleSheet("font-weight: bold;")
+        theme.style_section_header(self._props_label)
         props_layout.addWidget(self._props_label)
 
         self._props_widget = _SignalPropertiesWidget()
@@ -278,7 +279,12 @@ class SignalInfoBox(QWidget):
         directly (REQ-PLOT-307).
         """
         _clear_form(self._form)
+        prev_group: str | None = None
         for label, value in _metadata_rows(meta):
+            group = _FIELD_GROUPS.get(label, prev_group)
+            if prev_group is not None and group != prev_group:
+                _add_group_separator(self._form)
+            prev_group = group
             if label == "Name" and display_name is not None:
                 value = display_name
             if label == "Comment":
@@ -362,7 +368,7 @@ class SignalInfoBox(QWidget):
         section_layout.setSpacing(2)
 
         label = QLabel(title)
-        label.setStyleSheet("font-weight: bold;")
+        theme.style_section_header(label)
         section_layout.addWidget(label)
         section_layout.addWidget(widget)
 
@@ -398,6 +404,39 @@ class SignalInfoBox(QWidget):
 # ---------------------------------------------------------------------------
 # Row builder
 # ---------------------------------------------------------------------------
+
+# Groups the Info panel's fields conceptually (#155): identity (what the
+# signal fundamentally is), shape (properties of its data extent/range),
+# text (free-form). Matches docs/architecture.md's "Signal classes" section
+# — SignalMetadata itself doesn't encode this grouping, so it's re-derived
+# here by field name; any field absent from this map (e.g. a vendor-specific
+# `meta.extra` entry) silently joins whatever group precedes it rather than
+# forcing an ungrouped separator.
+_FIELD_GROUPS: dict[str, str] = {
+    "Name": "identity",
+    "Unit": "identity",
+    "Data type": "identity",
+    "Samples": "shape",
+    "Raster": "shape",
+    "Min": "shape",
+    "Max": "shape",
+    "Comment": "text",
+}
+
+
+def _add_group_separator(form: QFormLayout) -> None:
+    """Thin low-contrast rule marking a field-group boundary (#155).
+
+    A plain 1px `QWidget` rather than `QFrame.Shape.HLine` — QFrame's native
+    frame drawing (sunken/raised bevel) fights with a flat QSS background
+    color on some platform styles; a bare widget renders exactly the color
+    given, nothing else.
+    """
+    line = QWidget()
+    line.setFixedHeight(1)
+    line.setStyleSheet(f"background-color: {theme.ACCENT_DIM};")
+    form.addRow(line)
+
 
 def _metadata_rows(meta: SignalMetadata) -> list[tuple[str, str]]:
     rows: list[tuple[str, str]] = [("Name", meta.name)]

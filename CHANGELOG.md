@@ -36,6 +36,19 @@ All notable changes to MDF-Viewer are documented in this file.
   and to any tab or stripe created afterward, including on session restore.
 
 ### Changed
+- App-chrome visual consistency (#153, #154, #155, #157): a single amber
+  accent color now replaces the stock system-blue selection highlight
+  throughout the app — Signal Browser and Active Signals Table row
+  selection, the Primary measurement checkbox, and the active-stripe
+  marker. Panel section headers ("Properties", "Info", "Signal
+  Statistics") are now visually distinct from the field labels beneath
+  them (weight, spacing, and a thin accent underline). The Info panel's
+  fields are now grouped with a thin divider between identity (Name/Unit/
+  Data type), shape (Samples/Raster/Min/Max), and free-text (Comment).
+  Numeric readouts a user compares at a glance — cursor values, axis tick
+  labels, and Signal Statistics' Min/Max/Mean — now use a monospace font
+  for easier scanning; labels and text elsewhere are unchanged. No change
+  to the plot canvas itself.
 - Arrow-key cursor stepping in "samples" mode (#146): the reference signal
   is now the highest-sample-rate signal among the current selection (or
   among all active signals when nothing is selected), instead of just the

@@ -179,12 +179,30 @@ def test_activated_emitted_on_mouse_press(plot: PlotStripe, qtbot: QtBot) -> Non
 
 @pytest.mark.requirement("REQ-PLOT-210")
 def test_set_active_toggles_marker_style(plot: PlotStripe) -> None:
+    from mdf_viewer.view import theme
+
     plot.set_active(True)
     active_style = plot._active_marker.styleSheet()
     plot.set_active(False)
     inactive_style = plot._active_marker.styleSheet()
     assert active_style != inactive_style
+    assert theme.ACCENT in active_style
     assert "transparent" in inactive_style
+
+
+def test_bottom_axis_uses_monospace_tick_font(plot: PlotStripe) -> None:
+    from mdf_viewer.view import theme
+
+    assert plot._pi.getAxis('bottom').style['tickFont'].family() == theme.monospace_font().family()
+
+
+def test_signal_axis_uses_monospace_tick_font(plot: PlotStripe) -> None:
+    from mdf_viewer.view import theme
+
+    active = _make_active()
+    plot.add_signal(active)
+    axis = plot._data[active].axis
+    assert axis.style['tickFont'].family() == theme.monospace_font().family()
 
 
 @pytest.mark.requirement("REQ-PLOT-181")
@@ -1058,6 +1076,14 @@ def test_set_measurement_axes_creates_one_row_per_measurement(plot: PlotStripe) 
     m2 = _make_measurement(offset_s=0.0)
     plot.set_measurement_axes([m1, m2])
     assert len(plot._measurement_axes) == 2
+
+
+def test_set_measurement_axes_uses_monospace_tick_font(plot: PlotStripe) -> None:
+    from mdf_viewer.view import theme
+
+    m1 = _make_measurement(offset_s=0.0)
+    plot.set_measurement_axes([m1])
+    assert plot._measurement_axes[0].style['tickFont'].family() == theme.monospace_font().family()
 
 
 @pytest.mark.requirement("REQ-PLOT-301")

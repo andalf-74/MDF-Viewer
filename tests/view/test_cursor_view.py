@@ -57,6 +57,12 @@ def test_two_lines_added_to_plot(cv: CursorView) -> None:
 @pytest.mark.requirement("REQ-PLOT-070")
 def test_lines_hidden_initially(cv: CursorView) -> None:
     assert not cv._lines[0].isVisible()
+
+
+def test_delta_label_uses_monospace_font(cv: CursorView) -> None:
+    from mdf_viewer.view import theme
+
+    assert cv._delta_label.textItem.font().family() == theme.monospace_font().family()
     assert not cv._lines[1].isVisible()
 
 

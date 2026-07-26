@@ -37,6 +37,7 @@ from PyQt6.QtWidgets import (
 )
 
 from mdf_viewer.model.mdf_loader import ChannelGroupInfo
+from mdf_viewer.view import theme
 from mdf_viewer.view._mime import SIGNAL_MIME_TYPE, encode_signal_payload
 
 # Stores (measurement_index, group_index, channel_index) on every row.
@@ -135,6 +136,9 @@ class SignalBrowser(QWidget):
         self._tree.setUniformRowHeights(True)
         self._tree.setDragEnabled(True)
         self._tree.setDragDropMode(QAbstractItemView.DragDropMode.DragOnly)
+        self._tree.setStyleSheet(
+            f"QTreeView::item:selected {{ background-color: {theme.ACCENT}; color: {theme.ACCENT_TEXT}; }}"
+        )
         layout.addWidget(self._tree)
 
         self._add_btn = QPushButton("Add Signal")

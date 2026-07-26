@@ -31,6 +31,7 @@ from PyQt6.QtGui import QFont
 
 from mdf_viewer.enums import CursorMode
 from mdf_viewer.model.interpolate import interpolate as _interpolate
+from mdf_viewer.view import theme
 
 if TYPE_CHECKING:
     from mdf_viewer.view_model.active_signal import ActiveSignal
@@ -128,6 +129,7 @@ class CursorView(QObject):
 
         # Delta-time label, parented to the main ViewBox.
         self._delta_label = pg.TextItem(text="", color=(200, 200, 200), anchor=(0.5, 1.0))
+        self._delta_label.setFont(theme.monospace_font())
         self._delta_label.setVisible(False)
         self._pi.vb.addItem(self._delta_label, ignoreBounds=True)
         self._delta_label_x: float = 0.0  # last known midpoint X, updated in update_delta_time
@@ -526,6 +528,7 @@ class CursorStripesView(QObject):
                         color=active.color,
                         anchor=(0.0, 1.0),
                     )
+                    lbl.setFont(theme.monospace_font())
                     vb.addItem(lbl, ignoreBounds=True)
                     self._labels[key] = (lbl, vb)
                 lbl, _ = self._labels[key]

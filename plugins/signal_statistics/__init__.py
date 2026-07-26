@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from PyQt6.QtGui import QFontDatabase
 from PyQt6.QtWidgets import QFormLayout, QLabel, QWidget
 
 from mdf_viewer.plugin_api.plugin import Plugin
@@ -51,9 +52,17 @@ class SignalStatisticsPlugin(Plugin):
         """Called once, lazily, by MainWindow (#73) when it renders the drawer."""
         widget = QWidget()
         layout = QFormLayout(widget)
+        # Platform monospace font for the figures themselves (#157) — a
+        # plugin can't import the app's view/theme.py token module (the
+        # PluginContext facade is the only mdf_viewer import a plugin may
+        # use, #71), so this mirrors theme.monospace_font() locally rather
+        # than sharing it.
+        mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
         self._min_label = QLabel(_PLACEHOLDER)
         self._max_label = QLabel(_PLACEHOLDER)
         self._mean_label = QLabel(_PLACEHOLDER)
+        for label in (self._min_label, self._max_label, self._mean_label):
+            label.setFont(mono)
         layout.addRow("Min:", self._min_label)
         layout.addRow("Max:", self._max_label)
         layout.addRow("Mean:", self._mean_label)

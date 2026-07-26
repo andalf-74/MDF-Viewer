@@ -123,6 +123,19 @@ def test_update_labels_creates_label_for_signal(
     assert len(sv._labels) == 1
 
 
+def test_update_labels_uses_monospace_font(
+    sv: CursorStripesView, stripe: PlotStripe
+) -> None:
+    from mdf_viewer.view import theme
+
+    active = _make_active()
+    stripe.add_signal(active)
+    sv.apply_mode(CursorMode.ONE, [0.25, 0.75])
+    sv.update_labels([active], [0.25, 0.75], CursorMode.ONE)
+    lbl, _ = next(iter(sv._labels.values()))
+    assert lbl.textItem.font().family() == theme.monospace_font().family()
+
+
 @pytest.mark.requirement("REQ-PLOT-080")
 def test_update_labels_two_mode_creates_two_per_signal(
     sv: CursorStripesView, stripe: PlotStripe
