@@ -14,6 +14,7 @@ from mdf_viewer.settings import (
     DEFAULT_CURSOR_COLOR_C2,
     DEFAULT_CURSOR_COLOR_CL,
     DEFAULT_CURSOR_COLOR_CR,
+    DEFAULT_PLOT_BACKGROUND_COLOR,
     Settings,
 )
 from mdf_viewer.view.preferences_dialog import PreferencesDialog
@@ -89,6 +90,39 @@ def test_apply_saves_colors_to_settings(dlg: PreferencesDialog, settings: Settin
     assert settings.cursor_color_c2 == (40, 50, 60)
     assert settings.cursor_color_cl == (70, 80, 90)
     assert settings.cursor_color_cr == (100, 110, 120)
+
+
+# ---------------------------------------------------------------------------
+# Plot background color swatch (#117)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-015")
+def test_background_swatch_shows_default_color(dlg: PreferencesDialog) -> None:
+    assert dlg._swatch_bg.rgb() == DEFAULT_PLOT_BACKGROUND_COLOR
+
+
+@pytest.mark.requirement("REQ-PLOT-015")
+def test_background_swatch_shows_saved_color(qtbot: QtBot, settings: Settings) -> None:
+    settings.plot_background_color = (64, 64, 64)
+    dlg = PreferencesDialog(settings)
+    qtbot.addWidget(dlg)
+    assert dlg._swatch_bg.rgb() == (64, 64, 64)
+
+
+@pytest.mark.requirement("REQ-PLOT-015")
+def test_apply_saves_background_color_to_settings(
+    dlg: PreferencesDialog, settings: Settings
+) -> None:
+    dlg._swatch_bg.set_color(QColor(64, 64, 64))
+    dlg._apply()
+    assert settings.plot_background_color == (64, 64, 64)
+
+
+@pytest.mark.requirement("REQ-PLOT-015")
+def test_reset_restores_default_background_color(dlg: PreferencesDialog) -> None:
+    dlg._swatch_bg.set_color(QColor(64, 64, 64))
+    dlg._reset_plot_background_color()
+    assert dlg._swatch_bg.rgb() == DEFAULT_PLOT_BACKGROUND_COLOR
 
 
 # ---------------------------------------------------------------------------

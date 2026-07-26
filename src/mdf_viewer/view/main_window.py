@@ -1997,6 +1997,7 @@ class MainWindow(QMainWindow):
             self._controller.refresh_cursors()
             self._controller.refresh_z_order()
             self._controller.refresh_display_names()
+            self._controller.refresh_plot_background()
             for table in self._all_active_signals_tables():
                 table.set_shorten_names_enabled(self._settings.display_name_rule_enabled)
 

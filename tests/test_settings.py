@@ -367,6 +367,37 @@ def test_delta_time_color_persists(settings: Settings) -> None:
 
 
 # ---------------------------------------------------------------------------
+# plot_background_color (#117)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-015")
+def test_plot_background_color_default(settings: Settings) -> None:
+    from mdf_viewer.settings import DEFAULT_PLOT_BACKGROUND_COLOR
+    assert settings.plot_background_color == DEFAULT_PLOT_BACKGROUND_COLOR
+
+
+@pytest.mark.requirement("REQ-PLOT-015")
+def test_plot_background_color_can_be_changed(settings: Settings) -> None:
+    settings.plot_background_color = (64, 64, 64)
+    assert settings.plot_background_color == (64, 64, 64)
+
+
+@pytest.mark.requirement("REQ-NFR-021")
+def test_plot_background_color_persists(settings: Settings) -> None:
+    settings.plot_background_color = (64, 64, 64)
+    reloaded = Settings(path=settings._path)
+    assert reloaded.plot_background_color == (64, 64, 64)
+
+
+@pytest.mark.requirement("REQ-PLOT-015")
+def test_plot_background_color_defaults_on_malformed_settings_file(tmp_path) -> None:
+    from mdf_viewer.settings import DEFAULT_PLOT_BACKGROUND_COLOR
+    path = tmp_path / "settings.json"
+    path.write_text("not json", encoding="utf-8")
+    assert Settings(path=path).plot_background_color == DEFAULT_PLOT_BACKGROUND_COLOR
+
+
+# ---------------------------------------------------------------------------
 # max_undo_steps
 # ---------------------------------------------------------------------------
 

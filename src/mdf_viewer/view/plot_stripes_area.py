@@ -200,6 +200,11 @@ class PlotStripesArea(QWidget):
     def get_active_stripe(self) -> PlotStripe:
         return self._active_stripe
 
+    def set_background(self, color: tuple[int, int, int]) -> None:
+        """Set every stripe's plot canvas background color (REQ-PLOT-015/016)."""
+        for s in self._stripes:
+            s.set_background(color)
+
     def get_stripes(self) -> list[PlotStripe]:
         return list(self._stripes)
 

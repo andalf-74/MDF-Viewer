@@ -3791,8 +3791,9 @@ def test_add_signal_defaults_stripe_to_none(ctrl: AppController, deps: dict) -> 
 
 @pytest.mark.requirement("REQ-PLOT-190")
 def test_create_stripe_delegates_to_plot(ctrl: AppController, deps: dict) -> None:
-    deps["plot"].create_stripe.return_value = "new-stripe"
-    assert ctrl.create_stripe() == "new-stripe"
+    stripe = MagicMock()
+    deps["plot"].create_stripe.return_value = stripe
+    assert ctrl.create_stripe() is stripe
     deps["plot"].create_stripe.assert_called_once()
 
 
@@ -3928,6 +3929,72 @@ def test_move_signals_to_new_stripe_refreshes_cursor_labels(
     cursor_ctrl.reset_mock()
     ctrl.move_signals_to_new_stripe(ctrl.active_signals)
     cursor_ctrl.refresh.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Plot background color (#117)
+# ---------------------------------------------------------------------------
+
+def _ctrl_with_background_color(tmp_path, deps: dict, color: tuple) -> AppController:
+    from mdf_viewer.settings import Settings
+    s = Settings(path=tmp_path / "s.json")
+    s.plot_background_color = color
+    return AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+        settings=s,
+    )
+
+
+@pytest.mark.requirement("REQ-PLOT-015")
+def test_create_stripe_applies_default_background_without_settings(
+    ctrl: AppController, deps: dict
+) -> None:
+    new_stripe = MagicMock()
+    deps["plot"].create_stripe.return_value = new_stripe
+    ctrl.create_stripe()
+    new_stripe.set_background.assert_called_once_with((0, 0, 0))
+
+
+@pytest.mark.requirement("REQ-PLOT-015")
+def test_create_stripe_applies_configured_background_color(
+    tmp_path, deps: dict
+) -> None:
+    ctrl = _ctrl_with_background_color(tmp_path, deps, (64, 64, 64))
+    new_stripe = MagicMock()
+    deps["plot"].create_stripe.return_value = new_stripe
+    ctrl.create_stripe()
+    new_stripe.set_background.assert_called_once_with((64, 64, 64))
+
+
+@pytest.mark.requirement("REQ-PLOT-015")
+def test_move_signals_to_new_stripe_applies_background_color(
+    tmp_path, deps: dict
+) -> None:
+    ctrl = _ctrl_with_background_color(tmp_path, deps, (64, 64, 64))
+    new_stripe = MagicMock()
+    deps["plot"].create_stripe.return_value = new_stripe
+    ctrl.add_signal(0, 1)
+    ctrl.move_signals_to_new_stripe(ctrl.active_signals)
+    new_stripe.set_background.assert_called_once_with((64, 64, 64))
+
+
+@pytest.mark.requirement("REQ-PLOT-016")
+def test_refresh_plot_background_pushes_to_every_open_tab(
+    tmp_path, deps: dict
+) -> None:
+    ctrl = _ctrl_with_background_color(tmp_path, deps, (64, 64, 64))
+    other_plot = MagicMock()
+    ctrl.create_tab(other_plot, MagicMock())
+
+    ctrl.refresh_plot_background()
+
+    deps["plot"].set_background.assert_called_once_with((64, 64, 64))
+    other_plot.set_background.assert_called_once_with((64, 64, 64))
 
 
 # ---------------------------------------------------------------------------

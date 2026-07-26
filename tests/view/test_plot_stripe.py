@@ -80,6 +80,16 @@ def test_initially_no_signals(plot: PlotStripe) -> None:
 
 
 # ---------------------------------------------------------------------------
+# set_background (#117)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-015")
+def test_set_background_changes_plot_widget_background(plot: PlotStripe) -> None:
+    plot.set_background((64, 64, 64))
+    assert plot._pw.backgroundBrush().color().getRgb()[:3] == (64, 64, 64)
+
+
+# ---------------------------------------------------------------------------
 # _ViewBox mouse behaviour
 # ---------------------------------------------------------------------------
 

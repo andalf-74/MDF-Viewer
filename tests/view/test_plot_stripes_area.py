@@ -58,6 +58,20 @@ def test_plot_item_passthrough(area: PlotStripesArea) -> None:
 
 
 # ---------------------------------------------------------------------------
+# set_background (#117)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-015")
+def test_set_background_applies_to_every_stripe(area: PlotStripesArea) -> None:
+    area.create_stripe()
+    area.create_stripe()
+    assert len(area.get_stripes()) == 3
+    area.set_background((64, 64, 64))
+    for stripe in area.get_stripes():
+        assert stripe._pw.backgroundBrush().color().getRgb()[:3] == (64, 64, 64)
+
+
+# ---------------------------------------------------------------------------
 # Stripe naming
 # ---------------------------------------------------------------------------
 

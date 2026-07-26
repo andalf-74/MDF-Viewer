@@ -922,6 +922,10 @@ class PlotStripe(QWidget):
                 y_max += 1.0
             vb.setYRange(y_min, y_max, padding=0.05)
 
+    def set_background(self, color: tuple[int, int, int]) -> None:
+        """Set the plot canvas's background color (REQ-PLOT-015/016)."""
+        self._pw.setBackground(color)
+
     def zoom_to_x_range(self, x_min: float, x_max: float) -> None:
         """Set the shared X range to [x_min, x_max] with standard padding."""
         self._pi.vb.setXRange(x_min, x_max, padding=0.02)

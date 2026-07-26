@@ -42,6 +42,12 @@ def _wire_tab(
     plot_area = workspace.plot
     active_signals_table = workspace.table
 
+    # Applied explicitly rather than left to construction-time defaults: the
+    # very first tab's PlotStripesArea is built in MainWindow.__init__(),
+    # before Settings() exists (#117), so its stripe(s) always start black
+    # regardless of the persisted preference until this runs.
+    plot_area.set_background(settings.plot_background_color)
+
     cursor_view = CursorStripesView()
     for stripe in plot_area.get_stripes():
         cursor_view.add_stripe(stripe)

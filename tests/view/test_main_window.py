@@ -1982,6 +1982,7 @@ def test_apply_config_does_not_set_current_config_path(
 ) -> None:
     p = tmp_path / "session.mvc"
     wired._settings = MagicMock()
+    wired._settings.plot_background_color = (0, 0, 0)
     mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
     mock_controller.measurements = []
     mock_controller.current_config_path = "sentinel"
@@ -2014,6 +2015,7 @@ def test_apply_config_never_touches_measurement_pool_methods(
 ) -> None:
     p = tmp_path / "session.mvc"
     wired._settings = MagicMock()
+    wired._settings.plot_background_color = (0, 0, 0)
     mock_controller.active_signals = []  # prevent teardown from triggering the real dialog
     mock_controller.measurements = []
     config = _minimal_config(measurements=(_measurement_config("M1"),))

@@ -163,3 +163,4 @@ Right-edge `DockablePanel` (pin-toggle chevron ›, or hover-reveal near the win
 Tabbed dialog (Edit → Preferences…):
 - **General** — "Undo steps" spinbox (1–100, zoom/pan history depth). The "Check for updates on startup" checkbox that used to live here moved to the Update Checker plugin's own tab in Plugins → Plugin Preferences… (#76) — a separate dialog, not a tab of this one.
 - **Cursors** — cursor mode, "persistent" toggle, 4 color swatches (Cursor 1 / Cursor 2 / Cursor Left / Cursor Right chevrons), "Show ∆-Time" checkbox + its own color swatch, arrow-key step size (unit combo box + spinbox), reset-to-defaults button
+- **Signals** — Z-Order combo box (which Active Signals Table row renders on top), selected-signal line-width boost spinbox, "Show only selected signal's Y-axis" checkbox, plot background color swatch + reset-to-default button (#117, defaults to black), Display Name Rule controls (enable toggle, separator/direction/segment count, live preview)

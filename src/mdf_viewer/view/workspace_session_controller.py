@@ -303,6 +303,12 @@ class WorkspaceSessionController:
         existing = plot_area.get_stripes()
         for _ in range(len(stripes) - len(existing)):
             plot_area.create_stripe()
+        # A newly created stripe defaults to black (#117) — this tab's
+        # existing stripe(s) were already fixed up when the tab was wired,
+        # so re-applying to all of them here is a harmless no-op for those.
+        settings = self._get_settings()
+        if settings is not None:
+            plot_area.set_background(settings.plot_background_color)
         all_stripes = plot_area.get_stripes()
         for stripe, stripe_config in zip(all_stripes, stripes):
             ast.rename_stripe_segment(stripe, stripe_config.name)

@@ -28,6 +28,14 @@ whole-number ticks, with no fractional or duplicate ticks
 on the Y-axis instead of raw numeric values when that signal's "Y-axis
 enum display" option is enabled [REQ-PLOT-014].
 
+## Plot Appearance
+
+The plot canvas's background color is user-configurable via Preferences,
+defaulting to black to match today's existing appearance
+[REQ-PLOT-015]. Changing it applies immediately to every stripe in every
+open tab, and to any stripe or tab created afterward in the same session
+[REQ-PLOT-016].
+
 ## Adding and Removing Active Signals
 
 A channel that is already active is never added a second time

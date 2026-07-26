@@ -31,6 +31,7 @@ from mdf_viewer.settings import (
     DEFAULT_CURSOR_STEP_TIME_MS,
     DEFAULT_DELTA_TIME_COLOR,
     DEFAULT_KEEP_SIGNALS_ON_LOAD,
+    DEFAULT_PLOT_BACKGROUND_COLOR,
     DEFAULT_SELECTED_LINE_BOOST,
     DEFAULT_SHOW_ONLY_SELECTED_Y_AXIS,
     Settings,
@@ -286,6 +287,18 @@ class PreferencesDialog(QDialog):
 
         signals_layout.addSpacing(8)
 
+        bg_row = QHBoxLayout()
+        bg_row.addWidget(QLabel("Plot background color:"))
+        self._swatch_bg = _CursorColorSwatch(QColor(*self._settings.plot_background_color))
+        bg_row.addWidget(self._swatch_bg)
+        bg_row.addStretch()
+        bg_reset_btn = QPushButton("Reset to default")
+        bg_reset_btn.clicked.connect(self._reset_plot_background_color)
+        bg_row.addWidget(bg_reset_btn)
+        signals_layout.addLayout(bg_row)
+
+        signals_layout.addSpacing(8)
+
         from mdf_viewer.view._display_name_controls import DisplayNameRuleControls
         self._display_name_controls = DisplayNameRuleControls(
             self._settings, self._preview_name
@@ -313,6 +326,7 @@ class PreferencesDialog(QDialog):
         self._settings.signal_z_order = _Z_ORDER_OPTIONS[self._z_order_combo.currentIndex()][0]
         self._settings.selected_line_boost = self._line_boost.value()
         self._settings.show_only_selected_y_axis = self._show_only_selected_y_axis.isChecked()
+        self._settings.plot_background_color = self._swatch_bg.rgb()
         self._display_name_controls.apply_to_settings(self._settings)
         self._settings.cursor_persistent = self._cursor_persistent.isChecked()
         self._settings.cursor_mode = "L/R" if self._cursor_lr.isChecked() else "1/2"
@@ -349,6 +363,9 @@ class PreferencesDialog(QDialog):
         key = getattr(self, "_current_step_unit_key", None)
         if key is not None:
             self._step_values[key] = self._step_amount.value()
+
+    def _reset_plot_background_color(self) -> None:
+        self._swatch_bg.set_color(QColor(*DEFAULT_PLOT_BACKGROUND_COLOR))
 
     def _reset_cursor_colors(self) -> None:
         self._swatch_c1.set_color(QColor(*DEFAULT_CURSOR_COLOR_C1))

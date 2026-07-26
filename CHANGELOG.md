@@ -30,6 +30,10 @@ All notable changes to MDF-Viewer are documented in this file.
   signal. A signal that's part of a Merged or Synced Y-axis group
   autozooms its whole group together; selecting multiple signals applies
   it independently to each one's own group.
+- Configurable plot background color (#117): a new color swatch in
+  Preferences → Signals sets the plot canvas's background color (default
+  unchanged: black). Applies immediately to every open tab and stripe,
+  and to any tab or stripe created afterward, including on session restore.
 
 ### Changed
 - Arrow-key cursor stepping in "samples" mode (#146): the reference signal

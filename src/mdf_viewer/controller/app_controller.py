@@ -591,6 +591,18 @@ class AppController:
         if self.current_workspace.cursor_ctrl is not None:
             self.current_workspace.cursor_ctrl.refresh()
 
+    def refresh_plot_background(self) -> None:
+        """Push the current plot background color to every open tab (#117).
+
+        Unlike refresh_cursors() (current tab only — cursor colors are
+        re-read live on every cursor move anyway), background color has no
+        such lazy re-read path, so every already-open tab needs an explicit
+        push or it would keep showing the old color indefinitely.
+        """
+        color = self._plot_background_color
+        for workspace in self.all_workspaces():
+            workspace.plot.set_background(color)
+
     # ------------------------------------------------------------------
     # Zoom proxy — MainWindow calls these for all zoom actions so the
     # ZoomController can wrap each one with before/after_discrete_action.
@@ -1166,7 +1178,9 @@ class AppController:
 
     def create_stripe(self):
         """Create a new empty plot stripe."""
-        return self.current_workspace.plot.create_stripe()
+        stripe = self.current_workspace.plot.create_stripe()
+        stripe.set_background(self._plot_background_color)
+        return stripe
 
     def delete_stripe(self, stripe, force: bool = False) -> bool:
         """Delete *stripe*. Refuses if it's the last stripe, or non-empty without force.
@@ -1210,6 +1224,7 @@ class AppController:
         """Create a new stripe and move each of *signals* into it (REQ-PLOT-191)."""
         current = self.current_workspace
         stripe = current.plot.create_stripe()
+        stripe.set_background(self._plot_background_color)
         for active in signals:
             current.plot.move_signal_to_stripe(active, stripe)
         current.table.move_to_stripe(signals, stripe)
@@ -1491,6 +1506,12 @@ class AppController:
         if self._settings is None:
             return True
         return self._settings.zoom_scope == "all_stripes"
+
+    @property
+    def _plot_background_color(self) -> tuple[int, int, int]:
+        if self._settings is None:
+            return (0, 0, 0)
+        return self._settings.plot_background_color
 
     def remove_signal(self, active_signal: ActiveSignal) -> None:
         """Remove one signal from the plot and the table.

@@ -40,6 +40,9 @@ DEFAULT_CURSOR_STEP_TIME_MS = 10.0     # milliseconds per key press
 # Default zoom undo history depth
 DEFAULT_MAX_UNDO_STEPS = 1
 
+# Default plot canvas background color, matching today's existing appearance (#117)
+DEFAULT_PLOT_BACKGROUND_COLOR = (0, 0, 0)
+
 # Default signal Z-order ("top_first" = top table row on top, "bottom_first" = bottom row on top)
 DEFAULT_SIGNAL_Z_ORDER = "top_first"
 
@@ -117,6 +120,7 @@ class Settings:
         self._cursor_color_cr: tuple[int, int, int] = DEFAULT_CURSOR_COLOR_CR
         self._show_delta_time_in_plot: bool = True
         self._delta_time_color: tuple[int, int, int] = DEFAULT_DELTA_TIME_COLOR
+        self._plot_background_color: tuple[int, int, int] = DEFAULT_PLOT_BACKGROUND_COLOR
         self._cursor_step_unit: str = DEFAULT_CURSOR_STEP_UNIT
         self._cursor_step_samples: int = DEFAULT_CURSOR_STEP_SAMPLES
         self._cursor_step_pixels: int = DEFAULT_CURSOR_STEP_PIXELS
@@ -223,6 +227,15 @@ class Settings:
     @show_delta_time_in_plot.setter
     def show_delta_time_in_plot(self, value: bool) -> None:
         self._show_delta_time_in_plot = value
+        self._save()
+
+    @property
+    def plot_background_color(self) -> tuple[int, int, int]:
+        return self._plot_background_color
+
+    @plot_background_color.setter
+    def plot_background_color(self, value: tuple[int, int, int]) -> None:
+        self._plot_background_color = value
         self._save()
 
     @property
@@ -440,6 +453,9 @@ class Settings:
             self._cursor_color_cr = self._load_color(data, "cursor_color_cr", DEFAULT_CURSOR_COLOR_CR)
             self._show_delta_time_in_plot = bool(data.get("show_delta_time_in_plot", True))
             self._delta_time_color = self._load_color(data, "delta_time_color", DEFAULT_DELTA_TIME_COLOR)
+            self._plot_background_color = self._load_color(
+                data, "plot_background_color", DEFAULT_PLOT_BACKGROUND_COLOR
+            )
             self._cursor_step_unit = str(data.get("cursor_step_unit", DEFAULT_CURSOR_STEP_UNIT))
             self._cursor_step_samples = int(data.get("cursor_step_samples", DEFAULT_CURSOR_STEP_SAMPLES))
             self._cursor_step_pixels = int(data.get("cursor_step_pixels", DEFAULT_CURSOR_STEP_PIXELS))
@@ -490,6 +506,7 @@ class Settings:
             self._cursor_color_cr = DEFAULT_CURSOR_COLOR_CR
             self._show_delta_time_in_plot = True
             self._delta_time_color = DEFAULT_DELTA_TIME_COLOR
+            self._plot_background_color = DEFAULT_PLOT_BACKGROUND_COLOR
             self._cursor_step_unit = DEFAULT_CURSOR_STEP_UNIT
             self._cursor_step_samples = DEFAULT_CURSOR_STEP_SAMPLES
             self._cursor_step_pixels = DEFAULT_CURSOR_STEP_PIXELS
@@ -532,6 +549,7 @@ class Settings:
                     "cursor_color_cr": list(self._cursor_color_cr),
                     "show_delta_time_in_plot": self._show_delta_time_in_plot,
                     "delta_time_color": list(self._delta_time_color),
+                    "plot_background_color": list(self._plot_background_color),
                     "cursor_step_unit": self._cursor_step_unit,
                     "cursor_step_samples": self._cursor_step_samples,
                     "cursor_step_pixels": self._cursor_step_pixels,
