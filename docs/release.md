@@ -34,4 +34,4 @@ The separate [`mdf-viewer-plugin-sdk`](https://github.com/andalf-74/mdf-viewer-p
 4. `Compress-Archive -Path dist\MDF-Viewer -DestinationPath dist\MDF-Viewer-X.Y-Windows.zip -Force` → portable zip
 5. Upload both to the GitHub release: `gh release upload vX.Y installer/dist/MDF-Viewer-X.Y-Setup.exe dist/MDF-Viewer-X.Y-Windows.zip`
 
-**Latest release — v2.2:** https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.2 — ships `MDF-Viewer-2.2-Setup.exe` (installer) and `MDF-Viewer-2.2-Windows.zip` (portable).
+**Latest release — v2.3:** https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.3 — ships `MDF-Viewer-2.3-Setup.exe` (installer) and `MDF-Viewer-2.3-Windows.zip` (portable).

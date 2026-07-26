@@ -4,6 +4,8 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+## [2.3] - 2026-07-26
+
 ### Added
 - Plugin Overview (#160): a new "Plugin Overview…" entry in the Plugins
   menu opens a dialog listing every plugin found in the plugins directory,
