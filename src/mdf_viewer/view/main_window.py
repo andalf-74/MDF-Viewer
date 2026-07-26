@@ -552,6 +552,9 @@ class MainWindow(QMainWindow):
         active_signals_table.ungroup_y_axis_requested.connect(
             controller.on_ungroup_y_axis_requested
         )
+        active_signals_table.y_autozoom_requested.connect(
+            controller.on_y_autozoom_requested
+        )
         active_signals_table.move_to_stripe_requested.connect(
             controller.move_signals_to_stripe
         )

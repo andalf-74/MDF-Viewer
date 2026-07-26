@@ -127,7 +127,19 @@ toggle governs whether "Zoom to Fit" (REQ-PLOT-053) and "Zoom Y to View"
 (REQ-PLOT-054) rescale Y for every stripe or only the currently active
 stripe; it does not affect Swimlanes, which always scopes to the active
 stripe, or box zoom, which always scopes to the stripe the rectangle was
-drawn in [REQ-PLOT-057].
+drawn in [REQ-PLOT-057]. "Y Autozoom" rescales Y to fit only the data
+currently visible within the current X range — the same computation as
+"Zoom Y to View" (REQ-PLOT-054) — but scoped to one specific signal (and,
+when that signal belongs to a Merged or Synced Y-axis group, every other
+member of that group) rather than every signal in the stripe; it is
+unaffected by the All Stripes/Active Stripe toggle (REQ-PLOT-057), since
+its scope is always the target signal's own group, and it is a no-op for
+a signal that is currently hidden or has no data points inside the
+current X range [REQ-PLOT-058]. Y Autozoom is available, for each signal
+currently selected in the Active Signals Table, via its context menu and
+the Ctrl+D keyboard shortcut; invoking it with multiple signals selected
+applies Y Autozoom independently to each selected signal's own group
+[REQ-PLOT-059].
 
 ## Zoom History (Undo/Redo)
 

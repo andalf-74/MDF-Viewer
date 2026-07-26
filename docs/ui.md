@@ -139,9 +139,10 @@ Divided into one segment per stripe, stacked top-to-bottom in the same order as 
 
 - Each segment's stripe name is shown as a label above it (double-click to rename, mirroring tab renaming).
 - Dragging a row within or across segments reorders it or moves the signal to a different stripe (the drop target's segment); this also relocates the signal in the plot.
-- Right-click context menu: Remove Signal(s), Toggle Visibility (#133), Enable/Disable Step Mode, Shorten Signal Names (toggle), Display Name Rule…, Merge Y-Axis / Sync Y-Axis / Remove from merged-synced axis (2+ signals), Move to Stripe / Move to new Stripe.
+- Right-click context menu: Remove Signal(s), Toggle Visibility (#133), Y Autozoom (#142), Enable/Disable Step Mode, Shorten Signal Names (toggle), Display Name Rule…, Merge Y-Axis / Sync Y-Axis / Remove from merged-synced axis (2+ signals), Move to Stripe / Move to new Stripe.
 - **Remove Signal** / **Remove All** buttons below the table (spanning all segments) remove the selected/every active signal from the table and plot.
 - **Ctrl+W** toggles visibility for whichever row(s) are currently selected, each independently — a mix of visible/hidden rows ends up with each one inverted, never forced to one shared state (#133).
+- **Ctrl+D** (or the "Y Autozoom" context-menu entry) rescales the Y-axis of whichever row(s) are currently selected to fit the data visible within the current X range, applied independently to each selected signal's own axis (or its whole Merged/Synced group, if it's in one) (#142).
 - Hiding a signal (#133) hides its curve and its own Y-axis (a Merged/Synced group's shared axis stays until every member is hidden); it stays fully selectable and editable, its Cursor 1/2/Delta values keep updating, and Zoom to Fit/Zoom Y to View/Swimlanes ignore its data range.
 - Selection here drives the Signal Info/Properties drawer's content.
 

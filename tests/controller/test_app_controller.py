@@ -3983,6 +3983,40 @@ def test_zoom_y_to_view_passes_all_stripes_false_when_scope_is_active_stripe(
     deps["plot"].zoom_y_to_view.assert_called_once_with(all_stripes=False)
 
 
+@pytest.mark.requirement("REQ-PLOT-059")
+def test_on_y_autozoom_requested_calls_autozoom_for_each_signal(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    ctrl.add_signal(0, 2)
+    ctrl.on_y_autozoom_requested(ctrl.active_signals)
+    assert deps["plot"].autozoom_to_signal.call_count == 2
+    called_with = {c.args[0] for c in deps["plot"].autozoom_to_signal.call_args_list}
+    assert called_with == set(ctrl.active_signals)
+
+
+@pytest.mark.requirement("REQ-PLOT-059")
+def test_on_y_autozoom_requested_filters_out_stale_signals(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    stale = ActiveSignal(
+        data=SignalData(timestamps=np.array([0.0]), samples=np.array([0.0])),
+        metadata=SignalMetadata(name="stale", unit="", group_index=0, channel_index=9),
+        color=QColor(1, 2, 3),
+    )
+    ctrl.on_y_autozoom_requested(ctrl.active_signals + [stale])
+    deps["plot"].autozoom_to_signal.assert_called_once_with(ctrl.active_signals[0])
+
+
+@pytest.mark.requirement("REQ-PLOT-059")
+def test_on_y_autozoom_requested_noop_with_no_valid_signals(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.on_y_autozoom_requested([])
+    deps["plot"].autozoom_to_signal.assert_not_called()
+
+
 def test_zoom_to_fit_defaults_all_stripes_without_settings(deps: dict) -> None:
     ctrl_no_settings = AppController(
         loader=deps["loader"],

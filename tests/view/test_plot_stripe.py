@@ -836,6 +836,89 @@ def test_zoom_y_to_view_constant_signal_expands_range(plot: PlotStripe) -> None:
 
 
 # ---------------------------------------------------------------------------
+# autozoom_to_signal (#142)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-058")
+def test_autozoom_to_signal_returns_false_for_unknown_signal(plot: PlotStripe) -> None:
+    assert plot.autozoom_to_signal(_make_active()) is False
+
+
+@pytest.mark.requirement("REQ-PLOT-058")
+def test_autozoom_to_signal_returns_true_and_sets_range(plot: PlotStripe) -> None:
+    active = _make_active_range("a", 0.0, 10.0)
+    plot.add_signal(active)
+    assert plot.autozoom_to_signal(active) is True
+    y_min, y_max = active.view_box.viewRange()[1]
+    assert y_min < 0.0
+    assert y_max > 10.0  # padding applied, but within reason
+    assert y_max < 20.0
+
+
+@pytest.mark.requirement("REQ-PLOT-056")
+def test_autozoom_to_signal_constant_signal_expands_range(plot: PlotStripe) -> None:
+    t = np.linspace(0.0, 1.0, 50)
+    data = SignalData(timestamps=t, samples=np.zeros(50))
+    meta = SignalMetadata(name="z", group_index=0, channel_index=0)
+    active = ActiveSignal(data=data, metadata=meta, color=QColor(100, 100, 200))
+    plot.add_signal(active)
+    assert plot.autozoom_to_signal(active) is True
+    y_min, y_max = active.view_box.viewRange()[1]
+    assert y_min < 0.0
+    assert y_max > 0.0
+
+
+@pytest.mark.requirement("REQ-PLOT-058")
+def test_autozoom_to_signal_returns_false_when_hidden(plot: PlotStripe) -> None:
+    active = _make_active_range("a", 0.0, 10.0)
+    plot.add_signal(active)
+    plot.set_signal_visible(active, False)
+    assert plot.autozoom_to_signal(active) is False
+
+
+@pytest.mark.requirement("REQ-PLOT-058")
+def test_autozoom_to_signal_returns_false_when_no_data_in_visible_x_range(
+    plot: PlotStripe,
+) -> None:
+    active = _make_active_range("a", 0.0, 10.0)  # timestamps span [0, 1]
+    plot.add_signal(active)
+    plot._pi.vb.setXRange(5.0, 6.0, padding=0)  # outside the signal's data
+    assert plot.autozoom_to_signal(active) is False
+
+
+@pytest.mark.requirement("REQ-PLOT-058")
+def test_autozoom_to_signal_only_affects_its_own_unit(plot: PlotStripe) -> None:
+    a = _make_active_range("a", 0.0, 10.0)
+    b = _make_active_range("b", 100.0, 110.0)
+    plot.add_signal(a)
+    plot.add_signal(b)
+    b_range_before = b.view_box.viewRange()[1]
+
+    assert plot.autozoom_to_signal(a) is True
+
+    y_a = a.view_box.viewRange()[1]
+    assert y_a[1] < 50.0  # rescaled to a's own [0, 10] extent, not b's
+    assert b.view_box.viewRange()[1] == pytest.approx(b_range_before)
+
+
+@pytest.mark.requirement("REQ-PLOT-058")
+def test_autozoom_to_signal_synced_group_uses_combined_data_extent(plot: PlotStripe) -> None:
+    a = _make_active_range("a", 0.0, 10.0)
+    b = _make_active_range("b", 100.0, 110.0)
+    plot.add_signal(a)
+    plot.add_signal(b)
+    plot.sync_signals([a, b])
+
+    assert plot.autozoom_to_signal(a) is True
+
+    y_a = a.view_box.viewRange()[1]
+    y_b = b.view_box.viewRange()[1]
+    assert y_a == pytest.approx(y_b)
+    assert y_a[0] < 10.0
+    assert y_a[1] > 100.0
+
+
+# ---------------------------------------------------------------------------
 # zoom_to_fit
 # ---------------------------------------------------------------------------
 

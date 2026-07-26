@@ -613,6 +613,19 @@ class AppController:
             current.zoom_ctrl.after_discrete_action()
         return result
 
+    def on_y_autozoom_requested(self, signals: list) -> None:
+        """Y Autozoom each given signal's own Y-axis group independently (REQ-PLOT-058/059)."""
+        current = self.current_workspace
+        actives = [s for s in signals if s in current.active]
+        if not actives:
+            return
+        if current.zoom_ctrl is not None:
+            current.zoom_ctrl.before_discrete_action()
+        for active in actives:
+            current.plot.autozoom_to_signal(active)
+        if current.zoom_ctrl is not None:
+            current.zoom_ctrl.after_discrete_action()
+
     # ------------------------------------------------------------------
     # Undo/redo proxy
     # ------------------------------------------------------------------

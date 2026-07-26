@@ -22,6 +22,14 @@ All notable changes to MDF-Viewer are documented in this file.
   before), and "Reload Plugin" (a submenu of every currently active plugin)
   reloads one plugin's code from disk without restarting the app, cleanly
   closing its open panel/dialog/tabs first.
+- Y Autozoom (#142): a new "Y Autozoom" entry in the Active Signals
+  Table's context menu (and the Ctrl+D shortcut) rescales the Y-axis of
+  the selected signal(s) to fit the data currently visible within the
+  current X range — the same computation "Zoom Y to View" already does,
+  but scoped to just the selected signal(s) instead of every active
+  signal. A signal that's part of a Merged or Synced Y-axis group
+  autozooms its whole group together; selecting multiple signals applies
+  it independently to each one's own group.
 
 ### Changed
 - Arrow-key cursor stepping in "samples" mode (#146): the reference signal

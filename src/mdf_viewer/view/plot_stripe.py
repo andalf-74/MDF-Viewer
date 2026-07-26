@@ -1016,6 +1016,41 @@ class PlotStripe(QWidget):
             vb.setYRange(y_min, y_max, padding=0.05)
         return True
 
+    def autozoom_to_signal(self, active: ActiveSignal) -> bool:
+        """Y Autozoom: rescale one signal's display unit to fit the data
+        currently visible within the current X range (REQ-PLOT-058).
+
+        The unit is *active*'s own ViewBox for an ungrouped signal or a
+        Merged group, or the whole Synced group it belongs to — same
+        resolution as zoom_y_to_view(), via _display_units(). A no-op
+        (returns False) if the signal isn't in this stripe, is hidden
+        (_display_units() excludes it, REQ-PLOT-337), or has no data
+        points inside the current X range.
+        """
+        if active not in self._data:
+            return False
+        x_min, x_max = self._pi.vb.viewRange()[0]
+        for vb, members, _is_synced in self._display_units():
+            if active not in members:
+                continue
+            ys_all: list[float] = []
+            for member in members:
+                ts = member.display_timestamps
+                ys = member.data.samples
+                mask = (ts >= x_min) & (ts <= x_max)
+                visible = ys[mask]
+                if len(visible):
+                    ys_all.extend(visible.tolist())
+            if not ys_all:
+                return False
+            y_min, y_max = min(ys_all), max(ys_all)
+            if y_min == y_max:
+                y_min -= 1.0
+                y_max += 1.0
+            vb.setYRange(y_min, y_max, padding=0.05)
+            return True
+        return False
+
     def get_zoom_state(self, active_signals: list) -> ZoomState:
         """Snapshot the current X range and each active signal's Y range."""
         x_range = tuple(self._pi.vb.viewRange()[0])

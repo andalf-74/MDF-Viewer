@@ -442,6 +442,12 @@ class PlotStripesArea(QWidget):
         if stripe is not None:
             stripe.set_y_grid(active, enabled)
 
+    def autozoom_to_signal(self, active: ActiveSignal) -> bool:
+        stripe = self._signal_stripe.get(active)
+        if stripe is None:
+            return False
+        return stripe.autozoom_to_signal(active)
+
     def set_selected_signals(
         self,
         selected: list[ActiveSignal],

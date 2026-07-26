@@ -292,6 +292,10 @@ class ActiveSignalsTable(QWidget):
     # Visibility" context-menu entry, or Ctrl+W (#133); each listed signal
     # toggles its own current state independently (REQ-PLOT-333).
     visibility_toggle_requested = pyqtSignal(list)
+    # list[ActiveSignal] — emitted from the "Y Autozoom" context-menu entry
+    # or Ctrl+D (#142); applied independently to each listed signal's own
+    # Y-axis group (REQ-PLOT-058/059).
+    y_autozoom_requested = pyqtSignal(list)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -840,6 +844,13 @@ class ActiveSignalsTable(QWidget):
             signals = self._selected_signals()
             if signals:
                 self.visibility_toggle_requested.emit(signals)
+        elif (
+            event.key() == Qt.Key.Key_D
+            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        ):
+            signals = self._selected_signals()
+            if signals:
+                self.y_autozoom_requested.emit(signals)
         else:
             super().keyPressEvent(event)
 
@@ -865,6 +876,14 @@ class ActiveSignalsTable(QWidget):
             lambda: self.visibility_toggle_requested.emit(selected)
         )
         menu.addAction(toggle_visibility_action)
+
+        y_autozoom_action = QAction("Y Autozoom", self)
+        y_autozoom_action.setToolTip(
+            "Rescale each selected signal's Y-axis (and its Merged/Synced "
+            "group, if any) to fit the data visible in the current X range."
+        )
+        y_autozoom_action.triggered.connect(lambda: self.y_autozoom_requested.emit(selected))
+        menu.addAction(y_autozoom_action)
 
         menu.addSeparator()
 

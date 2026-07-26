@@ -706,6 +706,24 @@ def test_set_signal_visible_unknown_signal_is_noop(area: PlotStripesArea) -> Non
     area.set_signal_visible(stranger, False)  # must not raise
 
 
+# ---------------------------------------------------------------------------
+# autozoom_to_signal (#142)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-058")
+def test_autozoom_to_signal_dispatches_to_owning_stripe(area: PlotStripesArea) -> None:
+    s2 = area.create_stripe()
+    a = _make_active("a")
+    area.add_signal(a, stripe=s2)
+    assert area.autozoom_to_signal(a) is True
+
+
+@pytest.mark.requirement("REQ-PLOT-058")
+def test_autozoom_to_signal_unknown_signal_is_noop(area: PlotStripesArea) -> None:
+    stranger = _make_active("x")
+    assert area.autozoom_to_signal(stranger) is False
+
+
 @pytest.mark.requirement("REQ-PLOT-337")
 def test_zoom_to_fit_excludes_hidden_signal_range(area: PlotStripesArea) -> None:
     short = ActiveSignal(

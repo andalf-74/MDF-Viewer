@@ -964,6 +964,23 @@ def test_ctrl_w_no_selection_does_not_emit(table: ActiveSignalsTable, qtbot: QtB
         qtbot.keyClick(table, Qt.Key.Key_W, Qt.KeyboardModifier.ControlModifier)
 
 
+@pytest.mark.requirement("REQ-PLOT-059")
+def test_ctrl_d_requests_autozoom_for_selected_signals(populated: tuple, qtbot: QtBot) -> None:
+    from PyQt6.QtCore import Qt
+    t, sigs = populated
+    t._segments[0].selectRow(0)
+    with qtbot.waitSignal(t.y_autozoom_requested, timeout=500) as blocker:
+        qtbot.keyClick(t, Qt.Key.Key_D, Qt.KeyboardModifier.ControlModifier)
+    assert blocker.args[0] == [sigs[0]]
+
+
+@pytest.mark.requirement("REQ-PLOT-059")
+def test_ctrl_d_no_selection_does_not_emit(table: ActiveSignalsTable, qtbot: QtBot) -> None:
+    from PyQt6.QtCore import Qt
+    with qtbot.assertNotEmitted(table.y_autozoom_requested):
+        qtbot.keyClick(table, Qt.Key.Key_D, Qt.KeyboardModifier.ControlModifier)
+
+
 def test_set_row_visible_icon_updates_button(populated: tuple) -> None:
     t, sigs = populated
     t.set_row_visible_icon(sigs[0], False)
@@ -1724,6 +1741,33 @@ def test_ungroup_action_covers_both_merged_and_synced_selection(
     _select_rows(t, 0, 1)
     titles = [a.text() for a in _open_context_menu(t).actions()]
     assert "Remove from merged/synced axis" in titles
+
+
+# ---------------------------------------------------------------------------
+# Context menu — Y Autozoom (#142)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-059")
+def test_y_autozoom_action_present_in_context_menu(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    _select_rows(t, 0)
+    titles = [a.text() for a in _open_context_menu(t).actions()]
+    assert "Y Autozoom" in titles
+
+
+@pytest.mark.requirement("REQ-PLOT-059")
+def test_y_autozoom_action_emits_selected_signals(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot,
+) -> None:
+    t, sigs = populated
+    _select_rows(t, 0, 1)
+    menu = _open_context_menu(t)
+    action = next(a for a in menu.actions() if a.text() == "Y Autozoom")
+    with qtbot.waitSignal(t.y_autozoom_requested, timeout=500) as blocker:
+        action.trigger()
+    assert set(blocker.args[0]) == {sigs[0], sigs[1]}
 
 
 # ---------------------------------------------------------------------------
