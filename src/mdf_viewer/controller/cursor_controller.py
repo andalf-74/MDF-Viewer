@@ -37,6 +37,10 @@ _COLOR_CR = (50, 150, 255)   # blue   — Cursor R
 # behaving as "one implicit stripe" with zero call-site changes.
 _DEFAULT_STRIPE = object()
 
+# Sentinel distinct from any real signal (including None) so the first
+# samples-mode step after cursors are shown/reset always re-snaps (REQ-PLOT-094).
+_UNSET_REFERENCE = object()
+
 
 class CursorController:
     """Manages cursor mode, remembered positions, and value computation.
@@ -57,7 +61,7 @@ class CursorController:
         get_y_range: Callable[[], tuple[float, float]] | None = None,
         get_show_delta_time: Callable[[], bool] | None = None,
         get_delta_time_color: Callable[[], tuple] | None = None,
-        get_selected_signal: Callable[[], Any] | None = None,
+        get_selected_signals: Callable[[], list] | None = None,
         get_cursor_step_unit: Callable[[], str] | None = None,
         get_cursor_step_samples: Callable[[], int] | None = None,
         get_cursor_step_pixels: Callable[[], int] | None = None,
@@ -134,8 +138,8 @@ class CursorController:
             if get_delta_time_color is not None
             else (lambda: (200, 200, 200))
         )
-        self._get_selected_signal: Callable[[], Any] = (
-            get_selected_signal if get_selected_signal is not None else (lambda: None)
+        self._get_selected_signals: Callable[[], list] = (
+            get_selected_signals if get_selected_signals is not None else (lambda: [])
         )
         self._get_cursor_step_unit: Callable[[], str] = (
             get_cursor_step_unit if get_cursor_step_unit is not None else (lambda: "samples")
@@ -167,6 +171,9 @@ class CursorController:
         self._mode_changed_cb: _ModeCallback | None = None
         self._position_changed_cb: _PositionCallback | None = None
         self._active_cursor_idx: int | None = None
+        # Tracks the reference signal used by the previous samples-mode step
+        # (REQ-PLOT-094); _UNSET_REFERENCE so the very first step re-snaps too.
+        self._last_sample_reference: Any = _UNSET_REFERENCE
 
         cursor_view.cursor_moved.connect(self._on_cursor_dragged)
         cursor_view.cursor_clicked.connect(self._on_cursor_clicked)
@@ -243,6 +250,7 @@ class CursorController:
         self._initialized = False
         self._delta_y_pos_by_stripe.clear()
         self._active_cursor_idx = None
+        self._last_sample_reference = _UNSET_REFERENCE
         if self._mode != CursorMode.HIDDEN:
             self._mode = CursorMode.HIDDEN
             self._view.apply_mode(CursorMode.HIDDEN, self._positions)
@@ -344,13 +352,22 @@ class CursorController:
 
         x = self._positions[idx]
         unit = self._get_cursor_step_unit()
-        signal = self._get_selected_signal() or next(iter(self._get_active_signals()), None)
+        signal = self._resolve_reference_signal()
 
         if unit == "samples":
             if signal is None:
+                self._last_sample_reference = _UNSET_REFERENCE
                 return
             n = self._get_cursor_step_samples()
-            new_x = self._step_by_sample(signal, x, direction, n)
+            reference_changed = (
+                self._last_sample_reference is not _UNSET_REFERENCE
+                and signal is not self._last_sample_reference
+            )
+            if reference_changed:
+                new_x = self._snap_to_nearest_sample(signal, x)
+            else:
+                new_x = self._step_by_sample(signal, x, direction, n)
+            self._last_sample_reference = signal
         elif unit == "pixels":
             px = self._get_cursor_step_pixels()
             new_x = x + direction * px * self._get_x_per_pixel()
@@ -364,6 +381,27 @@ class CursorController:
         self._view.apply_mode(self._mode, self._positions)
         self._refresh(update_labels=True)
         self._notify_moved()
+
+    def _resolve_reference_signal(self) -> Any:
+        """Return the reference signal for arrow-key stepping (REQ-PLOT-091).
+
+        The highest-sample-rate signal among the current selection, or,
+        when nothing is selected, among all active signals.
+        """
+        selected = self._get_selected_signals()
+        candidates = selected if selected else self._get_active_signals()
+        return _highest_rate_signal(candidates)
+
+    def _snap_to_nearest_sample(self, signal: Any, x: float) -> float:
+        """Return the reference signal's own sample nearest to *x* (REQ-PLOT-094)."""
+        ts = signal.data.timestamps
+        if len(ts) == 0:
+            return x
+        idx = int(np.searchsorted(ts, x))
+        idx = min(max(idx, 0), len(ts) - 1)
+        if idx > 0 and abs(float(ts[idx - 1]) - x) <= abs(float(ts[idx]) - x):
+            idx -= 1
+        return float(ts[idx])
 
     def _step_by_sample(self, signal: Any, x: float, direction: int, n: int) -> float:
         ts = signal.data.timestamps
@@ -533,6 +571,27 @@ class CursorController:
 # ---------------------------------------------------------------------------
 # Module-level helpers
 # ---------------------------------------------------------------------------
+
+def _highest_rate_signal(signals: list) -> Any | None:
+    """Return the signal with the highest effective sample rate (REQ-PLOT-091).
+
+    Computed directly from each signal's own timestamps (samples per second
+    over its span) rather than SignalMetadata.raster_s, so a signal with an
+    indeterminate/variable raster still participates. A signal with fewer
+    than two samples, or a zero/negative timestamp span, rates lowest.
+    Ties keep the first candidate encountered.
+    """
+    best: Any | None = None
+    best_rate = -1.0
+    for signal in signals:
+        ts = signal.data.timestamps
+        span = float(ts[-1] - ts[0]) if len(ts) >= 2 else 0.0
+        rate = (len(ts) - 1) / span if span > 0 else 0.0
+        if rate > best_rate:
+            best_rate = rate
+            best = signal
+    return best
+
 
 def _fmt(value: float | None) -> str:
     """Format a cursor value for display in the table."""

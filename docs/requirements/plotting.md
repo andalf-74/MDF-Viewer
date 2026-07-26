@@ -189,14 +189,22 @@ The arrow keys move the most recently interacted-with cursor by a
 configurable step, in one of three units: a number of samples of a
 reference signal, a number of screen pixels, or an amount of time
 [REQ-PLOT-090]. The reference signal for sample-based stepping is the
-currently selected signal, or the first active signal if none is
-selected; stepping is a no-op if there is no signal to reference
+highest-sample-rate signal among the currently selected signals, or, when
+none are selected, the highest-sample-rate signal among all active
+signals; stepping is a no-op if there is no signal to reference
 [REQ-PLOT-091]. Stepping never moves a cursor beyond the reference
 signal's (or, for pixel/time stepping without a reference, the current
 view's) time range — it clamps at the boundary rather than moving out of
 range [REQ-PLOT-092]. Stepping is a no-op if no cursor is currently the
 "active" one to move (e.g. two cursors are shown but neither has been
-interacted with yet) [REQ-PLOT-093].
+interacted with yet) [REQ-PLOT-093]. When sample-based stepping has
+already resolved a reference signal at least once, and the reference
+signal resolved for the current press is a *different* signal than that
+— e.g. the selection changed in between presses — that press snaps the
+cursor to the new reference signal's nearest sample without otherwise
+moving it, rather than stepping from the old position; a subsequent
+press in the same direction then steps normally from that snapped
+position [REQ-PLOT-094].
 
 ## Delta-Time Line
 

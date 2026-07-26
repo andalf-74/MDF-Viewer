@@ -1372,7 +1372,7 @@ def _make_active_spaced(name: str, n: int) -> ActiveSignal:
 
 
 @pytest.mark.requirement("REQ-PLOT-091")
-def test_press_right_samples_uses_selected_signal_over_first_active(
+def test_press_right_samples_uses_sole_selected_signal_over_active(
     view: MagicMock, table: MagicMock
 ) -> None:
     coarse = _make_active_spaced("coarse", 11)  # spacing 0.1
@@ -1382,7 +1382,7 @@ def test_press_right_samples_uses_selected_signal_over_first_active(
         get_x_range=lambda: (0.0, 1.0),
         active_signals_table=table,
         get_active_signals=lambda: [coarse, fine],
-        get_selected_signal=lambda: fine,
+        get_selected_signals=lambda: [fine],
         get_cursor_step_unit=lambda: "samples",
         get_cursor_step_samples=lambda: 1,
     )
@@ -1393,7 +1393,29 @@ def test_press_right_samples_uses_selected_signal_over_first_active(
 
 
 @pytest.mark.requirement("REQ-PLOT-091")
-def test_press_right_samples_falls_back_to_first_active_when_none_selected(
+def test_press_right_samples_uses_highest_rate_among_multiple_selected(
+    view: MagicMock, table: MagicMock
+) -> None:
+    coarse = _make_active_spaced("coarse", 11)   # spacing 0.1
+    fine = _make_active_spaced("fine", 101)       # spacing 0.01
+    fastest = _make_active_spaced("fastest", 1001)  # spacing 0.001, active but not selected
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [coarse, fine, fastest],
+        get_selected_signals=lambda: [coarse, fine],  # both selected; fastest is not
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 1,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.0
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(0.01)  # fine (highest rate of the selected two)
+
+
+@pytest.mark.requirement("REQ-PLOT-091")
+def test_press_right_samples_falls_back_to_highest_rate_active_when_none_selected(
     view: MagicMock, table: MagicMock
 ) -> None:
     coarse = _make_active_spaced("coarse", 11)
@@ -1403,14 +1425,14 @@ def test_press_right_samples_falls_back_to_first_active_when_none_selected(
         get_x_range=lambda: (0.0, 1.0),
         active_signals_table=table,
         get_active_signals=lambda: [coarse, fine],
-        get_selected_signal=lambda: None,
+        get_selected_signals=lambda: [],
         get_cursor_step_unit=lambda: "samples",
         get_cursor_step_samples=lambda: 1,
     )
     ctrl.toggle()
     ctrl._positions[0] = 0.0
     ctrl.press_right()
-    assert ctrl._positions[0] == pytest.approx(0.1)  # coarse (first active)'s spacing
+    assert ctrl._positions[0] == pytest.approx(0.01)  # fine (highest rate active), not coarse
 
 
 @pytest.mark.requirement("REQ-PLOT-091")
@@ -1422,7 +1444,7 @@ def test_press_right_samples_noop_when_no_signal_at_all(
         get_x_range=lambda: (0.0, 1.0),
         active_signals_table=table,
         get_active_signals=lambda: [],
-        get_selected_signal=lambda: None,
+        get_selected_signals=lambda: [],
         get_cursor_step_unit=lambda: "samples",
         get_cursor_step_samples=lambda: 1,
     )
@@ -1430,3 +1452,62 @@ def test_press_right_samples_noop_when_no_signal_at_all(
     ctrl._positions[0] = 0.5
     ctrl.press_right()
     assert ctrl._positions[0] == pytest.approx(0.5)
+
+
+# ---------------------------------------------------------------------------
+# Re-snap when the reference signal changes between presses (REQ-PLOT-094)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-094")
+def test_press_right_snaps_only_when_reference_signal_changes(
+    view: MagicMock, table: MagicMock
+) -> None:
+    coarse = _make_active_spaced("coarse", 11)  # spacing 0.1, samples at 0.0, 0.1, 0.2, ...
+    fine = _make_active_spaced("fine", 101)      # spacing 0.01
+
+    selected: list = [coarse]
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [coarse, fine],
+        get_selected_signals=lambda: selected,
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 1,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.0
+    ctrl.press_right()  # bootstrap: steps normally against coarse
+    assert ctrl._positions[0] == pytest.approx(0.1)
+
+    # Selection changes to fine (a different, faster reference signal) in
+    # between presses — the drag position (0.234) isn't on fine's grid.
+    ctrl._positions[0] = 0.234
+    selected[:] = [fine]
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(0.23)  # snap only: nearest fine sample
+
+    # The following press steps normally from the snapped position.
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(0.24)
+
+
+@pytest.mark.requirement("REQ-PLOT-094")
+def test_press_right_first_press_ever_steps_normally_not_snap_only(
+    view: MagicMock, table: MagicMock
+) -> None:
+    """The very first samples-mode press (no prior reference) isn't a 'change'."""
+    active = _make_active_spaced("only", 11)  # spacing 0.1
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [active],
+        get_selected_signals=lambda: [],
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 1,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.0  # already exactly on a sample
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(0.1)  # stepped, not just re-snapped in place

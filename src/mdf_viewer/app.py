@@ -29,9 +29,9 @@ def _wire_tab(
     makes it active) and passes the result here. set_cursor_controller()/
     set_zoom_controller() below both attach to controller.current_workspace,
     so this function relies on nothing else changing the active tab in
-    between. Every get_active_signals/get_selected_signal callback binds to
+    between. Every get_active_signals/get_selected_signals callback binds to
     *workspace* specifically rather than delegating through
-    controller.active_signals/selected_signal, so a background tab's
+    controller.active_signals/selected_signals, so a background tab's
     controller keeps reading its own tab's state even while another tab is
     active — see docs/architecture.md "Main Widget Tabs (#99)".
     """
@@ -71,7 +71,7 @@ def _wire_tab(
         get_y_range=lambda: tuple(plot_area.get_active_stripe().plot_item.vb.viewRange()[1]),
         get_show_delta_time=lambda: settings.show_delta_time_in_plot,
         get_delta_time_color=lambda: settings.delta_time_color,
-        get_selected_signal=lambda: workspace.selected,
+        get_selected_signals=lambda: workspace.selected_signals,
         get_cursor_step_unit=lambda: settings.cursor_step_unit,
         get_cursor_step_samples=lambda: settings.cursor_step_samples,
         get_cursor_step_pixels=lambda: settings.cursor_step_pixels,

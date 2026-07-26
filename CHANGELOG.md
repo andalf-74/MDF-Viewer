@@ -23,6 +23,16 @@ All notable changes to MDF-Viewer are documented in this file.
   reloads one plugin's code from disk without restarting the app, cleanly
   closing its open panel/dialog/tabs first.
 
+### Changed
+- Arrow-key cursor stepping in "samples" mode (#146): the reference signal
+  is now the highest-sample-rate signal among the current selection (or
+  among all active signals when nothing is selected), instead of just the
+  first active signal. When that reference signal changes between two
+  arrow-key presses — e.g. because the selection changed — the next press
+  snaps the cursor to the new reference signal's nearest sample instead of
+  stepping from the old, potentially off-grid position; the press after
+  that steps normally from there.
+
 ### Fixed
 - Raster detection (#145): a signal's raster is no longer misdetected as
   "variable" when it's actually fixed-rate but has occasional dropped
