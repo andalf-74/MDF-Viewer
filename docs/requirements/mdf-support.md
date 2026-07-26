@@ -26,7 +26,10 @@ falling back to a generic "Group N" label when neither is present
 [REQ-MDF-021]. Discovery exposes channel metadata only (name, unit,
 comment, its location within the file) and does not load sample data, so
 opening a file with many channels does not require reading every
-channel's samples upfront [REQ-MDF-022].
+channel's samples upfront [REQ-MDF-022]. A channel's comment is exposed
+as its plain, human-readable text — an MDF4 channel comment stored as
+structured `CNcomment` XML is parsed down to its free-text content rather
+than shown as raw markup [REQ-MDF-023].
 
 ## Loading Signal Samples
 
@@ -52,7 +55,9 @@ and, when the channel has a fixed sampling interval, that raster in
 seconds — a variable or indeterminate interval is represented as unknown
 rather than guessed [REQ-MDF-040]. A channel using an MDF4 "value to
 text" conversion also exposes a mapping from raw integer sample values to
-their display labels [REQ-MDF-041].
+their display labels [REQ-MDF-041]. As with discovery-time metadata
+(REQ-MDF-023), the loaded signal's comment is the parsed human-readable
+text rather than raw `CNcomment` XML markup [REQ-MDF-042].
 
 ## Measurement (File-Level) Metadata
 
@@ -60,7 +65,9 @@ Opening a file exposes file-level information: file name, MDF version,
 author, comment, recording start time, and recording duration
 [REQ-MDF-050]. Any of these fields that are absent or unreadable in the
 source file are exposed as empty/unknown rather than causing the file to
-fail loading [REQ-MDF-051].
+fail loading [REQ-MDF-051]. The file-level comment is likewise the
+parsed human-readable text of an MDF4 `HDcomment` block rather than its
+raw XML markup [REQ-MDF-052].
 
 ## Finding Channels by Name
 

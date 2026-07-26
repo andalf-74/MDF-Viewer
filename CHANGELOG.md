@@ -30,6 +30,10 @@ All notable changes to MDF-Viewer are documented in this file.
   uses the median sample interval and tolerates gaps that are clean
   multiples of it, instead of a mean that dropped frames could drag off the
   true rate.
+- Comment display (#156): the Info panel's Comment field, and the
+  Measurement Info Box's comment, no longer show the raw MDF4
+  `CNcomment`/`HDcomment` XML markup — both now show only the actual
+  comment text a measurement engineer wrote.
 
 ## [2.2] - 2026-07-12
 

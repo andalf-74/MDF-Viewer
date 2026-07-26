@@ -98,7 +98,7 @@ class MdfLoader:
                 pass
             try:
                 raw_comment = header.comment or ""
-                comment = str(raw_comment)
+                comment = _extract_comment_text(str(raw_comment))
             except Exception:
                 pass
         except Exception:
@@ -280,7 +280,7 @@ class MdfLoader:
         meta = SignalMetadata(
             name=sig.name,
             unit=str(sig.unit or ""),
-            comment=str(sig.comment or ""),
+            comment=_extract_comment_text(str(sig.comment or "")),
             sample_count=data.sample_count,
             min_value=min_val,
             max_value=max_val,
@@ -345,6 +345,22 @@ def _channel_unit(channel) -> str:
     return unit
 
 
+def _extract_comment_text(raw_comment: str) -> str:
+    """Parse an MDF ``<CNcomment>``/``<HDcomment>`` XML blob into its plain text.
+
+    asammdf's ``Channel``/``HeaderBlock`` objects expose the comment field as
+    the raw (or re-serialized) XML markup rather than the human-readable text
+    a measurement engineer actually wrote — the same extraction asammdf's own
+    ``MDF.get_channel_comment()`` applies. Plain-text comments (e.g. MDF3, or
+    any string that isn't well-formed XML) pass through unchanged.
+    """
+    if not raw_comment:
+        return raw_comment
+    from asammdf.blocks.utils import extract_xml_comment
+
+    return extract_xml_comment(raw_comment)
+
+
 def _channel_comment(channel) -> str:
     """Return the channel's comment.
 
@@ -352,7 +368,7 @@ def _channel_comment(channel) -> str:
     that asammdf appends to the free-text comment when reading a signal via
     ``mdf.get()``; replicate that here so channel_tree() output matches.
     """
-    comment = str(getattr(channel, "comment", "") or "")
+    comment = _extract_comment_text(str(getattr(channel, "comment", "") or ""))
     description = getattr(channel, "description", None)
     if isinstance(description, bytes):
         description = description.decode("latin-1").strip(" \t\n\0")

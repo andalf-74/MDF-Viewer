@@ -15,6 +15,7 @@ from mdf_viewer.model.mdf_loader import (
     _channel_comment,
     _channel_unit,
     _compute_raster,
+    _extract_comment_text,
     _extract_enum_map,
 )
 from mdf_viewer.model.measurement import MeasurementInfo
@@ -78,6 +79,25 @@ def _make_mdf3(path: Path) -> None:
     mdf.close()
 
 
+_CHANNEL_COMMENT_XML = (
+    '<CNcomment xmlns="http://www.asam.net/mdf/v4">'
+    "<TX>Extracted signal comment</TX>"
+    "</CNcomment>"
+)
+
+
+def _make_mdf4_with_xml_channel_comment(path: Path) -> None:
+    """MDF4 file where the 'sin' channel's raw comment is CNcomment XML (#156)."""
+    mdf = asammdf.MDF(version="4.10")
+    mdf.append(_build_signals())
+    for group in mdf.groups:
+        for channel in group.channels:
+            if channel.name == "sin":
+                channel.comment = _CHANNEL_COMMENT_XML
+    mdf.save(str(path), overwrite=True)
+    mdf.close()
+
+
 @pytest.fixture()
 def mdf4_path(tmp_path: Path) -> Path:
     p = tmp_path / "test.mf4"
@@ -104,6 +124,16 @@ def loader(mdf4_path: Path) -> MdfLoader:
 def loader_mdf3(mdf3_path: Path) -> MdfLoader:
     ldr = MdfLoader()
     ldr.open(mdf3_path)
+    yield ldr
+    ldr.close()
+
+
+@pytest.fixture()
+def loader_xml_channel_comment(tmp_path: Path) -> MdfLoader:
+    p = tmp_path / "test_xml_comment.mf4"
+    _make_mdf4_with_xml_channel_comment(p)
+    ldr = MdfLoader()
+    ldr.open(p)
     yield ldr
     ldr.close()
 
@@ -273,6 +303,20 @@ def test_channel_tree_indices_are_consistent(loader: MdfLoader) -> None:
             assert ch.channel_index is not None
 
 
+@pytest.mark.requirement("REQ-MDF-023")
+def test_channel_tree_comment_extracts_cncomment_xml_text(
+    loader_xml_channel_comment: MdfLoader,
+) -> None:
+    """A channel whose raw comment is CNcomment XML shows just the TX text (#156)."""
+    sin_meta = next(
+        ch
+        for group in loader_xml_channel_comment.channel_tree()
+        for ch in group.channels
+        if ch.name == "sin"
+    )
+    assert sin_meta.comment == "Extracted signal comment"
+
+
 # ---------------------------------------------------------------------------
 # load_signal
 # ---------------------------------------------------------------------------
@@ -323,6 +367,16 @@ def test_load_signal_metadata_name_and_unit(loader: MdfLoader) -> None:
     _, meta = loader.load_signal(gi, ci)
     assert meta.name == "cos"
     assert meta.unit == "A"
+
+
+@pytest.mark.requirement("REQ-MDF-042")
+def test_load_signal_comment_extracts_cncomment_xml_text(
+    loader_xml_channel_comment: MdfLoader,
+) -> None:
+    """A channel whose raw comment is CNcomment XML shows just the TX text (#156)."""
+    gi, ci = _find_channel_location(loader_xml_channel_comment, "sin")
+    _, meta = loader_xml_channel_comment.load_signal(gi, ci)
+    assert meta.comment == "Extracted signal comment"
 
 
 @pytest.mark.requirement("REQ-MDF-040")
@@ -787,6 +841,28 @@ def test_channel_unit_no_conversion_returns_empty() -> None:
     assert _channel_unit(channel) == ""
 
 
+@pytest.mark.requirement("REQ-MDF-023")
+def test_extract_comment_text_extracts_cncomment_tx() -> None:
+    xml = '<CNcomment xmlns="http://www.asam.net/mdf/v4"><TX>hello</TX></CNcomment>'
+    assert _extract_comment_text(xml) == "hello"
+
+
+@pytest.mark.requirement("REQ-MDF-023")
+def test_extract_comment_text_empty_tx_yields_empty_string() -> None:
+    xml = '<CNcomment xmlns="http://www.asam.net/mdf/v4"><TX/></CNcomment>'
+    assert _extract_comment_text(xml) == ""
+
+
+@pytest.mark.requirement("REQ-MDF-023")
+def test_extract_comment_text_plain_text_passes_through() -> None:
+    assert _extract_comment_text("plain text comment") == "plain text comment"
+
+
+@pytest.mark.requirement("REQ-MDF-023")
+def test_extract_comment_text_empty_string_passes_through() -> None:
+    assert _extract_comment_text("") == ""
+
+
 @pytest.mark.requirement("REQ-MDF-022")
 def test_channel_comment_plain_attribute_only() -> None:
     channel = _FakeChannel("ch", comment="hello")
@@ -817,8 +893,9 @@ def test_measurement_info_author(loader: MdfLoader) -> None:
 
 
 @pytest.mark.requirement("REQ-MDF-050")
+@pytest.mark.requirement("REQ-MDF-052")
 def test_measurement_info_comment(loader: MdfLoader) -> None:
-    assert "recorded during bench test" in loader.measurement_info().comment
+    assert loader.measurement_info().comment == "recorded during bench test"
 
 
 class _FailingMdf:
