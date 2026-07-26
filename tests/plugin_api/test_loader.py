@@ -644,3 +644,527 @@ def test_active_plugin_names_reflects_current_state(tmp_path: Path) -> None:
     loader.reload_one("Alpha")
 
     assert loader.active_plugin_names() == ["Alpha", "Bravo"]
+
+
+# ---------------------------------------------------------------------------
+# Plugin Overview / enable-disable (#160, REQ-PLUGIN-460-510)
+# ---------------------------------------------------------------------------
+
+def _write_toolsuite_plugin(
+    plugins_dir: Path, pkg_name: str, good_name: str, bad_name: str | None = None,
+) -> None:
+    """A folder declaring two classes — optionally one that raises in
+    activate() — for the F1 partial-failure scenario."""
+    pkg = plugins_dir / pkg_name
+    pkg.mkdir(parents=True)
+    lines = [
+        "from mdf_viewer.plugin_api.plugin import Plugin",
+        "",
+        "class _Good(Plugin):",
+        f'    name = "{good_name}"',
+        "",
+        "    def activate(self, context) -> None:",
+        "        pass",
+        "",
+    ]
+    plugins_list = "_Good"
+    if bad_name is not None:
+        lines += [
+            "class _Bad(Plugin):",
+            f'    name = "{bad_name}"',
+            "",
+            "    def activate(self, context) -> None:",
+            '        raise ValueError("boom")',
+            "",
+        ]
+        plugins_list = "_Good, _Bad"
+    lines.append(f"PLUGINS = [{plugins_list}]")
+    (pkg / "__init__.py").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _make_settings(tmp_path: Path):
+    from mdf_viewer.settings import Settings
+
+    return Settings(path=tmp_path / "settings.json")
+
+
+@pytest.mark.requirement("REQ-PLUGIN-465")
+def test_disabled_folder_is_never_imported(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    marker = tmp_path / "import_marker.txt"
+    marker_repr = repr(str(marker))
+    pkg = plugins_dir / "disabled_plugin"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent(f"""
+            from pathlib import Path
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            with Path({marker_repr}).open("a", encoding="utf-8") as _f:
+                _f.write("x")
+
+            class _Disabled(Plugin):
+                name = "Disabled"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_Disabled]
+            """),
+        encoding="utf-8",
+    )
+    settings = _make_settings(tmp_path)
+    settings.set_plugin_disabled("disabled_plugin", True)
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir, settings=settings)
+
+    result = loader.load_all()
+
+    assert result.loaded == []
+    assert result.failed == []
+    assert not marker.exists()
+
+
+@pytest.mark.requirement("REQ-PLUGIN-471")
+def test_disabled_check_is_a_noop_without_settings_wired(tmp_path: Path) -> None:
+    """A loader with no settings wired never treats anything as disabled —
+    matches every other #160 method's None-settings guard."""
+    plugins_dir = tmp_path / "plugins"
+    _write_single_file_plugin(plugins_dir, "plugin_a", "Alpha")
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)  # settings=None
+
+    result = loader.load_all()
+
+    assert result.loaded == ["Alpha"]
+
+
+def test_toolsuite_partial_failure_marks_whole_folder_failed(tmp_path: Path) -> None:
+    """F1 fix: a folder with two classes, one of which fails, must not have
+    its failure silently cleared by the sibling class's success."""
+    plugins_dir = tmp_path / "plugins"
+    _write_toolsuite_plugin(plugins_dir, "toolsuite", good_name="Good", bad_name="Bad")
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+
+    result = loader.load_all()
+
+    assert result.loaded == ["Good"]
+    assert result.failed == ["Bad"]
+    assert loader._failed.get("toolsuite") is not None
+
+    packages = {p.folder_name: p for p in loader.list_packages()}
+    assert packages["toolsuite"].failed is True
+    assert packages["toolsuite"].active_plugin_names == ["Good"]
+
+
+def test_folder_success_clears_prior_failure(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    pkg = plugins_dir / "flaky"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("PLUGINS = []\n", encoding="utf-8")
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+    loader.load_all()
+    assert loader._failed.get("flaky") is not None
+
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _Fixed(Plugin):
+                name = "Fixed"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_Fixed]
+            """),
+        encoding="utf-8",
+    )
+    loader.rescan()
+
+    assert loader._failed.get("flaky") is None
+
+
+# ---------------------------------------------------------------------------
+# list_packages (#160, REQ-PLUGIN-460/461/490/491/500/501/510)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-460")
+def test_list_packages_includes_never_imported_disabled_folder(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    _write_single_file_plugin(plugins_dir, "never_enabled", "NeverEnabled")
+    settings = _make_settings(tmp_path)
+    settings.set_plugin_disabled("never_enabled", True)
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir, settings=settings)
+    loader.load_all()
+
+    packages = {p.folder_name: p for p in loader.list_packages()}
+
+    pkg = packages["never_enabled"]
+    assert pkg.enabled is False
+    assert pkg.active_plugin_names == []
+    assert pkg.failed is False
+    assert pkg.metadata == []
+
+
+@pytest.mark.requirement("REQ-PLUGIN-501")
+def test_list_packages_shows_metadata_for_active_plugin(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    pkg_dir = plugins_dir / "described"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _Described(Plugin):
+                name = "Described"
+                version = "1.2"
+                description = "does a thing"
+                author = "someone"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_Described]
+            """),
+        encoding="utf-8",
+    )
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+    loader.load_all()
+
+    packages = {p.folder_name: p for p in loader.list_packages()}
+
+    pkg = packages["described"]
+    assert pkg.enabled is True
+    assert pkg.active_plugin_names == ["Described"]
+    assert pkg.metadata == [
+        {"name": "Described", "version": "1.2", "description": "does a thing", "author": "someone"}
+    ]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-490")
+def test_list_packages_shows_failure_reason(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    pkg = plugins_dir / "broken"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("PLUGINS = []\n", encoding="utf-8")
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+    loader.load_all()
+
+    packages = {p.folder_name: p for p in loader.list_packages()}
+
+    pkg_info = packages["broken"]
+    assert pkg_info.failed is True
+    assert pkg_info.failure_reason is not None
+    assert pkg_info.enabled is True  # failed, but not disabled — distinguishable
+
+
+@pytest.mark.requirement("REQ-PLUGIN-510")
+def test_list_packages_prunes_stale_disabled_entry(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    _write_single_file_plugin(plugins_dir, "keep_me", "KeepMe")
+    settings = _make_settings(tmp_path)
+    settings.set_plugin_disabled("removed_folder", True)
+    settings.set_plugin_disabled("keep_me", True)
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir, settings=settings)
+
+    loader.list_packages()
+
+    assert settings.disabled_plugins == {"keep_me"}
+
+
+def test_list_packages_missing_directory_returns_empty(tmp_path: Path) -> None:
+    loader = PluginLoader(app=_make_app(), plugins_dir=tmp_path / "does_not_exist")
+    assert loader.list_packages() == []
+
+
+def test_list_packages_enabled_folder_never_scanned_yet(tmp_path: Path) -> None:
+    """A folder present on disk, enabled, but never touched by load_all()/
+    rescan() — list_packages() does its own independent directory scan, so
+    it must still report it correctly (enabled, inactive, not failed)."""
+    plugins_dir = tmp_path / "plugins"
+    _write_single_file_plugin(plugins_dir, "untouched", "Untouched")
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+
+    packages = {p.folder_name: p for p in loader.list_packages()}
+
+    pkg = packages["untouched"]
+    assert pkg.enabled is True
+    assert pkg.active_plugin_names == []
+    assert pkg.failed is False
+    assert pkg.metadata == []
+
+
+# ---------------------------------------------------------------------------
+# set_enabled (#160, REQ-PLUGIN-462/480-483)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-482")
+def test_set_enabled_true_activates_a_disabled_folder(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    _write_single_file_plugin(plugins_dir, "plugin_a", "Alpha")
+    settings = _make_settings(tmp_path)
+    settings.set_plugin_disabled("plugin_a", True)
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir, settings=settings)
+    loader.load_all()
+    assert loader.active_plugin_names() == []
+
+    result = loader.set_enabled("plugin_a", True)
+
+    assert result.loaded == ["Alpha"]
+    assert loader.active_plugin_names() == ["Alpha"]
+    assert settings.is_plugin_disabled("plugin_a") is False
+
+
+@pytest.mark.requirement("REQ-PLUGIN-481")
+def test_set_enabled_false_deactivates_an_active_folder(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    _write_single_file_plugin(plugins_dir, "plugin_a", "Alpha")
+    settings = _make_settings(tmp_path)
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir, settings=settings)
+    loader.load_all()
+    assert loader.active_plugin_names() == ["Alpha"]
+
+    loader.set_enabled("plugin_a", False)
+
+    assert loader.active_plugin_names() == []
+    assert settings.is_plugin_disabled("plugin_a") is True
+
+
+@pytest.mark.requirement("REQ-PLUGIN-462")
+def test_set_enabled_false_deactivates_every_plugin_in_a_toolsuite_folder(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    pkg = plugins_dir / "toolsuite"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _A(Plugin):
+                name = "A"
+
+                def activate(self, context) -> None:
+                    pass
+
+            class _B(Plugin):
+                name = "B"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_A, _B]
+            """),
+        encoding="utf-8",
+    )
+    settings = _make_settings(tmp_path)
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir, settings=settings)
+    loader.load_all()
+    assert sorted(loader.active_plugin_names()) == ["A", "B"]
+
+    loader.set_enabled("toolsuite", False)
+
+    assert loader.active_plugin_names() == []
+
+
+def test_set_enabled_true_on_already_active_folder_does_not_reimport(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    marker = tmp_path / "import_marker.txt"
+    marker_repr = repr(str(marker))
+    pkg = plugins_dir / "counted"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent(f"""
+            from pathlib import Path
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            with Path({marker_repr}).open("a", encoding="utf-8") as _f:
+                _f.write("x")
+
+            class _Counted(Plugin):
+                name = "Counted"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_Counted]
+            """),
+        encoding="utf-8",
+    )
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+    loader.load_all()
+    assert marker.read_text(encoding="utf-8") == "x"
+
+    result = loader.set_enabled("counted", True)
+
+    assert result.loaded == []
+    assert marker.read_text(encoding="utf-8") == "x"  # not re-imported
+
+
+def test_set_enabled_false_on_inactive_folder_still_persists_setting(tmp_path: Path) -> None:
+    settings = _make_settings(tmp_path)
+    loader = PluginLoader(app=_make_app(), plugins_dir=tmp_path / "plugins", settings=settings)
+
+    loader.set_enabled("never_existed", False)
+
+    assert settings.is_plugin_disabled("never_existed") is True
+
+
+@pytest.mark.requirement("REQ-PLUGIN-491")
+def test_set_enabled_false_clears_stale_failure_state(tmp_path: Path) -> None:
+    """F5 fix: disabling a previously-failed folder must not leave a stale
+    error indicator behind — nothing is being attempted for it anymore."""
+    plugins_dir = tmp_path / "plugins"
+    pkg = plugins_dir / "broken"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("PLUGINS = []\n", encoding="utf-8")
+    settings = _make_settings(tmp_path)
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir, settings=settings)
+    loader.load_all()
+    assert loader._failed.get("broken") is not None
+
+    loader.set_enabled("broken", False)
+
+    assert loader._failed.get("broken") is None
+    packages = {p.folder_name: p for p in loader.list_packages()}
+    assert packages["broken"].failed is False
+    assert packages["broken"].enabled is False
+
+
+def test_set_enabled_true_folder_deleted_after_discovery_fails_gracefully(tmp_path: Path) -> None:
+    """F7: a folder that was enabled but whose directory vanished between
+    being listed and the toggle must not raise out of set_enabled()."""
+    plugins_dir = tmp_path / "plugins"
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+
+    result = loader.set_enabled("never_existed_on_disk", True)  # must not raise
+
+    assert result.loaded == []
+    assert result.failed == ["never_existed_on_disk"]
+    assert loader._failed.get("never_existed_on_disk") is not None
+
+
+def test_set_enabled_without_settings_wired_still_acts_but_does_not_persist(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    _write_single_file_plugin(plugins_dir, "plugin_a", "Alpha")
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)  # settings=None
+    loader.load_all()
+
+    result = loader.set_enabled("plugin_a", False)  # must not raise
+
+    assert result is not None
+    assert loader.active_plugin_names() == []
+
+
+# ---------------------------------------------------------------------------
+# active_plugin_names_for (#160)
+# ---------------------------------------------------------------------------
+
+def test_active_plugin_names_for_reflects_live_state(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    pkg = plugins_dir / "toolsuite"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _A(Plugin):
+                name = "A"
+
+                def activate(self, context) -> None:
+                    pass
+
+            class _B(Plugin):
+                name = "B"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_A, _B]
+            """),
+        encoding="utf-8",
+    )
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+
+    assert loader.active_plugin_names_for("toolsuite") == []
+
+    loader.load_all()
+
+    assert sorted(loader.active_plugin_names_for("toolsuite")) == ["A", "B"]
+
+    loader.reload_one("A")
+
+    assert sorted(loader.active_plugin_names_for("toolsuite")) == ["A", "B"]
+
+
+# ---------------------------------------------------------------------------
+# reload_one failure-tracking (#160, F2 fix)
+# ---------------------------------------------------------------------------
+
+def test_reload_one_reimport_failure_sets_failed_state(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    pkg = plugins_dir / "reloadable"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _V1(Plugin):
+                name = "Reloadable"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_V1]
+            """),
+        encoding="utf-8",
+    )
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+    loader.load_all()
+    assert loader._failed.get("reloadable") is None
+
+    (pkg / "__init__.py").write_text("this is not valid python (((", encoding="utf-8")
+
+    ok = loader.reload_one("Reloadable")
+
+    assert ok is False
+    assert loader._failed.get("reloadable") is not None
+
+
+def test_reload_one_class_no_longer_declared_sets_failed_state(tmp_path: Path) -> None:
+    plugins_dir = tmp_path / "plugins"
+    pkg = plugins_dir / "renamed"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _Original(Plugin):
+                name = "Original"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_Original]
+            """),
+        encoding="utf-8",
+    )
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+    loader.load_all()
+
+    (pkg / "__init__.py").write_text(
+        textwrap.dedent("""
+            from mdf_viewer.plugin_api.plugin import Plugin
+
+            class _Renamed(Plugin):
+                name = "SomethingElse"
+
+                def activate(self, context) -> None:
+                    pass
+
+            PLUGINS = [_Renamed]
+            """),
+        encoding="utf-8",
+    )
+
+    ok = loader.reload_one("Original")
+
+    assert ok is False
+    assert loader._failed.get("renamed") is not None

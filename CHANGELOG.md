@@ -5,6 +5,14 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Plugin Overview (#160): a new "Plugin Overview…" entry in the Plugins
+  menu opens a dialog listing every plugin found in the plugins directory,
+  with a checkbox to enable or disable each one. A disabled plugin is
+  never loaded at all — no restart needed either way, toggling activates
+  or deactivates it immediately, and the choice is remembered across
+  restarts. A newly discovered plugin is enabled by default. A plugin
+  that's enabled but fails to load shows a warning icon with the failure
+  reason.
 - Update Checker converted to a plugin (#76): "Check for Update…" moved
   from the Help menu into the Plugins menu, and the "Check for updates on
   startup" checkbox moved from the core Preferences dialog into its own

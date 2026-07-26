@@ -1004,3 +1004,90 @@ def test_plugin_settings_defaults_on_missing_key(tmp_path: Path) -> None:
     s = Settings(path=path)
 
     assert s.get_plugin_setting("anything", "key", "missing") == "missing"
+
+
+# ---------------------------------------------------------------------------
+# disabled_plugins / Plugin Overview (#160)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-471")
+def test_disabled_plugins_defaults_to_empty(settings: Settings) -> None:
+    assert settings.disabled_plugins == set()
+    assert settings.is_plugin_disabled("some_plugin") is False
+
+
+@pytest.mark.requirement("REQ-PLUGIN-470")
+def test_set_plugin_disabled_round_trips_through_save_and_load(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    s1 = Settings(path=path)
+    s1.set_plugin_disabled("broken_plugin", True)
+
+    s2 = Settings(path=path)
+
+    assert s2.is_plugin_disabled("broken_plugin") is True
+    assert s2.disabled_plugins == {"broken_plugin"}
+
+
+@pytest.mark.requirement("REQ-PLUGIN-470")
+def test_set_plugin_disabled_persists_immediately(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    s = Settings(path=path)
+    s.set_plugin_disabled("broken_plugin", True)
+
+    raw = json.loads(path.read_text(encoding="utf-8"))
+
+    assert raw["disabled_plugins"] == ["broken_plugin"]
+
+
+def test_set_plugin_disabled_false_removes_from_set(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    s = Settings(path=path)
+    s.set_plugin_disabled("broken_plugin", True)
+    s.set_plugin_disabled("broken_plugin", False)
+
+    assert s.is_plugin_disabled("broken_plugin") is False
+    assert s.disabled_plugins == set()
+
+
+def test_disabled_plugins_handles_missing_key_in_saved_file(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"check_for_updates": False}), encoding="utf-8")
+
+    s = Settings(path=path)
+
+    assert s.disabled_plugins == set()
+
+
+@pytest.mark.requirement("REQ-PLUGIN-510")
+def test_prune_disabled_plugins_removes_stale_entries(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    s = Settings(path=path)
+    s.set_plugin_disabled("gone", True)
+    s.set_plugin_disabled("still_here", True)
+
+    s.prune_disabled_plugins({"still_here"})
+
+    assert s.disabled_plugins == {"still_here"}
+
+
+@pytest.mark.requirement("REQ-PLUGIN-510")
+def test_prune_disabled_plugins_persists_the_removal(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    s1 = Settings(path=path)
+    s1.set_plugin_disabled("gone", True)
+    s1.prune_disabled_plugins(set())
+
+    s2 = Settings(path=path)
+
+    assert s2.disabled_plugins == set()
+
+
+def test_prune_disabled_plugins_noop_does_not_resave(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    s = Settings(path=path)
+    s.set_plugin_disabled("still_here", True)
+    mtime_before = path.stat().st_mtime_ns
+
+    s.prune_disabled_plugins({"still_here"})
+
+    assert path.stat().st_mtime_ns == mtime_before

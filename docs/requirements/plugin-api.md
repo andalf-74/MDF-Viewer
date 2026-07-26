@@ -564,3 +564,89 @@ wrapped projection — unlike the read-only signal/measurement views
 described above, there is no narrower facade over it [REQ-PLUGIN-451]. A
 plugin can obtain the application's own running version string through
 its context [REQ-PLUGIN-452].
+
+---
+
+## Plugin Overview and Enable/Disable (#160)
+
+Extends #74/#150's discovery and lifecycle model with per-plugin
+enable/disable control, surfaced through a new "Plugin Overview" entry in
+the Plugins menu. Before this, every discovered plugin package was always
+imported and activated, with no way to opt one out short of removing its
+folder from the plugins directory entirely.
+
+### Discovery and identity
+
+The application lists every plugin package found in the plugins
+directory — every subdirectory containing an `__init__.py`, the same set
+REQ-PLUGIN-241 already defines for startup discovery — independently of
+whether each one is currently enabled, active, or has ever been imported
+[REQ-PLUGIN-460]. A plugin package that is not currently enabled is
+identified only by its folder name; the application does not import it
+merely to discover its declared name, since doing so would defeat the
+purpose of leaving it disabled [REQ-PLUGIN-461]. Enable/disable state,
+and the Overview list, are both scoped to one plugin package (folder) as
+a whole — a package declaring more than one plugin class in its `PLUGINS`
+list enables or disables every class in it together, with no
+per-class control [REQ-PLUGIN-462].
+
+### Enable/disable semantics
+
+A plugin package's enabled state persists across application restarts,
+saved in the same application settings file as other global preferences
+[REQ-PLUGIN-470]. A plugin package not previously known to the
+application — a newly added folder discovered by Rescan or at the next
+startup — is enabled by default, with no action required to activate it
+[REQ-PLUGIN-471]. A disabled plugin package's `__init__.py` is not
+imported during startup discovery or Rescan — its module code does not
+execute at all while it remains disabled [REQ-PLUGIN-472].
+
+### The Plugin Overview dialog
+
+A "Plugin Overview" entry in the Plugins menu, positioned alongside
+Rescan Plugins, Reload Plugin, and Plugin Preferences, opens a dialog
+listing every discovered plugin package with a checkbox reflecting its
+current enabled state [REQ-PLUGIN-480]. Unchecking a currently-active
+plugin package deactivates it immediately, through the same teardown
+already defined for Reload (REQ-PLUGIN-380), without requiring the
+application to restart [REQ-PLUGIN-481]. Checking a currently-disabled
+plugin package imports and activates it immediately, the same way
+Rescan already activates a newly discovered package (REQ-PLUGIN-360),
+without requiring the application to restart [REQ-PLUGIN-482]. Toggling
+a checkbox persists the change immediately; the dialog provides no
+separate Apply/OK step and no way to discard an in-progress change, the
+same as the Plugin Preferences dialog (REQ-PLUGIN-432) [REQ-PLUGIN-483].
+
+### Failure visibility
+
+A plugin package that is enabled but failed to activate is shown in the
+Overview list with a visible indication of that failure, distinguishable
+from a package that is simply disabled [REQ-PLUGIN-490]. The application
+retains the most recent failure reason for a plugin package until its
+next successful activation or until it is disabled, so the Overview
+dialog can display it after the scan or reload attempt that produced it
+has already finished [REQ-PLUGIN-491].
+
+### Row content
+
+A plugin package that has never been imported is shown in the Overview
+list by its folder name only [REQ-PLUGIN-500]. A plugin package that is
+or has been active during the current session is additionally shown with
+its declared name, version, description, and author, alongside its
+folder name [REQ-PLUGIN-501].
+
+### Stale entries
+
+An enable/disable entry for a plugin package whose folder no longer
+exists on disk is pruned silently the next time the Overview dialog is
+opened, the same way a stale recent-file entry is already pruned when
+the File menu opens [REQ-PLUGIN-510].
+
+### Out of scope here
+
+Per-individual-plugin-class control within a multi-plugin package is out
+of scope — the granularity is the package as a whole (REQ-PLUGIN-462).
+Disabling a currently-active plugin package with open UI state (e.g. open
+tabs of its registered tab type) shows no confirmation prompt first — it
+behaves identically to Reload's existing silent teardown, which already
+has no such prompt.

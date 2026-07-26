@@ -33,14 +33,17 @@ from PyQt6.QtCore import (
 from PyQt6.QtGui import QAction, QCursor, QIcon, QKeySequence, QShortcut
 from PyQt6.QtWidgets import (
     QApplication,
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
+    QHBoxLayout,
     QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QStackedWidget,
     QTabBar,
@@ -84,7 +87,7 @@ from mdf_viewer.view.workspace_session_controller import WorkspaceSessionControl
 
 if TYPE_CHECKING:
     from mdf_viewer.controller.app_controller import AppController
-    from mdf_viewer.plugin_api.loader import PluginLoadResult
+    from mdf_viewer.plugin_api.loader import PluginLoadResult, PluginPackageInfo
     from mdf_viewer.plugin_api.registry import (
         DockWidgetRegistration,
         MenuActionRegistration,
@@ -141,6 +144,94 @@ class _PluginPreferencesDialog(QDialog):
         layout.addWidget(buttons)
 
 
+def _plugin_overview_row_label(pkg: "PluginPackageInfo") -> str:
+    """Folder name always; declared metadata appended once known
+    (REQ-PLUGIN-500/501). A multi-plugin "toolsuite" folder shows every
+    active plugin's name, joined — version/description aren't shown in
+    that case since it would be ambiguous which one they belong to."""
+    if not pkg.metadata:
+        return pkg.folder_name
+    if len(pkg.metadata) == 1:
+        meta = pkg.metadata[0]
+        version = f" v{meta['version']}" if meta["version"] else ""
+        return f"{pkg.folder_name} ({meta['name']}{version})"
+    names = ", ".join(m["name"] for m in pkg.metadata)
+    return f"{pkg.folder_name} ({names})"
+
+
+class _PluginOverviewDialog(QDialog):
+    """Lists every discovered plugin package with a checkbox to enable or
+    disable it (#160).
+
+    No OK/Cancel/Apply (REQ-PLUGIN-483) — toggling a checkbox acts and
+    persists immediately, the same convention `_PluginPreferencesDialog`
+    already established; this dialog offers only Close.
+
+    Unlike `_PluginPreferencesDialog`'s per-plugin tabs (built once,
+    cached, and reused across opens), this dialog's row list is fully
+    rebuilt from a fresh `list_packages()` call every time it is opened
+    (see `populate()`) — active/failed/enabled state can go stale between
+    openings, and there is no per-row widget state worth preserving.
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Plugin Overview")
+        self._rows_layout = QVBoxLayout()
+        self._rows_layout.addStretch()
+        rows_container = QWidget()
+        rows_container.setLayout(self._rows_layout)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(rows_container)
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(scroll)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        buttons.rejected.connect(self.accept)
+        buttons.accepted.connect(self.accept)
+        layout.addWidget(buttons)
+
+        self.checkboxes: dict[str, QCheckBox] = {}
+
+    def populate(
+        self, packages: list["PluginPackageInfo"], on_toggled: Callable[[str, bool], None],
+    ) -> None:
+        """Rebuild every row from *packages*. *on_toggled(folder_name,
+        enabled)* fires when the user toggles a row's checkbox."""
+        while self._rows_layout.count() > 1:  # leave the trailing stretch
+            item = self._rows_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+        self.checkboxes.clear()
+
+        for pkg in packages:
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+
+            checkbox = QCheckBox(_plugin_overview_row_label(pkg))
+            checkbox.setChecked(pkg.enabled)
+            # F6: default-argument capture, not a bare closure over the
+            # loop variable — this exact mistake was a real one caught
+            # during #150's first design draft.
+            checkbox.toggled.connect(
+                lambda checked, folder=pkg.folder_name: on_toggled(folder, checked)
+            )
+            row_layout.addWidget(checkbox)
+
+            if pkg.failed:
+                warning = QLabel("⚠")
+                warning.setToolTip(pkg.failure_reason or "Failed to activate")
+                row_layout.addWidget(warning)
+
+            row_layout.addStretch()
+            self._rows_layout.insertWidget(self._rows_layout.count() - 1, row)
+            self.checkboxes[pkg.folder_name] = checkbox
+
+
 _MDF_FILE_FILTER = "MDF Files (*.mf4 *.mdf *.dat);;All Files (*)"
 _ALL_FILE_FILTER = "All Supported Files (*.mf4 *.mdf *.dat *.mvc);;MDF Files (*.mf4 *.mdf *.dat);;MDF Viewer Config (*.mvc);;All Files (*)"
 _MVC_FILE_FILTER = "MDF Viewer Config (*.mvc);;All Files (*)"
@@ -167,6 +258,10 @@ class MainWindow(QMainWindow):
         # _plugin_dialogs above), rather than one dialog per registration.
         self._plugin_preferences_dialog: "_PluginPreferencesDialog | None" = None
         self._plugin_preferences_tab_widgets: dict[str, QWidget] = {}
+        # Shared "Plugin Overview" dialog (#160): built lazily, reused
+        # across opens, but its row list is rebuilt fresh every time (see
+        # _PluginOverviewDialog).
+        self._plugin_overview_dialog: "_PluginOverviewDialog | None" = None
         # Populated from set_controller() and refreshed by _sync_plugin_ui()
         # after every Rescan/Reload (#150) — no longer a one-time snapshot.
         self._tab_types: list["TabTypeRegistration"] = []
@@ -182,6 +277,10 @@ class MainWindow(QMainWindow):
         self._rescan_hook: Callable[[], "PluginLoadResult"] | None = None
         self._reload_plugin_hook: Callable[[str], bool] | None = None
         self._active_plugin_names_hook: Callable[[], list[str]] | None = None
+        # Plugin Overview hooks (#160), supplied the same way as above.
+        self._list_packages_hook: Callable[[], list["PluginPackageInfo"]] | None = None
+        self._set_plugin_enabled_hook: Callable[[str, bool], "PluginLoadResult"] | None = None
+        self._active_plugin_names_for_hook: Callable[[str], list[str]] | None = None
         # A page's presence here is the one place MainWindow distinguishes
         # a non-plot tab from a plot tab (which instead carries
         # .plot_area/.active_signals_table attributes, set by
@@ -341,6 +440,11 @@ class MainWindow(QMainWindow):
         rescan_action.triggered.connect(self._on_rescan_plugins)
         self._plugins_menu.addAction(rescan_action)
 
+        overview_action = QAction("Plugin Overview…", self)
+        overview_action.setEnabled(self._list_packages_hook is not None)
+        overview_action.triggered.connect(self._on_plugin_overview)
+        self._plugins_menu.addAction(overview_action)
+
         reload_menu = QMenu("Reload Plugin", self._plugins_menu)
         active_names = self._active_plugin_names_hook() if self._active_plugin_names_hook else []
         reload_menu.setEnabled(bool(active_names))
@@ -389,6 +493,78 @@ class MainWindow(QMainWindow):
             self.show_status(f"Rescan: loaded {len(result.loaded)}, failed {len(result.failed)}", 5000)
         else:
             self.show_status("Rescan: nothing new", 5000)
+
+    def _on_plugin_overview(self) -> None:
+        """Open the "Plugin Overview" dialog (#160): every discovered
+        plugin package with a checkbox to enable/disable it. No-op with a
+        clear disabled action (see _rebuild_plugins_menu) if no loader is
+        wired — this handler should never actually fire without a hook."""
+        if self._list_packages_hook is None:
+            return
+        if self._plugin_overview_dialog is None:
+            self._plugin_overview_dialog = _PluginOverviewDialog(self)
+        self._plugin_overview_dialog.populate(
+            self._list_packages_hook(), self._on_plugin_overview_toggled,
+        )
+        self._plugin_overview_dialog.exec()
+
+    def _on_plugin_overview_toggled(self, folder_name: str, enabled: bool) -> None:
+        """Enable/disable one plugin package immediately (#160).
+
+        Disabling queries the loader's *live* active-plugin-names for this
+        folder right now, via active_plugin_names_for_hook — never the
+        PluginPackageInfo the Overview dialog was populated with, which
+        can be stale by the time a checkbox is toggled (the F4 finding
+        from the architecture review). Each of those live names is torn
+        down first, matching _on_reload_plugin's existing ordering (no
+        live widget still pointing at a plugin mid-stop()).
+
+        Always ends by refreshing the whole Overview dialog from a fresh
+        list_packages() call, rather than hand-patching the one checkbox
+        just toggled: a checkbox that re-enables a still-broken plugin
+        genuinely does persist as enabled (matching how a freshly
+        discovered broken plugin already shows checked + a failure
+        indicator, REQ-PLUGIN-490) — the loader keeps retrying it on every
+        future Rescan/restart, the same "never permanently remembered as
+        broken" policy REQ-PLUGIN-360 already established. An earlier
+        version of this handler instead reverted the checkbox to unchecked
+        on a failed enable without touching the persisted setting, which
+        left the dialog showing unchecked while settings.json still said
+        enabled — a real, live-tested bug (the mismatch survived a
+        restart, silently reappearing as checked). Always re-deriving the
+        dialog from the backend's actual state makes that whole class of
+        drift impossible rather than chasing it case by case.
+        """
+        if self._set_plugin_enabled_hook is None:
+            return
+
+        if not enabled:
+            live_names = (
+                self._active_plugin_names_for_hook(folder_name)
+                if self._active_plugin_names_for_hook is not None
+                else []
+            )
+            for name in live_names:
+                self._teardown_plugin_ui(name)
+            self._set_plugin_enabled_hook(folder_name, False)
+        else:
+            result = self._set_plugin_enabled_hook(folder_name, True)
+            live_names = (
+                self._active_plugin_names_for_hook(folder_name)
+                if self._active_plugin_names_for_hook is not None
+                else []
+            )
+            if not live_names:
+                reason = ", ".join(result.failed) if result.failed else "activation failed"
+                self.show_status(
+                    f"'{folder_name}' is enabled but failed to activate — {reason}", 5000,
+                )
+
+        self._sync_plugin_ui()
+        if self._plugin_overview_dialog is not None and self._list_packages_hook is not None:
+            self._plugin_overview_dialog.populate(
+                self._list_packages_hook(), self._on_plugin_overview_toggled,
+            )
 
     def _on_reload_plugin(self, name: str) -> None:
         """Reload one already-active plugin by name (#150).
@@ -608,15 +784,25 @@ class MainWindow(QMainWindow):
         rescan: Callable[[], "PluginLoadResult"],
         reload_plugin: Callable[[str], bool],
         active_plugin_names: Callable[[], list[str]],
+        list_packages: Callable[[], list["PluginPackageInfo"]] | None = None,
+        set_plugin_enabled: Callable[[str, bool], "PluginLoadResult"] | None = None,
+        active_plugin_names_for: Callable[[str], list[str]] | None = None,
     ) -> None:
         """Supply the callables that drive Rescan/Reload against the real
         PluginLoader (#150) — app.py injects these, mirroring
         set_tab_factory()/set_recent_files_provider()'s callback-injection
         idiom. PluginLoader itself is never imported by view/.
+
+        The three Plugin Overview hooks (#160) are optional/keyword-only so
+        this stays backward compatible with any caller still using only the
+        original three.
         """
         self._rescan_hook = rescan
         self._reload_plugin_hook = reload_plugin
         self._active_plugin_names_hook = active_plugin_names
+        self._list_packages_hook = list_packages
+        self._set_plugin_enabled_hook = set_plugin_enabled
+        self._active_plugin_names_for_hook = active_plugin_names_for
         self._sync_plugin_ui()
 
     def set_recent_files_provider(

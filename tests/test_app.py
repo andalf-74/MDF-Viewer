@@ -123,3 +123,12 @@ def test_run_wires_plugin_loader_hooks_to_the_real_loader(app_mocks) -> None:
 
     kwargs["active_plugin_names"]()
     app_mocks["plugin_loader"].active_plugin_names.assert_called_once()
+
+    kwargs["list_packages"]()
+    app_mocks["plugin_loader"].list_packages.assert_called_once()
+
+    kwargs["set_plugin_enabled"]("some_folder", False)
+    app_mocks["plugin_loader"].set_enabled.assert_called_once_with("some_folder", False)
+
+    kwargs["active_plugin_names_for"]("some_folder")
+    app_mocks["plugin_loader"].active_plugin_names_for.assert_called_once_with("some_folder")

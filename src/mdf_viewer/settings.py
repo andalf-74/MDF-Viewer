@@ -139,6 +139,7 @@ class Settings:
         self._prompt_save_config_on_close: bool = DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE
         self._plugins_dir: Path | None = None
         self._plugin_settings: dict[str, dict[str, Any]] = {}
+        self._disabled_plugins: set[str] = set()
         self._load()
 
     # ------------------------------------------------------------------
@@ -165,6 +166,36 @@ class Settings:
     def plugins_dir(self, value: Path | None) -> None:
         self._plugins_dir = value
         self._save()
+
+    @property
+    def disabled_plugins(self) -> set[str]:
+        """Folder names (not `Plugin.name`) of plugin packages the user has
+        disabled (#160) — a disabled package is never imported, so its
+        declared name isn't known until it's re-enabled at least once."""
+        return set(self._disabled_plugins)
+
+    def is_plugin_disabled(self, folder_name: str) -> bool:
+        return folder_name in self._disabled_plugins
+
+    def set_plugin_disabled(self, folder_name: str, disabled: bool) -> None:
+        """Persist *folder_name*'s enabled/disabled state immediately
+        (REQ-PLUGIN-470/483) — a folder not present in the set is enabled
+        by default (REQ-PLUGIN-471), so only disabled folders are stored."""
+        if disabled:
+            self._disabled_plugins.add(folder_name)
+        else:
+            self._disabled_plugins.discard(folder_name)
+        self._save()
+
+    def prune_disabled_plugins(self, existing_folder_names: set[str]) -> None:
+        """Drop any disabled-folder entry not in *existing_folder_names*
+        (REQ-PLUGIN-510) — a stale entry for a folder removed from disk is
+        harmless but is pruned silently, the same as a stale recent-file
+        entry. Saves only if something actually changed."""
+        pruned = self._disabled_plugins & existing_folder_names
+        if pruned != self._disabled_plugins:
+            self._disabled_plugins = pruned
+            self._save()
 
     @property
     def cursor_persistent(self) -> bool:
@@ -482,6 +513,12 @@ class Settings:
             ):
                 raise TypeError("plugin_settings must be a dict of dicts")
             self._plugin_settings = raw_plugin_settings
+            raw_disabled_plugins = data.get("disabled_plugins", [])
+            if not isinstance(raw_disabled_plugins, list) or not all(
+                isinstance(v, str) for v in raw_disabled_plugins
+            ):
+                raise TypeError("disabled_plugins must be a list of str")
+            self._disabled_plugins = set(raw_disabled_plugins)
             # One-time migration (REQ-UPDATE-320): the update checker used
             # to be a built-in feature with its own top-level setting. If
             # an old settings.json still has that key, fold its value into
@@ -525,6 +562,7 @@ class Settings:
             self._prompt_save_config_on_close = DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE
             self._plugins_dir = None
             self._plugin_settings = {}
+            self._disabled_plugins = set()
 
     @staticmethod
     def _load_color(
@@ -568,6 +606,7 @@ class Settings:
                     "prompt_save_config_on_close": self._prompt_save_config_on_close,
                     "plugins_dir": str(self._plugins_dir) if self._plugins_dir else None,
                     "plugin_settings": self._plugin_settings,
+                    "disabled_plugins": sorted(self._disabled_plugins),
                 },
                 indent=2,
             ),

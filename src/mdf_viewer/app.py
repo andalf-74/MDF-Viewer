@@ -239,6 +239,9 @@ def run(argv: list[str]) -> int:
         rescan=plugin_loader.rescan,
         reload_plugin=plugin_loader.reload_one,
         active_plugin_names=plugin_loader.active_plugin_names,
+        list_packages=plugin_loader.list_packages,
+        set_plugin_enabled=plugin_loader.set_enabled,
+        active_plugin_names_for=plugin_loader.active_plugin_names_for,
     )
 
     window.set_settings(settings)

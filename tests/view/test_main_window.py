@@ -4205,6 +4205,35 @@ def test_set_plugin_loader_hooks_enables_the_rescan_action(wired: MainWindow) ->
     assert wired._plugins_menu.actions()[0].isEnabled()
 
 
+def test_set_plugin_loader_hooks_stores_the_overview_hooks(wired: MainWindow) -> None:
+    list_packages = lambda: []
+    set_plugin_enabled = lambda folder, enabled: PluginLoadResult()
+    active_plugin_names_for = lambda folder: []
+
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(),
+        reload_plugin=lambda name: True,
+        active_plugin_names=lambda: [],
+        list_packages=list_packages,
+        set_plugin_enabled=set_plugin_enabled,
+        active_plugin_names_for=active_plugin_names_for,
+    )
+
+    assert wired._list_packages_hook is list_packages
+    assert wired._set_plugin_enabled_hook is set_plugin_enabled
+    assert wired._active_plugin_names_for_hook is active_plugin_names_for
+
+
+def test_set_plugin_loader_hooks_overview_hooks_default_to_none(wired: MainWindow) -> None:
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(), reload_plugin=lambda name: True, active_plugin_names=lambda: [],
+    )
+
+    assert wired._list_packages_hook is None
+    assert wired._set_plugin_enabled_hook is None
+    assert wired._active_plugin_names_for_hook is None
+
+
 def test_on_rescan_plugins_does_nothing_without_a_hook(wired: MainWindow) -> None:
     wired._on_rescan_plugins()  # must not raise
     assert wired.statusBar().currentMessage() == ""
@@ -4255,7 +4284,7 @@ def test_reload_submenu_disabled_when_no_plugins_active(wired: MainWindow) -> No
         rescan=lambda: PluginLoadResult(), reload_plugin=lambda name: True, active_plugin_names=lambda: [],
     )
 
-    reload_action = wired._plugins_menu.actions()[1]
+    reload_action = wired._plugins_menu.actions()[2]
     assert reload_action.text() == "Reload Plugin"
     assert not reload_action.isEnabled()
 
@@ -4267,7 +4296,7 @@ def test_reload_submenu_lists_every_active_plugin_by_name(wired: MainWindow) -> 
         active_plugin_names=lambda: ["Alpha", "Bravo"],
     )
 
-    reload_action = wired._plugins_menu.actions()[1]
+    reload_action = wired._plugins_menu.actions()[2]
     assert reload_action.isEnabled()
     submenu = reload_action.menu()
     assert [a.text() for a in submenu.actions()] == ["Alpha", "Bravo"]
@@ -4284,7 +4313,7 @@ def test_reload_submenu_action_reloads_the_correct_name_not_the_last_one(wired: 
         active_plugin_names=lambda: ["Alpha", "Bravo"],
     )
 
-    submenu = wired._plugins_menu.actions()[1].menu()
+    submenu = wired._plugins_menu.actions()[2].menu()
     submenu.actions()[0].trigger()
 
     assert calls == ["Alpha"]
@@ -4385,6 +4414,268 @@ def test_on_reload_plugin_tears_down_live_ui_before_calling_the_hook(wired: Main
         rescan=lambda: PluginLoadResult(), reload_plugin=fake_reload, active_plugin_names=lambda: [],
     )
     wired._on_reload_plugin("Alpha")
+
+    assert "Alpha" not in wired._plugin_dock_widgets
+    assert dialog_reg not in wired._plugin_dialogs
+    assert "Alpha" not in wired._plugin_preferences_tab_widgets
+    assert wired._real_tab_count() == before_tab_count - 1
+
+
+# ---------------------------------------------------------------------------
+# Plugin Overview trigger (#160)
+# ---------------------------------------------------------------------------
+
+def _pkg(folder_name, enabled=True, active_plugin_names=None, failed=False, failure_reason=None, metadata=None):
+    from mdf_viewer.plugin_api.loader import PluginPackageInfo
+
+    return PluginPackageInfo(
+        folder_name=folder_name,
+        enabled=enabled,
+        active_plugin_names=active_plugin_names or [],
+        failed=failed,
+        failure_reason=failure_reason,
+        metadata=metadata or [],
+    )
+
+
+def _wire_overview_hooks(
+    wired, list_packages=None, set_plugin_enabled=None, active_plugin_names_for=None,
+):
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(),
+        reload_plugin=lambda name: True,
+        active_plugin_names=lambda: [],
+        list_packages=list_packages or (lambda: []),
+        set_plugin_enabled=set_plugin_enabled or (lambda folder, enabled: PluginLoadResult()),
+        active_plugin_names_for=active_plugin_names_for or (lambda folder: []),
+    )
+
+
+def test_plugin_overview_action_disabled_without_hook(wired: MainWindow) -> None:
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(), reload_plugin=lambda name: True, active_plugin_names=lambda: [],
+    )
+
+    overview_action = wired._plugins_menu.actions()[1]
+    assert overview_action.text() == "Plugin Overview…"
+    assert not overview_action.isEnabled()
+
+
+def test_plugin_overview_action_enabled_with_hook(wired: MainWindow) -> None:
+    _wire_overview_hooks(wired)
+
+    overview_action = wired._plugins_menu.actions()[1]
+    assert overview_action.isEnabled()
+
+
+def test_plugin_overview_action_positioned_between_rescan_and_reload(wired: MainWindow) -> None:
+    _wire_overview_hooks(wired)
+
+    texts = [a.text() for a in wired._plugins_menu.actions()]
+    assert texts.index("Rescan Plugins") < texts.index("Plugin Overview…") < texts.index("Reload Plugin")
+
+
+def test_on_plugin_overview_does_nothing_without_a_hook(wired: MainWindow) -> None:
+    wired._on_plugin_overview()  # must not raise
+    assert wired._plugin_overview_dialog is None
+
+
+def test_on_plugin_overview_populates_dialog_from_hook(wired: MainWindow) -> None:
+    packages = [_pkg("plugin_a"), _pkg("plugin_b", enabled=False)]
+    _wire_overview_hooks(wired, list_packages=lambda: packages)
+
+    with patch.object(QDialog, "exec", return_value=0):
+        wired._on_plugin_overview()
+
+    assert set(wired._plugin_overview_dialog.checkboxes) == {"plugin_a", "plugin_b"}
+    assert wired._plugin_overview_dialog.checkboxes["plugin_a"].isChecked() is True
+    assert wired._plugin_overview_dialog.checkboxes["plugin_b"].isChecked() is False
+
+
+def test_on_plugin_overview_dialog_is_cached_across_opens(wired: MainWindow) -> None:
+    _wire_overview_hooks(wired, list_packages=lambda: [_pkg("plugin_a")])
+
+    with patch.object(QDialog, "exec", return_value=0):
+        wired._on_plugin_overview()
+        first_dialog = wired._plugin_overview_dialog
+        wired._on_plugin_overview()
+
+    assert wired._plugin_overview_dialog is first_dialog
+
+
+def test_on_plugin_overview_toggled_does_nothing_without_a_hook(wired: MainWindow) -> None:
+    wired._on_plugin_overview_toggled("plugin_a", False)  # must not raise
+
+
+def test_on_plugin_overview_toggled_disable_sequences_teardown_then_hook_then_sync(
+    wired: MainWindow,
+) -> None:
+    order = []
+    original_teardown = wired._teardown_plugin_ui
+    original_sync = wired._sync_plugin_ui
+
+    def tracked_teardown(name: str) -> None:
+        order.append(("teardown", name))
+        original_teardown(name)
+
+    def tracked_set_enabled(folder: str, enabled: bool) -> PluginLoadResult:
+        order.append(("hook", folder, enabled))
+        return PluginLoadResult()
+
+    def tracked_sync() -> None:
+        order.append(("sync", None))
+        original_sync()
+
+    wired._teardown_plugin_ui = tracked_teardown
+    wired._sync_plugin_ui = tracked_sync
+    _wire_overview_hooks(
+        wired,
+        set_plugin_enabled=tracked_set_enabled,
+        active_plugin_names_for=lambda folder: ["Alpha"],
+    )
+    order.clear()  # drop the sync call set_plugin_loader_hooks() itself triggers
+
+    wired._on_plugin_overview_toggled("plugin_a", False)
+
+    assert order == [
+        ("teardown", "Alpha"), ("hook", "plugin_a", False), ("sync", None),
+    ]
+
+
+def test_on_plugin_overview_toggled_disable_queries_live_state_not_stale_snapshot(
+    wired: MainWindow,
+) -> None:
+    """F4 fix regression test: a toolsuite folder whose active-plugin set
+    has drifted since the dialog was populated (e.g. a second plugin
+    activated after the dialog opened) must still have every currently
+    active plugin torn down — not just the one the dialog's stale
+    PluginPackageInfo snapshot knew about."""
+    torn_down = []
+    wired._teardown_plugin_ui = lambda name: torn_down.append(name)
+    # Dialog was populated when only "Alpha" was active from this folder;
+    # by the time the checkbox is toggled, "Bravo" has also become active
+    # — active_plugin_names_for must be queried live, not from the stale
+    # PluginPackageInfo the dialog still holds.
+    _wire_overview_hooks(
+        wired,
+        list_packages=lambda: [_pkg("toolsuite", active_plugin_names=["Alpha"])],
+        active_plugin_names_for=lambda folder: ["Alpha", "Bravo"],
+    )
+
+    wired._on_plugin_overview_toggled("toolsuite", False)
+
+    assert sorted(torn_down) == ["Alpha", "Bravo"]
+
+
+def test_on_plugin_overview_toggled_disable_shows_no_confirmation(wired: MainWindow) -> None:
+    """Silent/immediate, matching Reload's existing precedent — no
+    QMessageBox or similar should appear."""
+    with patch.object(QMessageBox, "question") as mock_question:
+        _wire_overview_hooks(wired, active_plugin_names_for=lambda folder: ["Alpha"])
+        wired._on_plugin_overview_toggled("plugin_a", False)
+    mock_question.assert_not_called()
+
+
+def test_on_plugin_overview_toggled_enable_calls_hook_and_syncs(wired: MainWindow) -> None:
+    calls = []
+
+    def set_enabled(folder: str, enabled: bool) -> PluginLoadResult:
+        calls.append((folder, enabled))
+        return PluginLoadResult(loaded=["Alpha"])
+
+    _wire_overview_hooks(
+        wired, set_plugin_enabled=set_enabled, active_plugin_names_for=lambda folder: ["Alpha"],
+    )
+
+    wired._on_plugin_overview_toggled("plugin_a", True)
+
+    assert calls == [("plugin_a", True)]
+
+
+def test_on_plugin_overview_toggled_enable_that_fails_still_shows_checked_with_failure(
+    wired: MainWindow,
+) -> None:
+    """F3 fix (corrected): re-enabling a plugin that is still broken must
+    NOT be shown as unchecked — that would silently disagree with the
+    persisted setting (set_enabled(True) marks it enabled regardless of
+    whether activation succeeds, matching REQ-PLUGIN-360's "always retry,
+    never permanently remembered as broken" policy) and, if left
+    uncorrected, that exact mismatch survives a restart: a live-tested
+    regression where the dialog showed unchecked but settings.json still
+    said enabled, so the next launch showed it checked again with no
+    explanation. The dialog must always reflect a fresh list_packages()
+    call — checked + a failure indicator, the same as any other
+    enabled-but-broken plugin."""
+    still_broken = _pkg("broken_plugin", enabled=True, failed=True, failure_reason="boom")
+    _wire_overview_hooks(
+        wired,
+        list_packages=lambda: [still_broken],
+        set_plugin_enabled=lambda folder, enabled: PluginLoadResult(failed=["broken_plugin"]),
+        active_plugin_names_for=lambda folder: [],  # still nothing active — enable failed
+    )
+    with patch.object(QDialog, "exec", return_value=0):
+        wired._on_plugin_overview()
+
+    wired._on_plugin_overview_toggled("broken_plugin", True)
+
+    checkbox = wired._plugin_overview_dialog.checkboxes["broken_plugin"]
+    assert checkbox.isChecked() is True
+    assert "failed to activate" in wired.statusBar().currentMessage()
+
+
+def test_on_plugin_overview_toggled_enable_success_shows_checked_without_failure(
+    wired: MainWindow,
+) -> None:
+    _wire_overview_hooks(
+        wired,
+        list_packages=lambda: [_pkg("plugin_a", enabled=True, active_plugin_names=["Alpha"])],
+        set_plugin_enabled=lambda folder, enabled: PluginLoadResult(loaded=["Alpha"]),
+        active_plugin_names_for=lambda folder: ["Alpha"],
+    )
+    with patch.object(QDialog, "exec", return_value=0):
+        wired._on_plugin_overview()
+
+    wired._on_plugin_overview_toggled("plugin_a", True)
+
+    checkbox = wired._plugin_overview_dialog.checkboxes["plugin_a"]
+    assert checkbox.isChecked() is True
+
+
+def test_on_plugin_overview_toggled_tears_down_live_ui_before_disabling(wired: MainWindow) -> None:
+    """End-to-end (within MainWindow) proof that disabling via the Overview
+    dialog actually closes a plugin's open tab, cached dialog, and dock
+    section — mirrors test_on_reload_plugin_tears_down_live_ui_before_
+    calling_the_hook for the disable path."""
+    from mdf_viewer.plugin_api.registry import DockWidgetRegistration, PreferencesPageRegistration
+
+    registry = PluginRegistry()
+    registry.add_dock_widget(DockWidgetRegistration("Alpha", "Alpha Settings", lambda: QWidget(), "docked"))
+    dialog_reg = DockWidgetRegistration("Alpha", "Alpha Dialog", lambda: QWidget(), "dialog")
+    registry.add_dock_widget(dialog_reg)
+    registry.add_preferences_page(PreferencesPageRegistration("Alpha", "Alpha Prefs", lambda: QWidget()))
+    wired._controller.plugin_registry = registry
+    wired._sync_plugin_ui()
+    with patch.object(QDialog, "exec", return_value=0):
+        wired._on_plugin_dialog_action(dialog_reg)
+        wired._on_plugin_preferences(registry)
+    tab_registration = TabTypeRegistration(
+        plugin_name="Alpha", type_id="alpha_tab", display_name="Alpha Tab", view_factory=lambda: QWidget(),
+    )
+    wired._create_non_plot_tab(tab_registration)
+    before_tab_count = wired._real_tab_count()
+    assert "Alpha" in wired._plugin_dock_widgets
+    assert dialog_reg in wired._plugin_dialogs
+    assert "Alpha" in wired._plugin_preferences_tab_widgets
+
+    def fake_set_enabled(folder: str, enabled: bool) -> PluginLoadResult:
+        registry.remove_registrations_for("Alpha")
+        return PluginLoadResult()
+
+    _wire_overview_hooks(
+        wired, set_plugin_enabled=fake_set_enabled, active_plugin_names_for=lambda folder: ["Alpha"],
+    )
+
+    wired._on_plugin_overview_toggled("alpha_pkg", False)
 
     assert "Alpha" not in wired._plugin_dock_widgets
     assert dialog_reg not in wired._plugin_dialogs
