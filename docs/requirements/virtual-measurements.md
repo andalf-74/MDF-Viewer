@@ -59,9 +59,29 @@ Recently Opened Files list, since it has no file path to reopen
 A virtual signal can be created independently of any virtual measurement
 [REQ-VMEAS-110]. A virtual signal can be attached to a virtual
 measurement's channel tree after having been created independently
-[REQ-VMEAS-120]. A virtual measurement's channel tree contains only virtual
-signals, never real MDF channels — a virtual signal is never attached
-directly onto a file-backed measurement's own channel tree [REQ-VMEAS-130].
+[REQ-VMEAS-120]. A virtual signal can be attached to a virtual measurement
+that has already been added to the application's measurement pool, not only
+before it is added, so a virtual measurement can keep growing for the whole
+session rather than being fixed at the moment it first becomes visible
+[REQ-VMEAS-121]. A previously-attached virtual signal can be detached from
+its measurement's channel tree [REQ-VMEAS-122]. A virtual measurement's
+channel tree can contain more than one virtual signal sharing the same
+name; attaching one does not fail or silently replace the other
+[REQ-VMEAS-123]. An already-attached virtual signal's identity is
+unaffected by later attaching or detaching a different signal on the same
+measurement — which channel an already-plotted signal refers to never
+changes as a side effect of the measurement's composition changing
+elsewhere [REQ-VMEAS-124]. A virtual measurement's channel tree contains
+only virtual signals, never real MDF channels — a virtual signal is never
+attached directly onto a file-backed measurement's own channel tree
+[REQ-VMEAS-130].
+
+## Detaching a plotted signal
+
+Detaching a virtual signal that is currently plotted in one or more tabs
+removes it from every plot immediately, the same way closing its measurement
+already removes any of its plotted signals — no stale curve is left showing
+outdated data in a tab that has not been refreshed [REQ-VMEAS-135].
 
 ## Data resolution
 

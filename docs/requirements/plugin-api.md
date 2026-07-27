@@ -650,3 +650,67 @@ Disabling a currently-active plugin package with open UI state (e.g. open
 tabs of its registered tab type) shows no confirmation prompt first — it
 behaves identically to Reload's existing silent teardown, which already
 has no such prompt.
+
+---
+
+## Growing a Registered Virtual Measurement (#162)
+
+Extends the Virtual Measurement Contribution surface (#147,
+REQ-PLUGIN-290-310): before this, `attach_virtual_signal` only had a
+defined effect prior to `register_virtual_measurement` — a plugin that
+wanted to add another signal to a measurement already visible in the
+Signal Browser had no choice but to create an entirely new measurement.
+This section makes attach (and a new, symmetric detach) valid for a
+registered measurement's entire lifetime, not just its construction, and
+adds the notification a plugin needs to react to that ongoing change. The
+underlying virtual-measurement behavior this relies on is specified in
+`virtual-measurements.md` (REQ-VMEAS-121–135); this section covers only
+the plugin-facing methods and event.
+
+### Attaching and detaching after registration
+
+Attaching a virtual signal to a measurement already registered in the
+application's measurement pool is reflected in the Signal Browser
+immediately, without waiting for an unrelated measurement-pool change to
+trigger a refresh, per REQ-VMEAS-121 [REQ-PLUGIN-520]. A plugin can detach
+a previously-attached virtual signal from its measurement through its
+context, per REQ-VMEAS-122/135 [REQ-PLUGIN-521]. Detaching targets the
+exact virtual signal instance passed in; a measurement may contain more
+than one virtual signal sharing the same name, per REQ-VMEAS-123, and the
+application does not use name matching to decide which one to remove
+[REQ-PLUGIN-522]. Attaching a virtual signal instance that is already
+attached to the same measurement is rejected and logged rather than
+creating a second, indistinguishable entry [REQ-PLUGIN-523].
+
+### Notification
+
+Attaching or detaching a virtual signal on an already-registered
+measurement fires a `measurement_updated` event, carrying the affected
+signal's name and whether it was attached or detached [REQ-PLUGIN-530]. A
+plugin subscribed to this event receives it through the same per-event
+handler-override mechanism as the application's other events
+(REQ-PLUGIN-181) [REQ-PLUGIN-531].
+
+### Idempotent registration
+
+Registering a virtual measurement that is already present in the
+application's measurement pool, identified as the same measurement
+instance, has no further effect the second time, and is logged the same
+way a rejected duplicate preferences page registration already is
+(REQ-PLUGIN-422) — a plugin does not need to track for itself whether it
+has already registered a given measurement [REQ-PLUGIN-540].
+
+### Read surface
+
+A measurement exposed to a plugin through its read surface indicates
+whether it is virtual or file-backed [REQ-PLUGIN-550].
+
+### Out of scope here
+
+Whether an equivalent "composition changed" event could ever fire for a
+file-backed measurement is not addressed — no operation exists today that
+changes a file-backed measurement's channel tree after it loads, so
+`measurement_updated` is only ever observed for a virtual measurement in
+practice; its payload nonetheless carries the same virtual/real
+distinction `measurement_closed` already does, for consistency between the
+two events rather than because a real-measurement case is expected soon.

@@ -29,6 +29,7 @@ from mdf_viewer.plugin_api.types import (
     PluginCursorMovedEvent,
     PluginFileLoadedEvent,
     PluginMeasurementClosedEvent,
+    PluginMeasurementUpdatedEvent,
     PluginMeasurementView,
     PluginSelectionChangedEvent,
     PluginSignalAddedEvent,
@@ -61,7 +62,7 @@ logger = logging.getLogger("mdf_viewer.plugin_api")
 _KNOWN_EVENTS = frozenset(
     {
         "file_loaded", "signal_added", "signal_removed", "selection_changed",
-        "cursor_moved", "measurement_closed",
+        "cursor_moved", "measurement_closed", "measurement_updated",
     }
 )
 
@@ -351,9 +352,27 @@ class PluginContext:
     ) -> None:
         """Attach *signal* to *measurement*'s channel tree (REQ-PLUGIN-291).
 
-        Callable any number of times before register_virtual_measurement().
+        Callable at any point in *measurement*'s lifetime, not only before
+        register_virtual_measurement() (REQ-VMEAS-121, #162) — if
+        *measurement* is already registered, the Signal Browser reflects
+        the new signal immediately (REQ-PLUGIN-520).
         """
         measurement.attach(signal)
+        self._app.notify_virtual_measurement_changed(measurement, signal.name, "attached")
+
+    def detach_virtual_signal(
+        self, measurement: VirtualMeasurementLoader, signal: VirtualSignal
+    ) -> None:
+        """Detach *signal* from *measurement*'s channel tree, by identity
+        (REQ-PLUGIN-521/522, #162). If *signal* is currently plotted
+        anywhere, it is removed from every plot immediately (REQ-VMEAS-135).
+        A no-op if *signal* was never attached to *measurement*.
+        """
+        channel_index = measurement.detach(signal)
+        if channel_index is not None:
+            self._app.notify_virtual_measurement_changed(
+                measurement, signal.name, "detached", channel_index=channel_index
+            )
 
     def register_virtual_measurement(self, measurement: VirtualMeasurementLoader, label: str) -> None:
         """Add *measurement* to the application's measurement pool (REQ-PLUGIN-292).
@@ -361,7 +380,16 @@ class PluginContext:
         Makes it visible in the Signal Browser and everywhere else a real
         measurement would be, attributed to this plugin for later teardown
         (REQ-PLUGIN-300/301) and user-close notification (REQ-PLUGIN-302).
+        A no-op, logged, if *measurement* (the same instance) is already
+        registered (REQ-PLUGIN-540, #162) — a plugin can call this
+        defensively without tracking registration state itself.
         """
+        if self._app.find_measurement_by_loader(measurement) is not None:
+            logger.info(
+                "Plugin '%s' tried to register virtual measurement '%s' again — already registered, ignored",
+                self._plugin_name, label,
+            )
+            return
         self._app.add_virtual_measurement(measurement, label, owner_plugin=self._plugin_name)
 
     # ------------------------------------------------------------------
@@ -403,6 +431,13 @@ class PluginContext:
             )
         if event_name == "measurement_closed":
             return PluginMeasurementClosedEvent(label=payload.label, is_virtual=payload.is_virtual)
+        if event_name == "measurement_updated":
+            return PluginMeasurementUpdatedEvent(
+                label=payload.label,
+                is_virtual=payload.is_virtual,
+                signal_name=payload.signal_name,
+                change=payload.change,
+            )
         raise AssertionError(f"no plugin-safe translation registered for event '{event_name}'")
 
     def subscribe(self, event_name: str, handler: Callable[[Any], None]) -> None:

@@ -2094,6 +2094,110 @@ def test_replace_single_measurement_rejects_a_virtual_measurement(ctrl: AppContr
 
 
 # ---------------------------------------------------------------------------
+# Growing a Registered Virtual Measurement (#162)
+# ---------------------------------------------------------------------------
+
+def test_find_measurement_by_loader_returns_none_when_not_registered(ctrl: AppController) -> None:
+    loader = _make_virtual_loader()
+    assert ctrl.find_measurement_by_loader(loader) is None
+
+
+def test_find_measurement_by_loader_finds_registered_measurement(ctrl: AppController) -> None:
+    loader = _make_virtual_loader()
+    measurement = ctrl.add_virtual_measurement(loader, label="Stats", owner_plugin="p")
+    assert ctrl.find_measurement_by_loader(loader) is measurement
+
+
+def test_notify_virtual_measurement_changed_on_unregistered_loader_is_a_noop(
+    ctrl: AppController, deps: dict
+) -> None:
+    loader = _make_virtual_loader()
+    deps["browser"].populate_all.reset_mock()
+    seen = []
+    ctrl.events.measurement_updated.connect(seen.append)
+
+    ctrl.notify_virtual_measurement_changed(loader, "derived", "attached")
+
+    deps["browser"].populate_all.assert_not_called()
+    assert seen == []
+
+
+@pytest.mark.requirement("REQ-PLUGIN-520")
+def test_notify_virtual_measurement_changed_attach_refreshes_browser_and_emits(
+    ctrl: AppController, deps: dict
+) -> None:
+    loader = _make_virtual_loader()
+    ctrl.add_virtual_measurement(loader, label="Stats", owner_plugin="p")
+    _attach_virtual_signal(loader, name="derived")
+    deps["browser"].populate_all.reset_mock()
+    seen = []
+    ctrl.events.measurement_updated.connect(seen.append)
+
+    ctrl.notify_virtual_measurement_changed(loader, "derived", "attached")
+
+    deps["browser"].populate_all.assert_called_once()
+    assert len(seen) == 1
+    assert seen[0].signal_name == "derived"
+    assert seen[0].change == "attached"
+    assert seen[0].is_virtual is True
+
+
+@pytest.mark.requirement("REQ-VMEAS-135")
+def test_notify_virtual_measurement_changed_detach_removes_plotted_instance(
+    ctrl: AppController,
+) -> None:
+    loader = _make_virtual_loader()
+    measurement = ctrl.add_virtual_measurement(loader, label="Stats", owner_plugin="p")
+    _attach_virtual_signal(loader, name="derived")
+    ctrl.add_signal(0, 0, measurement=measurement)
+    assert ctrl.current_workspace.active != []
+
+    ctrl.notify_virtual_measurement_changed(loader, "derived", "detached", channel_index=0)
+
+    assert ctrl.current_workspace.active == []
+
+
+@pytest.mark.requirement("REQ-VMEAS-135")
+def test_notify_virtual_measurement_changed_detach_does_not_orphan_signals_in_a_non_current_tab(
+    deps: dict,
+) -> None:
+    """Regression: a shortcut implementation looping over self._workspaces
+    and calling remove_signals() directly (instead of swapping
+    _active_tab_index first) would silently no-op on every non-current
+    tab, leaking an ActiveSignal/curve (#120 leak class)."""
+    ctrl2 = _make_ctrl_with_loaders(deps, [])
+    loader = _make_virtual_loader()
+    measurement = ctrl2.add_virtual_measurement(loader, label="Stats", owner_plugin="p")
+    _attach_virtual_signal(loader, name="derived")
+    plot2, table2 = MagicMock(), MagicMock()
+    ctrl2.create_tab(plot2, table2)  # now active
+    ctrl2.switch_tab(0)
+    ctrl2.add_signal(0, 0, measurement=measurement)  # lands in tab 0, not the active tab
+    ctrl2.switch_tab(1)
+
+    ctrl2.notify_virtual_measurement_changed(loader, "derived", "detached", channel_index=0)
+
+    assert ctrl2._workspaces[0].active == []
+
+
+def test_notify_virtual_measurement_changed_detach_leaves_other_channel_indices_untouched(
+    ctrl: AppController,
+) -> None:
+    loader = _make_virtual_loader()
+    measurement = ctrl.add_virtual_measurement(loader, label="Stats", owner_plugin="p")
+    _attach_virtual_signal(loader, name="a")
+    _attach_virtual_signal(loader, name="b")
+    ctrl.add_signal(0, 0, measurement=measurement)
+    ctrl.add_signal(0, 1, measurement=measurement)
+    assert len(ctrl.current_workspace.active) == 2
+
+    ctrl.notify_virtual_measurement_changed(loader, "a", "detached", channel_index=0)
+
+    assert len(ctrl.current_workspace.active) == 1
+    assert ctrl.current_workspace.active[0].metadata.channel_index == 1
+
+
+# ---------------------------------------------------------------------------
 # Primary Measurement and rename (#103)
 # ---------------------------------------------------------------------------
 

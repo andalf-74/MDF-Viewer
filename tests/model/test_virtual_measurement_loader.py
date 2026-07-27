@@ -128,3 +128,67 @@ def test_find_similar_signal_by_name_no_backslash_returns_empty() -> None:
 def test_measurement_info_has_empty_file_name() -> None:
     info = VirtualMeasurementLoader(owner_plugin="p").measurement_info()
     assert info.file_name == ""
+
+
+@pytest.mark.requirement("REQ-VMEAS-124")
+def test_detaching_a_signal_leaves_other_signals_channel_index_unchanged() -> None:
+    loader = VirtualMeasurementLoader(owner_plugin="p")
+    a, b, c = _signal("a"), _signal("b"), _signal("c")
+    loader.attach(a)
+    loader.attach(b)
+    loader.attach(c)
+
+    loader.detach(a)
+    channels = loader.channel_tree()[0].channels
+
+    assert [ch.name for ch in channels] == ["b", "c"]
+    assert (channels[0].group_index, channels[0].channel_index) == (0, 1)
+    assert (channels[1].group_index, channels[1].channel_index) == (0, 2)
+
+
+@pytest.mark.requirement("REQ-VMEAS-122")
+def test_detach_returns_freed_channel_index() -> None:
+    loader = VirtualMeasurementLoader(owner_plugin="p")
+    a = _signal("a")
+    loader.attach(a)
+    loader.attach(_signal("b"))
+
+    assert loader.detach(a) == 0
+
+
+def test_detaching_a_signal_never_attached_returns_none_and_does_not_mutate() -> None:
+    loader = VirtualMeasurementLoader(owner_plugin="p")
+    loader.attach(_signal("a"))
+    never_attached = _signal("z")
+
+    assert loader.detach(never_attached) is None
+    assert [ch.name for ch in loader.channel_tree()[0].channels] == ["a"]
+
+
+@pytest.mark.requirement("REQ-VMEAS-123")
+def test_two_signals_with_identical_name_and_template_both_retained_and_independently_detachable() -> None:
+    loader = VirtualMeasurementLoader(owner_plugin="p")
+    first = _signal("dup")
+    second = _signal("dup")
+    loader.attach(first)
+    loader.attach(second)
+
+    assert [ch.name for ch in loader.channel_tree()[0].channels] == ["dup", "dup"]
+
+    freed = loader.detach(first)
+
+    assert freed is not None
+    remaining = loader.channel_tree()[0].channels
+    assert len(remaining) == 1
+    # The second, still-attached "dup" survives at its own stable index.
+    assert loader.detach(second) is not None
+
+
+@pytest.mark.requirement("REQ-PLUGIN-523")
+def test_attaching_the_same_object_twice_is_rejected(caplog) -> None:
+    loader = VirtualMeasurementLoader(owner_plugin="p")
+    signal = _signal("a")
+    loader.attach(signal)
+    loader.attach(signal)
+
+    assert len(loader.channel_tree()[0].channels) == 1

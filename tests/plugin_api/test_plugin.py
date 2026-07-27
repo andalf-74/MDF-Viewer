@@ -53,6 +53,7 @@ def test_default_deactivate_and_handlers_are_noop() -> None:
     plugin.on_signal_removed(None)
     plugin.on_selection_changed(None)
     plugin.on_cursor_moved(None)
+    plugin.on_measurement_updated(None)
 
 
 def test_metadata_defaults_to_empty_strings() -> None:

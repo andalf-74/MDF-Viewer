@@ -33,6 +33,7 @@ class PluginMeasurementView:
     label: str
     offset_s: float
     is_primary: bool
+    is_virtual: bool
 
     @classmethod
     def from_measurement(cls, measurement: "LoadedMeasurement", *, is_primary: bool) -> "PluginMeasurementView":
@@ -41,7 +42,13 @@ class PluginMeasurementView:
         # MdfLoader-only private _path — a virtual measurement's loader
         # has no _path attribute at all and would AttributeError here.
         path = str(loader.path) if loader.is_open and loader.path is not None else ""
-        return cls(path=path, label=measurement.label, offset_s=measurement.offset_s, is_primary=is_primary)
+        return cls(
+            path=path,
+            label=measurement.label,
+            offset_s=measurement.offset_s,
+            is_primary=is_primary,
+            is_virtual=measurement.owner_plugin is not None,
+        )
 
 
 @dataclass(frozen=True)
@@ -157,3 +164,16 @@ class PluginMeasurementClosedEvent:
 
     label: str
     is_virtual: bool
+
+
+@dataclass(frozen=True)
+class PluginMeasurementUpdatedEvent:
+    """Fires when a virtual measurement's channel tree gains or loses a
+    signal after registration (#162). Carries the affected signal's name
+    as a plain string, not a PluginSignalView — the signal may never have
+    been plotted, so there is no live ActiveSignal to build a view from."""
+
+    label: str
+    is_virtual: bool
+    signal_name: str
+    change: str  # "attached" | "detached"

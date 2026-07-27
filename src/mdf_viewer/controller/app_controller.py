@@ -21,6 +21,7 @@ from mdf_viewer.controller.events import (
     EventBus,
     FileLoadedEvent,
     MeasurementClosedEvent,
+    MeasurementUpdatedEvent,
     SelectionChangedEvent,
     SignalAddedEvent,
     SignalRemovedEvent,
@@ -850,6 +851,84 @@ class AppController:
         """
         for measurement in [m for m in self._measurements if m.owner_plugin == owner_plugin]:
             self.close_measurement(measurement)
+
+    def find_measurement_by_loader(self, loader: object) -> LoadedMeasurement | None:
+        """Find the LoadedMeasurement wrapping *loader*, by identity (#162).
+
+        Public, not underscore-prefixed: unlike `_refresh_signal_browser`
+        and friends (AppController-internal only), this is also called
+        from `PluginContext` (register_virtual_measurement's idempotency
+        guard), matching the existing convention that every other
+        cross-class method a PluginContext calls is public
+        (add_virtual_measurement, remove_virtual_measurements_for,
+        token_for_signal).
+        """
+        return next((m for m in self._measurements if m.loader is loader), None)
+
+    def notify_virtual_measurement_changed(
+        self,
+        loader: object,
+        signal_name: str,
+        change: str,
+        *,
+        channel_index: int | None = None,
+    ) -> None:
+        """A virtual measurement's channel tree gained or lost a signal
+        after registration (#162, REQ-PLUGIN-520/521).
+
+        A no-op if *loader* isn't currently registered — attaching before
+        `register_virtual_measurement()` needs no separate notification,
+        since `add_virtual_measurement()` already reads the loader's full,
+        current `channel_tree()` the one time it's actually added to the
+        pool.
+        """
+        measurement = self.find_measurement_by_loader(loader)
+        if measurement is None:
+            return
+        if change == "detached" and channel_index is not None:
+            self._remove_virtual_signal_instances(measurement, channel_index)
+        # Emit before refreshing, matching close_measurement()'s existing
+        # "notify, then refresh" ordering for measurement_closed.
+        self.events.measurement_updated.emit(
+            MeasurementUpdatedEvent(
+                label=measurement.label,
+                is_virtual=True,
+                signal_name=signal_name,
+                change=change,
+            )
+        )
+        self._refresh_signal_browser()
+
+    def _remove_virtual_signal_instances(
+        self, measurement: LoadedMeasurement, channel_index: int
+    ) -> None:
+        """Tear down every plotted instance of one specific virtual signal
+        (identified by its now-stable channel_index, not name — REQ-VMEAS-123
+        allows duplicate names, so name alone can't safely distinguish which
+        plotted instance to remove) across every tab (#162).
+
+        Mirrors `_remove_measurement_signals()`'s per-tab loop exactly,
+        including the `_active_tab_index` save/restore — `remove_signals()`
+        only ever operates on `self.current_workspace`, so skipping this
+        swap would silently no-op on every non-current tab and leave an
+        orphaned-but-alive ActiveSignal/curve there (the #120 leak class).
+        """
+        saved_index = self._active_tab_index
+        try:
+            for index, workspace in enumerate(self._workspaces):
+                affected = [
+                    a
+                    for a in workspace.active
+                    if a.measurement is measurement
+                    and a.metadata.group_index == 0
+                    and a.metadata.channel_index == channel_index
+                ]
+                if not affected:
+                    continue
+                self._active_tab_index = index
+                self.remove_signals(affected)
+        finally:
+            self._active_tab_index = saved_index
 
     def measurement_has_signals(self, measurement: LoadedMeasurement) -> bool:
         """Whether *measurement* has any active signals in any tab (REQ-FILE-028)."""

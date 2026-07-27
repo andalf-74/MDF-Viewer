@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("mdf_viewer.plugin_api")
 
 # EventBus signal name -> Plugin handler method name (#70's five events,
-# plus #147's measurement_closed).
+# plus #147's measurement_closed and #162's measurement_updated).
 _EVENT_HANDLER_NAMES = {
     "file_loaded": "on_file_loaded",
     "signal_added": "on_signal_added",
@@ -29,6 +29,7 @@ _EVENT_HANDLER_NAMES = {
     "selection_changed": "on_selection_changed",
     "cursor_moved": "on_cursor_moved",
     "measurement_closed": "on_measurement_closed",
+    "measurement_updated": "on_measurement_updated",
 }
 
 
@@ -92,6 +93,14 @@ class Plugin:
         Fires for any measurement close, real or virtual — broadcast, not
         targeted; check `event.is_virtual` and your own bookkeeping to tell
         whether this was a measurement your plugin contributed.
+        """
+
+    def on_measurement_updated(self, event: Any) -> None:
+        """Override to receive `measurement_updated` events (#162, REQ-PLUGIN-531).
+
+        Fires whenever a virtual measurement's channel tree gains or loses
+        a signal after registration (`event.signal_name`, `event.change`)
+        — broadcast, not targeted, the same as `on_measurement_closed`.
         """
 
     @property

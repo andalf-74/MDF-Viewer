@@ -9,6 +9,7 @@ measurement's channel tree holds only virtual signals).
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
 from pathlib import Path
 
@@ -19,16 +20,50 @@ from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
 from mdf_viewer.model.virtual_signal import VirtualSignal
 
+logger = logging.getLogger("mdf_viewer.model.virtual_measurement_loader")
+
 
 class VirtualMeasurementLoader:
     """A MeasurementLoader with no file behind it — its data is plugin-supplied."""
 
     def __init__(self, owner_plugin: str) -> None:
         self._owner_plugin = owner_plugin
-        self._signals: list[VirtualSignal] = []
+        # Keyed by a monotonically-increasing channel_index assigned once at
+        # attach() time, never reused — NOT a list, so detach() never has
+        # to renumber every later signal's channel_index (#162, REQ-VMEAS-124).
+        # A positional scheme was tried and rejected: an already-plotted
+        # signal's channel_index is baked into its ActiveSignal.metadata at
+        # load_signal() time and never refreshed, so shifting a later
+        # signal's index after a detach would silently duplicate or drop it
+        # the next time add_signal() touches this measurement.
+        self._signals: dict[int, VirtualSignal] = {}
+        self._next_channel_index = 0
 
     def attach(self, signal: VirtualSignal) -> None:
-        self._signals.append(signal)
+        # Identity (`is`), not equality: two attached signals may share
+        # identical name/template (REQ-VMEAS-123), so `in`/`==` can't be
+        # used to detect "already attached" without also rejecting
+        # legitimate distinct signals that happen to look alike.
+        if any(existing is signal for existing in self._signals.values()):
+            logger.error(
+                "Plugin '%s' tried to attach the same virtual signal '%s' twice — ignored",
+                self._owner_plugin, signal.name,
+            )
+            return
+        self._signals[self._next_channel_index] = signal
+        self._next_channel_index += 1
+
+    def detach(self, signal: VirtualSignal) -> int | None:
+        """Detach *signal*, found by identity, returning its freed
+        channel_index — or None if it wasn't attached. The caller (#162)
+        needs the freed index to tear down any plotted instance of this
+        exact signal, since name alone can't safely distinguish it from
+        another attached signal sharing the same name."""
+        for channel_index, existing in self._signals.items():
+            if existing is signal:
+                del self._signals[channel_index]
+                return channel_index
+        return None
 
     @property
     def is_open(self) -> bool:
@@ -49,7 +84,7 @@ class VirtualMeasurementLoader:
                 channel_index=ci,
                 group_name=self._owner_plugin,
             )
-            for ci, signal in enumerate(self._signals)
+            for ci, signal in sorted(self._signals.items())
         )
         return [ChannelGroupInfo(name=self._owner_plugin, index=0, channels=channels)]
 

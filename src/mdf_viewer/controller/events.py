@@ -61,6 +61,19 @@ class MeasurementClosedEvent:
     owner_plugin: str | None = None
 
 
+@dataclass(frozen=True)
+class MeasurementUpdatedEvent:
+    """Fires when a virtual measurement's channel tree gains or loses a
+    signal after registration (#162). `signal_name` is a plain string, not
+    a live signal reference — the changed signal may never have been
+    plotted, so there is no ActiveSignal to carry."""
+
+    label: str
+    is_virtual: bool
+    signal_name: str
+    change: str  # "attached" | "detached"
+
+
 class EventBus(QObject):
     """Qt signals for AppController lifecycle events. Owned by AppController.
 
@@ -80,3 +93,4 @@ class EventBus(QObject):
     selection_changed = pyqtSignal(object)   # SelectionChangedEvent
     cursor_moved = pyqtSignal(object)        # CursorMovedEvent
     measurement_closed = pyqtSignal(object)  # MeasurementClosedEvent
+    measurement_updated = pyqtSignal(object)  # MeasurementUpdatedEvent

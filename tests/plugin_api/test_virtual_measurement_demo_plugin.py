@@ -124,3 +124,86 @@ def test_on_measurement_closed_logs_for_virtual_measurement_close(
     assert "Virtual Measurement Demo" in captured.out
 
     loader.deactivate_all()
+
+
+def test_attach_extra_action_grows_the_already_registered_measurement(
+    qtbot: QtBot, ctrl: AppController,
+) -> None:
+    loader = PluginLoader(app=ctrl, plugins_dir=REPO_PLUGINS_DIR, app_version="1.0")
+    loader.load_all()
+    actions = {
+        r.label: r
+        for r in ctrl.plugin_registry.menu_actions
+        if r.plugin_name == "Virtual Measurement Demo"
+    }
+    actions["Create Virtual Measurement"].invoke()
+    measurement = ctrl.measurements[0]
+
+    actions["Attach Extra Signal to Demo Measurement"].invoke()
+
+    channel_names = [ch.name for group in measurement.loader.channel_tree() for ch in group.channels]
+    assert channel_names == ["Sine Wave", "Counter", "Ramp 1"]
+
+    loader.deactivate_all()
+
+
+def test_attach_extra_action_before_create_is_a_safe_noop(
+    qtbot: QtBot, ctrl: AppController, capsys: pytest.CaptureFixture,
+) -> None:
+    loader = PluginLoader(app=ctrl, plugins_dir=REPO_PLUGINS_DIR, app_version="1.0")
+    loader.load_all()
+    actions = {
+        r.label: r
+        for r in ctrl.plugin_registry.menu_actions
+        if r.plugin_name == "Virtual Measurement Demo"
+    }
+
+    assert actions["Attach Extra Signal to Demo Measurement"].invoke() is True
+    assert ctrl.measurements == []
+
+    loader.deactivate_all()
+
+
+def test_detach_counter_action_removes_a_plotted_counter_signal(
+    qtbot: QtBot, ctrl: AppController,
+) -> None:
+    loader = PluginLoader(app=ctrl, plugins_dir=REPO_PLUGINS_DIR, app_version="1.0")
+    loader.load_all()
+    actions = {
+        r.label: r
+        for r in ctrl.plugin_registry.menu_actions
+        if r.plugin_name == "Virtual Measurement Demo"
+    }
+    actions["Create Virtual Measurement"].invoke()
+    measurement = ctrl.measurements[0]
+    ctrl.add_signal(0, 1, measurement=measurement)  # plot "Counter"
+    assert len(ctrl.current_workspace.active) == 1
+
+    actions["Detach Counter Signal from Demo Measurement"].invoke()
+
+    assert ctrl.current_workspace.active == []
+    channel_names = [ch.name for group in measurement.loader.channel_tree() for ch in group.channels]
+    assert channel_names == ["Sine Wave"]
+
+    loader.deactivate_all()
+
+
+def test_on_measurement_updated_logs_for_attach(
+    qtbot: QtBot, ctrl: AppController, capsys: pytest.CaptureFixture,
+) -> None:
+    loader = PluginLoader(app=ctrl, plugins_dir=REPO_PLUGINS_DIR, app_version="1.0")
+    loader.load_all()
+    actions = {
+        r.label: r
+        for r in ctrl.plugin_registry.menu_actions
+        if r.plugin_name == "Virtual Measurement Demo"
+    }
+    actions["Create Virtual Measurement"].invoke()
+
+    actions["Attach Extra Signal to Demo Measurement"].invoke()
+
+    captured = capsys.readouterr()
+    assert "measurement_updated" in captured.out
+    assert "attached" in captured.out
+
+    loader.deactivate_all()

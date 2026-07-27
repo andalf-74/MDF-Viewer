@@ -65,6 +65,21 @@ def test_measurement_view_reads_label_and_offset() -> None:
     assert view.offset_s == 3.5
     assert view.is_primary is True
     assert view.path == ""  # loader never opened a real file in this test
+    assert view.is_virtual is False
+
+
+@pytest.mark.requirement("REQ-PLUGIN-550")
+def test_measurement_view_is_virtual_true_for_a_virtual_measurement() -> None:
+    from mdf_viewer.model.virtual_measurement_loader import VirtualMeasurementLoader
+
+    measurement = LoadedMeasurement(
+        loader=VirtualMeasurementLoader(owner_plugin="p"),
+        info=MeasurementInfo(file_name=""),
+        label="Virtual",
+        owner_plugin="p",
+    )
+    view = PluginMeasurementView.from_measurement(measurement, is_primary=False)
+    assert view.is_virtual is True
 
 
 def test_measurement_view_is_frozen() -> None:

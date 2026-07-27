@@ -247,6 +247,99 @@ def test_register_virtual_measurement_adds_to_pool(
 
 
 # ---------------------------------------------------------------------------
+# Growing a Registered Virtual Measurement (#162)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-540")
+def test_register_virtual_measurement_twice_is_idempotent(
+    ctrl: AppController, context: PluginContext,
+) -> None:
+    measurement = context.create_virtual_measurement()
+    context.register_virtual_measurement(measurement, label="Stats")
+
+    context.register_virtual_measurement(measurement, label="Stats")
+
+    assert len(ctrl.measurements) == 1
+
+
+def test_register_virtual_measurement_twice_logs(
+    context: PluginContext, caplog: pytest.LogCaptureFixture,
+) -> None:
+    measurement = context.create_virtual_measurement()
+    context.register_virtual_measurement(measurement, label="Stats")
+
+    with caplog.at_level(logging.INFO, logger="mdf_viewer.plugin_api"):
+        context.register_virtual_measurement(measurement, label="Stats")
+
+    assert "already registered" in caplog.text
+
+
+@pytest.mark.requirement("REQ-PLUGIN-520")
+def test_attach_virtual_signal_before_registration_does_not_refresh_or_emit(
+    context: PluginContext, deps: dict,
+) -> None:
+    measurement = context.create_virtual_measurement()
+    seen = []
+    context.subscribe("measurement_updated", seen.append)
+    deps["browser"].populate_all.reset_mock()
+
+    context.attach_virtual_signal(measurement, context.create_virtual_signal("derived", _resolver))
+
+    deps["browser"].populate_all.assert_not_called()
+    assert seen == []
+
+
+@pytest.mark.requirement("REQ-PLUGIN-520")
+def test_attach_virtual_signal_after_registration_refreshes_and_emits(
+    context: PluginContext, deps: dict,
+) -> None:
+    measurement = context.create_virtual_measurement()
+    context.register_virtual_measurement(measurement, label="Stats")
+    seen = []
+    context.subscribe("measurement_updated", seen.append)
+    deps["browser"].populate_all.reset_mock()
+
+    context.attach_virtual_signal(measurement, context.create_virtual_signal("derived", _resolver))
+
+    deps["browser"].populate_all.assert_called_once()
+    assert len(seen) == 1
+    assert seen[0].signal_name == "derived"
+    assert seen[0].change == "attached"
+    assert seen[0].is_virtual is True
+
+
+@pytest.mark.requirement("REQ-PLUGIN-521")
+def test_detach_virtual_signal_removes_from_channel_tree_and_emits(
+    context: PluginContext,
+) -> None:
+    measurement = context.create_virtual_measurement()
+    signal = context.create_virtual_signal("derived", _resolver)
+    context.attach_virtual_signal(measurement, signal)
+    context.register_virtual_measurement(measurement, label="Stats")
+    seen = []
+    context.subscribe("measurement_updated", seen.append)
+
+    context.detach_virtual_signal(measurement, signal)
+
+    assert measurement.channel_tree()[0].channels == ()
+    assert len(seen) == 1
+    assert seen[0].signal_name == "derived"
+    assert seen[0].change == "detached"
+
+
+@pytest.mark.requirement("REQ-PLUGIN-522")
+def test_detach_virtual_signal_never_attached_is_a_noop(context: PluginContext) -> None:
+    measurement = context.create_virtual_measurement()
+    never_attached = context.create_virtual_signal("z", _resolver)
+    seen = []
+    context.subscribe("measurement_updated", seen.append)
+
+    context.detach_virtual_signal(measurement, never_attached)
+
+    assert seen == []
+
+
+# ---------------------------------------------------------------------------
 # _teardown (#72) — framework-internal, called by Plugin.start()/stop()
 # ---------------------------------------------------------------------------
 
@@ -378,6 +471,9 @@ def test_every_known_event_has_a_working_translation(context: PluginContext) -> 
         "selection_changed": MagicMock(selected=[dummy_signal], tab=None),
         "cursor_moved": MagicMock(positions=[1.0, 2.0], mode=None, tab=None),
         "measurement_closed": MagicMock(label="M1", is_virtual=False),
+        "measurement_updated": MagicMock(
+            label="M1", is_virtual=True, signal_name="derived", change="attached"
+        ),
     }
     assert set(payloads) == _KNOWN_EVENTS  # this test itself must cover every known event
 
@@ -389,3 +485,16 @@ def test_every_known_event_has_a_working_translation(context: PluginContext) -> 
 def test_translate_event_raises_loudly_for_an_unknown_name(context: PluginContext) -> None:
     with pytest.raises(AssertionError):
         context._translate_event("not_a_real_event", MagicMock())
+
+
+def test_event_handler_names_matches_known_events() -> None:
+    """Structural guard (#162): nothing previously cross-checked
+    Plugin's _EVENT_HANDLER_NAMES against _KNOWN_EVENTS/_translate_event —
+    a typo'd handler name would compile, pass every other test, and simply
+    never fire for any plugin. Covers all 7 events, not just the newest."""
+    from mdf_viewer.plugin_api.context import _KNOWN_EVENTS
+    from mdf_viewer.plugin_api.plugin import Plugin, _EVENT_HANDLER_NAMES
+
+    assert set(_EVENT_HANDLER_NAMES) == _KNOWN_EVENTS
+    for handler_name in _EVENT_HANDLER_NAMES.values():
+        assert hasattr(Plugin, handler_name), f"Plugin has no method '{handler_name}'"
