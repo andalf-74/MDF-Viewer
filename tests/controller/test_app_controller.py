@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, call
 import numpy as np
 import pytest
 from PyQt6.QtGui import QColor
+from pytestqt.qtbot import QtBot
 
 from mdf_viewer.controller.app_controller import AppController, _COLOR_PALETTE
 from mdf_viewer.errors import MdfLoadError
@@ -1042,6 +1043,76 @@ def test_display_name_prefixed_with_multiple_measurements(deps: dict) -> None:
     sig1, sig2 = ctrl2.active_signals
     assert ctrl2._format_display_name(sig1) == f"[{m1.label}] {sig1.metadata.name}"
     assert ctrl2._format_display_name(sig2) == f"[{m2.label}] {sig2.metadata.name}"
+
+
+@pytest.mark.requirement("REQ-PLOT-340")
+def test_ast_delegate_elides_real_two_measurement_display_name(
+    deps: dict, qtbot: QtBot
+) -> None:
+    """End-to-end regression for #164: a real AppController._format_display_name
+    "[label] name" string, fed through a real ActiveSignalsTable and its
+    _ElidedNameDelegate in a narrow column, must still surface a fragment
+    of the actual signal name — not just the measurement prefix. The other
+    #164 tests exercise _elide_display_name() directly with hand-crafted
+    "[M1] ..." strings; this one confirms that shape is what the real
+    prefix-building code actually produces, so the two can't silently
+    drift apart.
+    """
+    from PyQt6.QtGui import QFontMetrics
+    from PyQt6.QtWidgets import QStyle, QStyleOptionViewItem
+
+    from mdf_viewer.view.active_signals_table import (
+        ActiveSignalsTable,
+        _COL_NAME,
+        _elide_display_name,
+    )
+
+    real_table = ActiveSignalsTable()
+    qtbot.addWidget(real_table)
+
+    loader_a, loader_b = _make_pool_loader(), _make_pool_loader()
+    loader_a.load_signal.return_value = (
+        _make_signal_data(), _make_metadata(name="EngineCoolantTemperatureSensor")
+    )
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+    ctrl2.add_signal(0, 1, measurement=m1)
+    (sig,) = ctrl2.active_signals
+
+    real_table.set_name_formatter(ctrl2._format_display_name)
+    real_table.add_row(sig)
+
+    seg = real_table._segments[0]
+    index = seg.model().index(0, _COL_NAME)
+    delegate = seg.itemDelegateForColumn(_COL_NAME)
+    expected_prefix = f"[{m1.label}] "
+
+    # Column just wide enough for the prefix plus a couple of name
+    # characters and the ellipsis — narrow enough to force eliding, wide
+    # enough that a real fragment of the name must survive if the fix
+    # works. Computed from actual font metrics rather than a hardcoded
+    # pixel width, since the fallback font in this headless test
+    # environment isn't the same width as a real installed font.
+    metrics = QFontMetrics(seg.font())
+    fits_width = (
+        metrics.horizontalAdvance(expected_prefix)
+        + metrics.horizontalAdvance("VeryLon")
+        + metrics.horizontalAdvance("…")
+    )
+    seg.setColumnWidth(_COL_NAME, fits_width + 20)  # +20: style's own item margins
+
+    opt = QStyleOptionViewItem()
+    delegate.initStyleOption(opt, index)
+    opt.rect = seg.visualRect(index)
+    text_rect = seg.style().subElementRect(QStyle.SubElement.SE_ItemViewItemText, opt, seg)
+    elided = _elide_display_name(opt.text, text_rect.width(), QFontMetrics(opt.font))
+
+    assert opt.text == f"{expected_prefix}EngineCoolantTemperatureSensor"
+    assert elided.startswith(expected_prefix)
+    assert elided != opt.text
+    assert elided[len(expected_prefix)].isalpha()
 
 
 @pytest.mark.requirement("REQ-PLOT-307")

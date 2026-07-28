@@ -33,10 +33,11 @@ tracking N parallel copies makes that class of bug structurally impossible.
 
 from __future__ import annotations
 
+import re
 from typing import Callable
 
 from PyQt6.QtCore import QByteArray, QEvent, QMimeData, QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QDrag, QKeyEvent, QMouseEvent
+from PyQt6.QtGui import QAction, QColor, QDrag, QFontMetrics, QKeyEvent, QMouseEvent, QPalette
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -47,6 +48,9 @@ from PyQt6.QtWidgets import (
     QMenu,
     QPushButton,
     QSizePolicy,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -112,6 +116,98 @@ def _ro_item(text: str) -> QTableWidgetItem:
     item = QTableWidgetItem(text)
     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
     return item
+
+
+_MEASUREMENT_PREFIX_RE = re.compile(r"^(\[[^\]]*\]\s)")
+
+
+def _fit_chars(text: str, budget: int, metrics: QFontMetrics) -> str:
+    """Return the longest leading substring of *text* whose rendered width
+    fits within *budget* (0 if not even one character fits)."""
+    count = 0
+    while count < len(text) and metrics.horizontalAdvance(text[: count + 1]) <= budget:
+        count += 1
+    return text[:count]
+
+
+def _elide_display_name(text: str, available_width: int, metrics: QFontMetrics) -> str:
+    """Elide *text* to fit *available_width*, without letting a leading
+    "[M1] " measurement prefix (added by AppController._format_display_name
+    when more than one measurement is loaded) eat into the space reserved
+    for the actual signal name (#164).
+
+    Qt's default elision treats the whole string as one blob and measures
+    from the left, so once the prefix alone exhausts the available width it
+    shows the prefix followed by "..." with zero characters of the name —
+    the part the user actually needs to see. Eliding only the name portion,
+    after subtracting the prefix's own width, guarantees at least a
+    fragment of the name is shown whenever there is any room left after it.
+
+    There's a second, narrower trap here that a first attempt at this fix
+    missed: `QFontMetrics.elidedText()` itself returns a bare "…" (zero real
+    characters) for a whole band of widths too small to fit "one character
+    + ellipsis" but wide enough for the ellipsis alone — live-testing
+    reproduced this as the fix appearing to work at some column widths and
+    not others while resizing. When that degenerate case is detected, fall
+    back to showing as many raw characters of the name fit as possible
+    (no ellipsis) instead of displacing it with a lone ellipsis.
+    """
+    match = _MEASUREMENT_PREFIX_RE.match(text)
+    if match is None:
+        return metrics.elidedText(text, Qt.TextElideMode.ElideRight, available_width)
+    prefix = match.group(1)
+    prefix_width = metrics.horizontalAdvance(prefix)
+    name_budget = available_width - prefix_width
+    if name_budget <= 0:
+        return metrics.elidedText(text, Qt.TextElideMode.ElideRight, available_width)
+    name = text[len(prefix):]
+    elided_name = metrics.elidedText(name, Qt.TextElideMode.ElideRight, name_budget)
+    if elided_name and elided_name != "…":
+        return prefix + elided_name
+    return prefix + _fit_chars(name, name_budget, metrics)
+
+
+class _ElidedNameDelegate(QStyledItemDelegate):
+    """Item delegate for _COL_NAME — see _elide_display_name for why this
+    can't just rely on Qt's default per-cell text elision.
+
+    Handing a pre-elided string to `style.drawControl(CE_ItemViewItem, ...)`
+    isn't enough on its own: `_ActiveTable` has a stylesheet set (gridline
+    color, selection color), and once *any* stylesheet touches a widget, Qt
+    routes its item painting through `QStyleSheetStyle`, which re-implements
+    `CE_ItemViewItem` with its own text-eliding pass — it ignores both our
+    already-elided string's intent and the `ElideNone` override, silently
+    re-eliding the text itself. Live-testing found the delegate computing
+    the correct elided string every time (confirmed via temporary console
+    logging) while the screen still showed the old "[M1]..." bug — this
+    double-elision, invisible to any offline test, was why. Fixed by never
+    letting the style draw the text at all: draw everything else (
+    background, selection, focus rect) with the text blanked out, then
+    paint our own exact string directly via QPainter.
+    """
+
+    def paint(self, painter, option, index) -> None:
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        style = opt.widget.style() if opt.widget is not None else QApplication.style()
+        text_rect = style.subElementRect(QStyle.SubElement.SE_ItemViewItemText, opt, opt.widget)
+        elided = _elide_display_name(opt.text, text_rect.width(), QFontMetrics(opt.font))
+
+        opt.text = ""
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, opt.widget)
+
+        painter.save()
+        painter.setFont(opt.font)
+        text_role = (
+            QPalette.ColorRole.HighlightedText
+            if opt.state & QStyle.StateFlag.State_Selected
+            else QPalette.ColorRole.Text
+        )
+        painter.setPen(opt.palette.color(text_role))
+        painter.drawText(
+            text_rect, int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter), elided
+        )
+        painter.restore()
 
 
 def _configure_columns(table: QTableWidget) -> None:
@@ -310,6 +406,9 @@ class ActiveSignalsTable(QWidget):
         self._stripe_for_segment: dict = {}
 
         self._name_formatter: Callable[[ActiveSignal], str] = lambda a: a.metadata.name
+        # One shared delegate instance for every segment's name column (#164)
+        # — stateless, so sharing is safe and avoids one instance per segment.
+        self._name_delegate = _ElidedNameDelegate(self)
         self._shorten_names_enabled: bool = False
         self._merged_signals: set = set()
         self._synced_signals: set = set()
@@ -604,6 +703,7 @@ class ActiveSignalsTable(QWidget):
         """Create, configure, and register one new per-stripe segment table."""
         seg = _ActiveTable()
         _configure_columns(seg)
+        seg.setItemDelegateForColumn(_COL_NAME, self._name_delegate)
         seg.horizontalHeader().hide()
         seg.verticalHeader().setVisible(False)
         seg.verticalHeader().setDefaultSectionSize(24)

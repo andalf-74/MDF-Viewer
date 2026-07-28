@@ -632,7 +632,12 @@ labels are unaffected — they show only a bare value (REQ-PLOT-080–084),
 never a signal name, regardless of measurement count. The measurement
 prefix affects only how a signal's name is displayed — the underlying
 channel name used to resolve and reload the signal is unaffected, the
-same rule as display-name shortening (REQ-PLOT-162) [REQ-PLOT-307].
+same rule as display-name shortening (REQ-PLOT-162) [REQ-PLOT-307]. When
+the Active Signals Table's Signal column is too narrow to show a
+measurement-prefixed name in full, the prefix does not count against the
+space given to eliding the name itself, so at least part of the actual
+signal name stays visible rather than being displaced entirely by the
+prefix [REQ-PLOT-340].
 
 ### Signal Assignment Across Measurements
 

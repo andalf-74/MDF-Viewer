@@ -10,6 +10,13 @@ All notable changes to MDF-Viewer are documented in this file.
   light/dark PNG pairs, giving crisper rendering at any display scale.
   No change in which icons appear or what they do.
 
+### Fixed
+- Active Signals Table name column no longer lets a "[M1]" measurement
+  prefix eat into the space reserved for the actual signal name when the
+  column is too narrow to show both in full (#164) — the ellipsis used to
+  land directly behind the prefix, hiding the name entirely; a fragment of
+  the name is now always shown when there's room for it.
+
 ## [2.3] - 2026-07-26
 
 ### Added

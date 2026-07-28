@@ -24,6 +24,8 @@ from mdf_viewer.view.active_signals_table import (
     _COL_DELTA,
     _COL_NAME,
     _COL_VISIBLE,
+    _elide_display_name,
+    _ElidedNameDelegate,
 )
 from mdf_viewer.view.widgets import ColorSwatch as _ColorSwatch
 from mdf_viewer.view_model.active_signal import ActiveSignal
@@ -1683,6 +1685,167 @@ def test_set_shorten_names_enabled_updates_field(table: ActiveSignalsTable) -> N
     assert table._shorten_names_enabled is False
     table.set_shorten_names_enabled(True)
     assert table._shorten_names_enabled is True
+
+
+# ---------------------------------------------------------------------------
+# _elide_display_name / name-column delegate (#164)
+# ---------------------------------------------------------------------------
+
+def test_name_column_uses_elided_name_delegate(table: ActiveSignalsTable) -> None:
+    seg = table._add_segment()
+    assert isinstance(seg.itemDelegateForColumn(_COL_NAME), _ElidedNameDelegate)
+
+
+@pytest.mark.requirement("REQ-PLOT-340")
+def test_delegate_paints_text_itself_instead_of_via_style_drawcontrol(
+    qtbot: QtBot,
+) -> None:
+    """Third #164 regression, found only by live-testing after the second
+    fix (the bare-ellipsis dead zone) landed: console logging proved
+    _elide_display_name() computed the correct string on every single
+    paint call, yet the screen still showed "[M1]..." — because
+    _ActiveTable has a stylesheet set (gridline/selection color), and once
+    any stylesheet touches a widget Qt routes its item painting through
+    QStyleSheetStyle, which re-implements CE_ItemViewItem with its own
+    text-eliding pass that ignores both our already-elided string and the
+    ElideNone override, silently re-eliding the text again. The fix: never
+    let the style draw the text at all. This test proves that contract
+    directly — style.drawControl() must receive a blanked opt.text, and
+    the real elided string must be painted separately via QPainter."""
+    from unittest.mock import MagicMock
+
+    from PyQt6.QtCore import QRect
+    from PyQt6.QtGui import QFont, QStandardItem, QStandardItemModel
+    from PyQt6.QtWidgets import QStyleOptionViewItem, QWidget
+
+    model = QStandardItemModel()
+    model.appendRow(QStandardItem("[M1] st_ExtendedCommandOut"))
+    index = model.index(0, 0)
+
+    delegate = _ElidedNameDelegate()
+    painter = MagicMock()
+    mock_style = MagicMock()
+    mock_style.subElementRect.return_value = QRect(0, 0, 100, 20)
+
+    widget = QWidget()
+    qtbot.addWidget(widget)
+    widget.style = lambda: mock_style  # simulates the real QStyleSheetStyle proxy
+
+    option = QStyleOptionViewItem()
+    option.rect = QRect(0, 0, 100, 20)
+    option.widget = widget
+    option.font = QFont()
+
+    delegate.paint(painter, option, index)
+
+    drawn_opt = mock_style.drawControl.call_args[0][1]
+    assert drawn_opt.text == ""
+
+    painter.drawText.assert_called_once()
+    drawn_text = painter.drawText.call_args[0][-1]
+    assert drawn_text
+    assert drawn_text.startswith("[M1] ")
+    assert drawn_text != "[M1] st_ExtendedCommandOut"
+
+
+@pytest.mark.requirement("REQ-PLOT-340")
+def test_elide_display_name_no_prefix_matches_plain_elision(qtbot: QtBot) -> None:
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QFont, QFontMetrics
+
+    metrics = QFontMetrics(QFont())
+    text = "a_very_long_signal_name_that_does_not_fit_the_column"
+    available = metrics.horizontalAdvance(text) // 2
+    result = _elide_display_name(text, available, metrics)
+    assert result == metrics.elidedText(text, Qt.TextElideMode.ElideRight, available)
+
+
+@pytest.mark.requirement("REQ-PLOT-340")
+def test_elide_display_name_with_prefix_fits_entirely_when_wide_enough(
+    qtbot: QtBot,
+) -> None:
+    from PyQt6.QtGui import QFont, QFontMetrics
+
+    metrics = QFontMetrics(QFont())
+    text = "[M1] short"
+    result = _elide_display_name(text, metrics.horizontalAdvance(text) + 20, metrics)
+    assert result == text
+
+
+@pytest.mark.requirement("REQ-PLOT-340")
+def test_elide_display_name_prefix_never_eats_into_name_space(qtbot: QtBot) -> None:
+    """The bug #164 reported: once "[M1] " plus the name overflowed the
+    column, the ellipsis landed directly behind the prefix with zero
+    characters of the actual name shown. The fix must always surface at
+    least a fragment of the name whenever there's room for it."""
+    from PyQt6.QtGui import QFont, QFontMetrics
+
+    metrics = QFontMetrics(QFont())
+    prefix = "[M1] "
+    text = prefix + "VeryLongSignalNameThatOverflowsTheColumn"
+    ellipsis_width = metrics.horizontalAdvance("…")
+    available = (
+        metrics.horizontalAdvance(prefix)
+        + metrics.horizontalAdvance("V")
+        + ellipsis_width
+        + 2
+    )
+    result = _elide_display_name(text, available, metrics)
+    assert result.startswith(prefix)
+    assert result[len(prefix)] == "V"
+
+
+@pytest.mark.requirement("REQ-PLOT-340")
+def test_elide_display_name_avoids_bare_ellipsis_dead_zone(qtbot: QtBot) -> None:
+    """Second #164 regression, found only by live-testing after the first
+    fix landed: QFontMetrics.elidedText() itself returns a bare "…" (zero
+    real characters) for a whole band of widths too narrow for "1
+    character + ellipsis" but wide enough for the ellipsis alone —
+    reproduced live as the fix appearing to work at some column widths and
+    not others while resizing the same column. Eliding only the name
+    portion (as the first fix already did) isn't enough on its own; the
+    bare-ellipsis case must be detected and given a raw-character
+    fallback."""
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QFont, QFontMetrics
+
+    metrics = QFontMetrics(QFont())
+    prefix = "[M1] "
+    name = "EngineCoolantTemperatureSensor"
+    text = prefix + name
+
+    # Find *some* width where Qt's own elidedText degrades to a bare
+    # ellipsis — searched rather than hardcoded so this doesn't depend on
+    # exact font metrics in whatever environment runs the test.
+    dead_zone_budget = next(
+        (
+            budget
+            for budget in range(1, 200)
+            if metrics.elidedText(name, Qt.TextElideMode.ElideRight, budget) == "…"
+        ),
+        None,
+    )
+    assert dead_zone_budget is not None, "test font has no reproducible dead zone"
+
+    available = metrics.horizontalAdvance(prefix) + dead_zone_budget
+    result = _elide_display_name(text, available, metrics)
+    assert result != prefix + "…"
+    assert result[len(prefix):] != ""
+
+
+@pytest.mark.requirement("REQ-PLOT-340")
+def test_elide_display_name_prefix_wider_than_available_falls_back(
+    qtbot: QtBot,
+) -> None:
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QFont, QFontMetrics
+
+    metrics = QFontMetrics(QFont())
+    prefix = "[LongMeasurementLabel] "
+    text = prefix + "Name"
+    available = metrics.horizontalAdvance(prefix) - 5
+    result = _elide_display_name(text, available, metrics)
+    assert result == metrics.elidedText(text, Qt.TextElideMode.ElideRight, available)
 
 
 # ---------------------------------------------------------------------------
