@@ -16,6 +16,9 @@ All notable changes to MDF-Viewer are documented in this file.
   column is too narrow to show both in full (#164) — the ellipsis used to
   land directly behind the prefix, hiding the name entirely; a fragment of
   the name is now always shown when there's room for it.
+- Installer default options (#161): "Create a desktop shortcut" and
+  "Associate .mvc files" are now checked by default; a new ".dat file
+  association" option was added (unchecked by default, matching .mf4/.mdf).
 
 ## [2.3] - 2026-07-26
 

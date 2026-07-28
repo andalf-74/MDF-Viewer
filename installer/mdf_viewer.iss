@@ -31,10 +31,11 @@ PrivilegesRequiredOverridesAllowed=commandline
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional shortcuts:"
 Name: "fileassoc_mf4"; Description: "Associate &.mf4 files with {#AppName}"; GroupDescription: "File associations (optional):"; Flags: unchecked
 Name: "fileassoc_mdf"; Description: "Associate .&mdf files with {#AppName}"; GroupDescription: "File associations (optional):"; Flags: unchecked
-Name: "fileassoc_mvc"; Description: "Associate .m&vc viewer configuration files with {#AppName}"; GroupDescription: "File associations (optional):"; Flags: unchecked
+Name: "fileassoc_dat"; Description: "Associate .&dat files with {#AppName}"; GroupDescription: "File associations (optional):"; Flags: unchecked
+Name: "fileassoc_mvc"; Description: "Associate .m&vc viewer configuration files with {#AppName}"; GroupDescription: "File associations (optional):"
 
 [Files]
 Source: "..\dist\MDF-Viewer\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -55,6 +56,11 @@ Root: HKCU; Subkey: "Software\Classes\.mdf"; ValueType: string; ValueName: ""; V
 Root: HKCU; Subkey: "Software\Classes\MDF-Viewer.mdffile"; ValueType: string; ValueName: ""; ValueData: "MDF Measurement File"; Flags: uninsdeletekey; Tasks: fileassoc_mdf
 Root: HKCU; Subkey: "Software\Classes\MDF-Viewer.mdffile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExeName},0"; Tasks: fileassoc_mdf
 Root: HKCU; Subkey: "Software\Classes\MDF-Viewer.mdffile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: fileassoc_mdf
+; .dat association
+Root: HKCU; Subkey: "Software\Classes\.dat"; ValueType: string; ValueName: ""; ValueData: "MDF-Viewer.datfile"; Flags: uninsdeletevalue; Tasks: fileassoc_dat
+Root: HKCU; Subkey: "Software\Classes\MDF-Viewer.datfile"; ValueType: string; ValueName: ""; ValueData: "MDF Measurement File"; Flags: uninsdeletekey; Tasks: fileassoc_dat
+Root: HKCU; Subkey: "Software\Classes\MDF-Viewer.datfile\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExeName},0"; Tasks: fileassoc_dat
+Root: HKCU; Subkey: "Software\Classes\MDF-Viewer.datfile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%1"""; Tasks: fileassoc_dat
 ; .mvc association
 Root: HKCU; Subkey: "Software\Classes\.mvc"; ValueType: string; ValueName: ""; ValueData: "MDF-Viewer.mvcfile"; Flags: uninsdeletevalue; Tasks: fileassoc_mvc
 Root: HKCU; Subkey: "Software\Classes\MDF-Viewer.mvcfile"; ValueType: string; ValueName: ""; ValueData: "MDF-Viewer Configuration"; Flags: uninsdeletekey; Tasks: fileassoc_mvc
@@ -76,7 +82,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    if WizardIsTaskSelected('fileassoc_mf4') or WizardIsTaskSelected('fileassoc_mdf') or WizardIsTaskSelected('fileassoc_mvc') then
+    if WizardIsTaskSelected('fileassoc_mf4') or WizardIsTaskSelected('fileassoc_mdf') or WizardIsTaskSelected('fileassoc_dat') or WizardIsTaskSelected('fileassoc_mvc') then
       SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, 0, 0);
   end;
 end;
