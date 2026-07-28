@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from PyQt6.QtWidgets import QPushButton, QWidget
 
-from mdf_viewer.view.widgets.icons import _icon_suffix, _load_icon
+from mdf_viewer.view.widgets.icons import _load_icon
 
 
 class VisibilityToggleButton(QPushButton):
@@ -20,8 +20,7 @@ class VisibilityToggleButton(QPushButton):
 
     def set_visible_state(self, visible: bool) -> None:
         self._visible = visible
-        suffix = _icon_suffix()
-        name = f"eye_open{suffix}" if visible else f"eye_hidden{suffix}"
+        name = "eye_open" if visible else "eye_hidden"
         self.setIcon(_load_icon(name))
 
     @property

@@ -1054,7 +1054,7 @@ def test_about_action_shows_message_box(window: MainWindow) -> None:
 # Theme-aware icon selection
 # ---------------------------------------------------------------------------
 
-def test_icon_suffix_dark_scheme_uses_unsuffixed_icons(monkeypatch) -> None:
+def test_icon_color_dark_scheme_uses_light_stroke(monkeypatch) -> None:
     from PyQt6.QtCore import Qt
     from mdf_viewer.view import main_window
 
@@ -1063,11 +1063,11 @@ def test_icon_suffix_dark_scheme_uses_unsuffixed_icons(monkeypatch) -> None:
     monkeypatch.setattr(
         main_window.QApplication, "styleHints", lambda: style_hints
     )
-    assert main_window._icon_suffix() == ""
+    assert main_window._icon_color() == "#f0f0ec"
 
 
 @pytest.mark.parametrize("scheme_name", ["Light", "Unknown"])
-def test_icon_suffix_light_or_unknown_scheme_uses_light_icons(
+def test_icon_color_light_or_unknown_scheme_uses_dark_stroke(
     monkeypatch, scheme_name: str
 ) -> None:
     from PyQt6.QtCore import Qt
@@ -1078,7 +1078,7 @@ def test_icon_suffix_light_or_unknown_scheme_uses_light_icons(
     monkeypatch.setattr(
         main_window.QApplication, "styleHints", lambda: style_hints
     )
-    assert main_window._icon_suffix() == "_light"
+    assert main_window._icon_color() == "#2a2a28"
 
 
 # ---------------------------------------------------------------------------

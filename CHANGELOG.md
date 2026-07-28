@@ -4,6 +4,12 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- Menu bar / toolbar icons redesigned (#165): the toolbar and eye-toggle
+  icons now render from a single SVG per icon instead of separate
+  light/dark PNG pairs, giving crisper rendering at any display scale.
+  No change in which icons appear or what they do.
+
 ## [2.3] - 2026-07-26
 
 ### Added

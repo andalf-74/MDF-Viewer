@@ -50,7 +50,7 @@
 
 Order (#114 — "All Stripes" moved next to Load, ahead of the two zoom actions it governs, with a separator after "Zoom Y to View" marking where its effect ends):
 
-- **Load File** – folder icon, opens file dialog (Ctrl+O)
+- **Load File** – open-file icon, opens file dialog (Ctrl+O)
 - **All Stripes** – checkable; whether "Zoom to Fit"/"Zoom Y to View" apply to every stripe or only the active one (Swimlanes and box-zoom are always scoped to the stripe they're used in, regardless of this toggle)
 - **Zoom to Fit** – resets viewport to show all active signals fully (X: full time range, Y: auto-scaled per signal) (Ctrl+0 / F)
 - **Zoom Y to View** – auto-scales Y axes for all signals within the current X span (Y)

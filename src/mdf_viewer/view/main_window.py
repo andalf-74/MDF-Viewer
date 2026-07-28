@@ -82,7 +82,7 @@ from mdf_viewer.view.plot_stripes_area import PlotStripesArea
 from mdf_viewer.view.signal_browser import SignalBrowser
 from mdf_viewer.view.signal_info_box import SignalInfoBox
 from mdf_viewer.view.widgets import busy_cursor, make_splitter
-from mdf_viewer.view.widgets.icons import _ICONS_DIR, _icon_suffix, _load_icon
+from mdf_viewer.view.widgets.icons import _ICONS_DIR, _icon_color, _load_icon
 from mdf_viewer.view.workspace_session_controller import WorkspaceSessionController
 
 if TYPE_CHECKING:
@@ -833,9 +833,7 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _build_actions(self) -> None:
-        suffix = _icon_suffix()
-
-        self._load_action = QAction(_load_icon(f"folder{suffix}"), "Open…", self)
+        self._load_action = QAction(_load_icon("open_file"), "Open…", self)
         self._load_action.setShortcut(QKeySequence.StandardKey.Open)
         self._load_action.setToolTip("Open File (Ctrl+O)")
         self._load_action.triggered.connect(self._on_load_file)
@@ -854,7 +852,7 @@ class MainWindow(QMainWindow):
         self._new_stripe_action.triggered.connect(self._on_new_stripe)
 
         self._zoom_fit_action = QAction(
-            _load_icon(f"zoom_to_fit{suffix}"), "Zoom to Fit", self
+            _load_icon("zoom_to_fit"), "Zoom to Fit", self
         )
         self._zoom_fit_action.setShortcuts(
             [QKeySequence("Ctrl+0"), QKeySequence("f")]
@@ -863,14 +861,14 @@ class MainWindow(QMainWindow):
         self._zoom_fit_action.triggered.connect(self._on_zoom_to_fit)
 
         self._zoom_y_action = QAction(
-            _load_icon(f"zoom_y_to_fit{suffix}"), "Zoom Y to View", self
+            _load_icon("zoom_y_to_fit"), "Zoom Y to View", self
         )
         self._zoom_y_action.setShortcut(QKeySequence("y"))
         self._zoom_y_action.setToolTip("Zoom Y axes to current X span (Y)")
         self._zoom_y_action.triggered.connect(self._on_zoom_y_to_view)
 
         self._swimlanes_action = QAction(
-            _load_icon(f"swimlanes{suffix}"), "Swimlanes", self
+            _load_icon("swimlanes"), "Swimlanes", self
         )
         self._swimlanes_action.setShortcut(QKeySequence("b"))
         self._swimlanes_action.setToolTip("Arrange signals in swimlanes (B)")
@@ -886,14 +884,14 @@ class MainWindow(QMainWindow):
         self._zoom_all_stripes_action.toggled.connect(self._on_zoom_scope_toggled)
 
         self._zoom_cursors_action = QAction(
-            _load_icon(f"zoom_to_cursors{suffix}"), "Zoom to Cursors", self
+            _load_icon("zoom_to_cursors"), "Zoom to Cursors", self
         )
         self._zoom_cursors_action.setShortcut(QKeySequence("c"))
         self._zoom_cursors_action.setToolTip("Zoom X to cursor range (C)")
         self._zoom_cursors_action.setEnabled(False)
         self._zoom_cursors_action.triggered.connect(self._on_zoom_to_cursors)
 
-        self._cursor_action = QAction(_load_icon(f"cursors{suffix}"), "Cursors", self)
+        self._cursor_action = QAction(_load_icon("cursors"), "Cursors", self)
         self._cursor_action.setToolTip("Toggle cursors (off → 1 → 2 → off)")
         self._cursor_action.triggered.connect(self._on_cursor_toggle)
 
