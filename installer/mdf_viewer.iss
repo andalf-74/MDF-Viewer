@@ -1,11 +1,11 @@
-; Inno Setup script for MDF-Viewer 2.3
+; Inno Setup script for MDF-Viewer 2.3.1
 ; Compile with Inno Setup 6+ from the project root:
 ;   iscc installer\mdf_viewer.iss
 ;
 ; Prerequisites: PyInstaller bundle must already exist at dist\MDF-Viewer\
 
 #define AppName "MDF-Viewer"
-#define AppVersion "2.3"
+#define AppVersion "2.3.1"
 #define AppPublisher "Andreas Maus"
 #define AppExeName "MDF-Viewer.exe"
 

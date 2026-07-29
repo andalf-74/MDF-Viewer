@@ -4,6 +4,8 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-07-29
+
 ### Added
 - Import/Export Labels (#143): File ▸ Import Labels…/Export Labels… bulk-
   import or export a Vector CANape-style `.lab` label list. Import creates
