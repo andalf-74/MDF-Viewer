@@ -4,6 +4,14 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Import/Export Labels (#143): File ▸ Import Labels…/Export Labels… bulk-
+  import or export a Vector CANape-style `.lab` label list. Import creates
+  one new Plot Stripe per group in the file, named after the group and
+  populated with every signal that matches by name in any currently loaded
+  measurement; a summary lists anything not found or already active.
+  Export writes one group per stripe in the active tab.
+
 ### Changed
 - Menu bar / toolbar icons redesigned (#165): the toolbar and eye-toggle
   icons now render from a single SVG per icon instead of separate

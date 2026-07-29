@@ -8,7 +8,7 @@ calls the right methods on the right objects in the right order.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock, call, patch
 
 import numpy as np
 import pytest
@@ -16,7 +16,8 @@ from PyQt6.QtGui import QColor
 from pytestqt.qtbot import QtBot
 
 from mdf_viewer.controller.app_controller import AppController, _COLOR_PALETTE
-from mdf_viewer.errors import MdfLoadError
+from mdf_viewer.errors import LabelListParseError, MdfLoadError
+from mdf_viewer.model.label_list import LabelGroup, parse_label_list
 from mdf_viewer.model.loaded_measurement import LoadedMeasurement
 from mdf_viewer.model.measurement import MeasurementInfo
 from mdf_viewer.model.signal_data import SignalData
@@ -5246,3 +5247,291 @@ def test_token_bookkeeping_is_a_noop_for_signals_never_exposed_to_a_plugin(
     ctrl.remove_signal(sig)  # no prior token_for_signal() call
 
     assert ctrl.active_signals == []
+
+
+# ---------------------------------------------------------------------------
+# import_label_list / export_label_list (#143)
+# ---------------------------------------------------------------------------
+
+_LAB_HEADER = b"[Measurement]\n"
+
+
+def _lab(*groups: tuple[str, list[str]]) -> bytes:
+    body = ""
+    for name, names in groups:
+        body += f"\n[{name}]\n" + "\n".join(names) + "\n"
+    return _LAB_HEADER + body.encode("utf-8")
+
+
+@pytest.mark.requirement("REQ-LABEL-010")
+def test_import_label_list_raises_on_invalid_data(ctrl: AppController) -> None:
+    with pytest.raises(LabelListParseError):
+        ctrl.import_label_list(b"not a label list")
+
+
+@pytest.mark.requirement("REQ-LABEL-030")
+@pytest.mark.requirement("REQ-LABEL-040")
+def test_import_label_list_adds_matched_signal_to_new_stripe(deps: dict) -> None:
+    loader = _make_pool_loader()
+    loader.find_signal_by_name.return_value = [_make_metadata("Speed", gi=0, ci=1)]
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    stripe = MagicMock(name="stripe")
+    deps["plot"].create_stripe.return_value = stripe
+    deps["plot"].get_signals_in_stripe.return_value = [MagicMock()]  # non-empty: keep it
+
+    with patch.object(ctrl2, "delete_stripe") as mock_delete:
+        result = ctrl2.import_label_list(_lab(("Group One", ["Speed"])))
+
+    assert result.not_found == []
+    assert result.already_active == []
+    assert len(ctrl2.active_signals) == 1
+    deps["table"].rename_stripe_segment.assert_called_once_with(stripe, "Group One")
+    mock_delete.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-LABEL-032")
+def test_import_label_list_reports_not_found(deps: dict) -> None:
+    loader = _make_pool_loader()
+    loader.find_signal_by_name.return_value = []
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    deps["plot"].get_signals_in_stripe.return_value = []
+
+    with patch.object(ctrl2, "delete_stripe") as mock_delete:
+        result = ctrl2.import_label_list(_lab(("Group One", ["Ghost"])))
+
+    assert result.not_found == ["Ghost"]
+    assert result.already_active == []
+    mock_delete.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-LABEL-042")
+def test_import_label_list_deletes_stripe_for_group_with_no_matches(deps: dict) -> None:
+    loader = _make_pool_loader()
+    loader.find_signal_by_name.return_value = []
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    stripe = MagicMock(name="stripe")
+    deps["plot"].create_stripe.return_value = stripe
+    deps["plot"].get_signals_in_stripe.return_value = []
+
+    with patch.object(ctrl2, "delete_stripe") as mock_delete:
+        ctrl2.import_label_list(_lab(("Empty Group", ["Ghost"])))
+
+    mock_delete.assert_called_once_with(stripe)
+
+
+@pytest.mark.requirement("REQ-LABEL-041")
+def test_import_label_list_reports_already_active(deps: dict) -> None:
+    loader = _make_pool_loader()
+    loader.find_signal_by_name.return_value = [_make_metadata("Speed", gi=0, ci=1)]
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    ctrl2.add_signal(0, 1, measurement=m1)  # already active before import
+    deps["plot"].get_signals_in_stripe.return_value = []
+
+    with patch.object(ctrl2, "delete_stripe"):
+        result = ctrl2.import_label_list(_lab(("Group One", ["Speed"])))
+
+    assert result.already_active == ["Speed"]
+    assert result.not_found == []
+    assert len(ctrl2.active_signals) == 1  # not duplicated
+
+
+@pytest.mark.requirement("REQ-LABEL-031")
+def test_import_label_list_adds_from_every_matching_measurement(deps: dict) -> None:
+    loader_a, loader_b = _make_pool_loader(), _make_pool_loader()
+    loader_a.find_signal_by_name.return_value = [_make_metadata("Speed", gi=0, ci=1)]
+    loader_b.find_signal_by_name.return_value = [_make_metadata("Speed", gi=0, ci=1)]
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    deps["plot"].get_signals_in_stripe.return_value = [MagicMock()]
+
+    result = ctrl2.import_label_list(_lab(("Group One", ["Speed"])))
+
+    assert len(ctrl2.active_signals) == 2
+    assert result.not_found == []
+    assert result.already_active == []
+
+
+def test_import_label_list_does_not_falsely_report_already_active_when_one_match_succeeds(
+    deps: dict,
+) -> None:
+    """A candidate matching two measurements — already active in one, new in
+    the other — must not appear in either result list (#143 architecture
+    review Gap 6)."""
+    loader_a, loader_b = _make_pool_loader(), _make_pool_loader()
+    loader_a.find_signal_by_name.return_value = [_make_metadata("Speed", gi=0, ci=1)]
+    loader_b.find_signal_by_name.return_value = [_make_metadata("Speed", gi=0, ci=1)]
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+    ctrl2.add_signal(0, 1, measurement=m2)  # already active under m2 only
+    deps["plot"].get_signals_in_stripe.return_value = [MagicMock()]
+
+    result = ctrl2.import_label_list(_lab(("Group One", ["Speed"])))
+
+    assert result.not_found == []
+    assert result.already_active == []
+    assert len(ctrl2.active_signals) == 2  # the m1 copy was newly added
+
+
+@pytest.mark.requirement("REQ-LABEL-033")
+def test_import_label_list_folds_mdf_load_error_into_not_found(deps: dict) -> None:
+    loader = _make_pool_loader()
+    loader.find_signal_by_name.return_value = [_make_metadata("Speed", gi=0, ci=1)]
+    loader.load_signal.side_effect = MdfLoadError("corrupt block")
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    deps["plot"].get_signals_in_stripe.return_value = []
+
+    with patch.object(ctrl2, "delete_stripe"):
+        result = ctrl2.import_label_list(_lab(("Group One", ["Speed"])))
+
+    assert result.not_found == ["Speed"]
+    assert result.already_active == []
+
+
+@pytest.mark.requirement("REQ-LABEL-043")
+def test_import_label_list_never_merges_into_existing_same_named_stripe(deps: dict) -> None:
+    loader = _make_pool_loader()
+    loader.find_signal_by_name.side_effect = lambda name: [
+        _make_metadata(name, gi=0, ci={"A": 1, "B": 2}[name])
+    ]
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    stripe1, stripe2 = MagicMock(name="s1"), MagicMock(name="s2")
+    deps["plot"].create_stripe.side_effect = [stripe1, stripe2]
+    deps["plot"].get_signals_in_stripe.return_value = [MagicMock()]
+
+    ctrl2.import_label_list(_lab(("Display", ["A"]), ("Display", ["B"])))
+
+    assert deps["plot"].create_stripe.call_count == 2
+    deps["table"].rename_stripe_segment.assert_any_call(stripe1, "Display")
+    deps["table"].rename_stripe_segment.assert_any_call(stripe2, "Display")
+
+
+def test_import_label_list_within_import_duplicate_resolves_sequentially(deps: dict) -> None:
+    """A name repeated twice in one import must see the earlier add as
+    already-active — proves matching is sequential/live, not a batch
+    pre-pass (#143 architecture review)."""
+    loader = _make_pool_loader()
+    loader.find_signal_by_name.return_value = [_make_metadata("Speed", gi=0, ci=1)]
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    deps["plot"].get_signals_in_stripe.return_value = [MagicMock()]
+
+    result = ctrl2.import_label_list(_lab(("Group One", ["Speed", "Speed"])))
+
+    assert len(ctrl2.active_signals) == 1
+    assert result.not_found == []
+    assert result.already_active == ["Speed"]
+
+
+@pytest.mark.requirement("REQ-LABEL-060")
+@pytest.mark.requirement("REQ-LABEL-061")
+def test_export_label_list_groups_by_stripe(deps: dict) -> None:
+    loader = _make_pool_loader()
+    loader.load_signal.side_effect = lambda gi, ci: (
+        _make_signal_data(), _make_metadata(name=f"Signal{gi}_{ci}", gi=gi, ci=ci)
+    )
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    stripe_a, stripe_b = MagicMock(name="stripeA"), MagicMock(name="stripeB")
+    stripe_a.name = "Group A"
+    stripe_b.name = "Group B"
+    deps["plot"].get_stripes.return_value = [stripe_a, stripe_b]
+    ctrl2.add_signal(0, 1)
+    ctrl2.add_signal(0, 2)
+    active1, active2 = ctrl2.active_signals
+    deps["plot"].get_stripe_for_signal.side_effect = (
+        lambda a: stripe_a if a is active1 else stripe_b
+    )
+
+    groups = parse_label_list(ctrl2.export_label_list())
+
+    assert groups == [
+        LabelGroup(name="Group A", signal_names=["Signal0_1"]),
+        LabelGroup(name="Group B", signal_names=["Signal0_2"]),
+    ]
+
+
+@pytest.mark.requirement("REQ-LABEL-062")
+def test_export_label_list_excludes_virtual_signals(deps: dict) -> None:
+    loader = _make_pool_loader()
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    m1.owner_plugin = "some_plugin"
+    stripe = MagicMock(name="stripe")
+    stripe.name = "Group"
+    deps["plot"].get_stripes.return_value = [stripe]
+    ctrl2.add_signal(0, 1)
+    deps["plot"].get_stripe_for_signal.return_value = stripe
+
+    groups = parse_label_list(ctrl2.export_label_list())
+
+    assert groups == []
+
+
+@pytest.mark.requirement("REQ-LABEL-063")
+def test_export_label_list_skips_stripe_with_nothing_exportable(deps: dict) -> None:
+    loader = _make_pool_loader()
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    empty_stripe = MagicMock(name="empty")
+    deps["plot"].get_stripes.return_value = [empty_stripe]
+    deps["plot"].get_stripe_for_signal.return_value = None
+
+    groups = parse_label_list(ctrl2.export_label_list())
+
+    assert groups == []
+
+
+def test_export_label_list_follows_active_list_order_not_stripe_insertion_order(
+    deps: dict,
+) -> None:
+    """Regression for the #119-style footgun: export must reflect on-screen
+    row order (workspace.active) even after a drag-reorder, not
+    get_signals_in_stripe()'s dict-insertion order."""
+    loader = _make_pool_loader()
+    loader.load_signal.side_effect = lambda gi, ci: (
+        _make_signal_data(), _make_metadata(name=f"Signal{ci}", gi=gi, ci=ci)
+    )
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    stripe = MagicMock(name="stripe")
+    stripe.name = "Group"
+    deps["plot"].get_stripes.return_value = [stripe]
+    deps["plot"].get_stripe_for_signal.return_value = stripe
+    ctrl2.add_signal(0, 1)
+    ctrl2.add_signal(0, 2)
+    ctrl2.current_workspace.active.reverse()  # simulate a drag-reorder
+
+    groups = parse_label_list(ctrl2.export_label_list())
+
+    assert groups[0].signal_names == ["Signal2", "Signal1"]
+
+
+@pytest.mark.requirement("REQ-LABEL-060")
+def test_export_label_list_scoped_to_active_tab_only(deps: dict) -> None:
+    loader = _make_pool_loader()
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    stripe1 = MagicMock(name="stripe1")
+    stripe1.name = "Tab One Group"
+    deps["plot"].get_stripes.return_value = [stripe1]
+    ctrl2.add_signal(0, 1)
+    deps["plot"].get_stripe_for_signal.return_value = stripe1
+
+    plot2, table2 = MagicMock(), MagicMock()
+    plot2.get_stripes.return_value = []
+    ctrl2.create_tab(plot2, table2)  # now active, empty
+
+    groups = parse_label_list(ctrl2.export_label_list())
+
+    assert groups == []

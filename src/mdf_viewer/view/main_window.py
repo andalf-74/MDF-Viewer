@@ -69,13 +69,14 @@ def _candidate_indices(candidate, measurement_aware: bool) -> tuple:
 
 
 from mdf_viewer import __version__
-from mdf_viewer.errors import MdfLoadError
+from mdf_viewer.errors import LabelListParseError, MdfLoadError
 from mdf_viewer.license.license_info import LicenseInfo
 from mdf_viewer.license.license_manager import LicenseManager
 from mdf_viewer.settings import Settings
 from mdf_viewer.model.viewer_config import StripeConfig
 from mdf_viewer.view.active_signals_table import ActiveSignalsTable
 from mdf_viewer.view.dockable_panel import DockablePanel
+from mdf_viewer.view.label_import_result_dialog import LabelImportResultDialog
 from mdf_viewer.view.license_dialog import LicenseDialog
 from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
 from mdf_viewer.view.plot_stripes_area import PlotStripesArea
@@ -235,6 +236,7 @@ class _PluginOverviewDialog(QDialog):
 _MDF_FILE_FILTER = "MDF Files (*.mf4 *.mdf *.dat);;All Files (*)"
 _ALL_FILE_FILTER = "All Supported Files (*.mf4 *.mdf *.dat *.mvc);;MDF Files (*.mf4 *.mdf *.dat);;MDF Viewer Config (*.mvc);;All Files (*)"
 _MVC_FILE_FILTER = "MDF Viewer Config (*.mvc);;All Files (*)"
+_LAB_FILE_FILTER = "Label List (*.lab);;All Files (*)"
 _GITHUB_URL = "https://github.com/andalf-74/MDF-Viewer"
 
 
@@ -937,6 +939,12 @@ class MainWindow(QMainWindow):
         self._save_config_as_action = QAction("Save Workspace As…", self)
         self._save_config_as_action.triggered.connect(self._on_save_config_as)
 
+        self._import_labels_action = QAction("Import Labels…", self)
+        self._import_labels_action.triggered.connect(self._on_import_labels)
+
+        self._export_labels_action = QAction("Export Labels…", self)
+        self._export_labels_action.triggered.connect(self._on_export_labels)
+
         self._preferences_action = QAction("Preferences…", self)
         self._preferences_action.triggered.connect(self._on_preferences)
 
@@ -952,6 +960,9 @@ class MainWindow(QMainWindow):
         self._file_menu.addAction(self._apply_config_action)
         self._file_menu.addAction(self._save_config_action)
         self._file_menu.addAction(self._save_config_as_action)
+        self._file_menu.addSeparator()
+        self._file_menu.addAction(self._import_labels_action)
+        self._file_menu.addAction(self._export_labels_action)
         self._replace_measurement_menu = QMenu("Replace Measurement", self)
         self._file_menu.addMenu(self._replace_measurement_menu)
         self._close_measurement_menu = QMenu("Close Measurement", self)
@@ -965,6 +976,7 @@ class MainWindow(QMainWindow):
         self._file_menu.addAction(self._exit_action)
         self._file_menu.aboutToShow.connect(self._rebuild_recent_files)
         self._file_menu.aboutToShow.connect(self._update_apply_config_enabled)
+        self._file_menu.aboutToShow.connect(self._update_import_export_labels_enabled)
         self._file_menu.aboutToShow.connect(self._rebuild_replace_measurement_menu)
         self._file_menu.aboutToShow.connect(self._rebuild_close_measurement_menu)
 
@@ -2469,6 +2481,53 @@ class MainWindow(QMainWindow):
         update through every measurement-pool-mutating call site."""
         measurements = [] if self._controller is None else self._controller.measurements
         self._apply_config_action.setEnabled(bool(measurements))
+
+    def _update_import_export_labels_enabled(self) -> None:
+        """Import Labels… needs a measurement to match against
+        (REQ-LABEL-072); Export Labels… needs something to export
+        (REQ-LABEL-073) — recomputed lazily on the File menu's aboutToShow,
+        the same pattern as _update_apply_config_enabled above."""
+        if self._controller is None:
+            self._import_labels_action.setEnabled(False)
+            self._export_labels_action.setEnabled(False)
+            return
+        self._import_labels_action.setEnabled(bool(self._controller.measurement_count))
+        self._export_labels_action.setEnabled(bool(self._controller.active_signals))
+
+    def _on_import_labels(self) -> None:
+        if self._controller is None:
+            return
+        path_str, _ = QFileDialog.getOpenFileName(self, "Import Labels", "", _LAB_FILE_FILTER)
+        if not path_str:
+            return
+        try:
+            data = Path(path_str).read_bytes()
+        except OSError as exc:
+            QMessageBox.critical(self, "Import Labels", f"Could not read '{path_str}':\n{exc}")
+            return
+        try:
+            result = self._controller.import_label_list(data)
+        except LabelListParseError as exc:
+            QMessageBox.critical(self, "Import Labels", str(exc))
+            return
+        if result.not_found or result.already_active:  # REQ-LABEL-051
+            dialog = LabelImportResultDialog(result.not_found, result.already_active, parent=self)
+            dialog.exec()
+
+    def _on_export_labels(self) -> None:
+        if self._controller is None:
+            return
+        default_name = f"{self._tab_widget.tabText(self._tab_widget.currentIndex())}.lab"
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Export Labels", default_name, _LAB_FILE_FILTER
+        )
+        if not path_str:
+            return
+        data = self._controller.export_label_list()
+        try:
+            Path(path_str).write_bytes(data)
+        except OSError as exc:
+            QMessageBox.critical(self, "Export Labels", f"Could not write '{path_str}':\n{exc}")
 
     def _on_apply_config(self) -> None:
         self._session.apply_config()

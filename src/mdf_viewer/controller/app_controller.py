@@ -27,6 +27,7 @@ from mdf_viewer.controller.events import (
     SignalRemovedEvent,
 )
 from mdf_viewer.errors import MdfLoadError
+from mdf_viewer.model.label_list import LabelGroup, format_label_list, parse_label_list
 from mdf_viewer.model.loaded_measurement import LoadedMeasurement, make_label
 from mdf_viewer.model.mdf_loader import MdfLoader
 from mdf_viewer.model.virtual_measurement_loader import VirtualMeasurementLoader
@@ -44,6 +45,14 @@ class LoadResult:
     """
     succeeded: list[LoadedMeasurement] = field(default_factory=list)
     failed: list[tuple[str, MdfLoadError]] = field(default_factory=list)
+
+
+@dataclass
+class LabelImportResult:
+    """Outcome of import_label_list() (#143): candidate names that never
+    ended up newly plotted, bucketed by why (REQ-LABEL-050)."""
+    not_found: list[str] = field(default_factory=list)
+    already_active: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -1277,6 +1286,64 @@ class AppController:
         for active in list(signals):
             self.remove_signal(active)
         return current.plot.delete_stripe(stripe)
+
+    def import_label_list(self, data: bytes) -> LabelImportResult:
+        """Bulk-import a .lab label list (#143): one new stripe per group,
+        named after the group, populated by matching each candidate name
+        against every currently loaded measurement.
+
+        Raises LabelListParseError if *data* isn't a valid label list.
+        Candidates are processed sequentially (not pre-resolved as a batch)
+        because add_signal()'s duplicate check reads live state — a name
+        repeated later in this same import must see what was already added
+        by an earlier group (REQ-LABEL-041).
+        """
+        groups = parse_label_list(data)
+        current = self.current_workspace
+        not_found: list[str] = []
+        already_active: list[str] = []
+        for group in groups:
+            stripe = self.create_stripe()
+            current.table.rename_stripe_segment(stripe, group.name)
+            for name in group.signal_names:
+                locations = self.find_signal_locations_by_name(name)
+                added_any = False
+                skipped_dup = False
+                for measurement, meta in locations:
+                    try:
+                        added = self.add_signal(
+                            meta.group_index, meta.channel_index,
+                            stripe=stripe, measurement=measurement,
+                        )
+                    except MdfLoadError:
+                        continue  # REQ-LABEL-033: treated the same as not found
+                    if added:
+                        added_any = True
+                    else:
+                        skipped_dup = True
+                if not added_any:
+                    (already_active if skipped_dup else not_found).append(name)
+            if not current.plot.get_signals_in_stripe(stripe):
+                self.delete_stripe(stripe)  # REQ-LABEL-042
+        return LabelImportResult(not_found=not_found, already_active=already_active)
+
+    def export_label_list(self) -> bytes:
+        """Bulk-export the active tab's stripes to .lab bytes (#143): one
+        group per stripe with at least one exportable signal, named after
+        the stripe (REQ-LABEL-060/063)."""
+        current = self.current_workspace
+        groups: list[LabelGroup] = []
+        for stripe in current.plot.get_stripes():
+            names = [
+                active.metadata.name
+                for active in current.active
+                if current.plot.get_stripe_for_signal(active) is stripe
+                and active.measurement is not None
+                and active.measurement.owner_plugin is None
+            ]
+            if names:
+                groups.append(LabelGroup(name=stripe.name, signal_names=names))
+        return format_label_list(groups)
 
     def get_stripes(self) -> list:
         return self.current_workspace.plot.get_stripes()

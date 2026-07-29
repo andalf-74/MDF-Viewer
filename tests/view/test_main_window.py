@@ -2316,6 +2316,211 @@ def test_save_config_action_shortcut_is_ctrl_s(window: MainWindow) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Import/Export Labels (#143)
+# ---------------------------------------------------------------------------
+
+def test_import_labels_action_exists(window: MainWindow) -> None:
+    assert window._import_labels_action is not None
+
+
+def test_export_labels_action_exists(window: MainWindow) -> None:
+    assert window._export_labels_action is not None
+
+
+def test_import_export_labels_disabled_with_no_controller(window: MainWindow) -> None:
+    window._update_import_export_labels_enabled()
+    assert not window._import_labels_action.isEnabled()
+    assert not window._export_labels_action.isEnabled()
+
+
+@pytest.mark.requirement("REQ-LABEL-072")
+def test_import_labels_enabled_when_measurement_loaded(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.measurement_count = 1
+    mock_controller.active_signals = []
+    wired._update_import_export_labels_enabled()
+    assert wired._import_labels_action.isEnabled()
+
+
+@pytest.mark.requirement("REQ-LABEL-072")
+def test_import_labels_disabled_with_no_measurement(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.measurement_count = 0
+    mock_controller.active_signals = []
+    wired._update_import_export_labels_enabled()
+    assert not wired._import_labels_action.isEnabled()
+
+
+@pytest.mark.requirement("REQ-LABEL-073")
+def test_export_labels_enabled_when_active_signals_exist(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.measurement_count = 1
+    mock_controller.active_signals = [MagicMock()]
+    wired._update_import_export_labels_enabled()
+    assert wired._export_labels_action.isEnabled()
+
+
+@pytest.mark.requirement("REQ-LABEL-073")
+def test_export_labels_disabled_with_no_active_signals(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.measurement_count = 1
+    mock_controller.active_signals = []
+    wired._update_import_export_labels_enabled()
+    assert not wired._export_labels_action.isEnabled()
+
+
+def test_import_labels_cancelled_dialog_does_nothing(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.active_signals = []
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName", return_value=("", "")
+    ):
+        wired._on_import_labels()
+    mock_controller.import_label_list.assert_not_called()
+
+
+def test_import_labels_reads_file_and_calls_controller(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    from mdf_viewer.controller.app_controller import LabelImportResult
+
+    mock_controller.active_signals = []
+    lab_path = tmp_path / "labels.lab"
+    lab_path.write_bytes(b"[Measurement]\n[Group]\nSpeed\n")
+    mock_controller.import_label_list.return_value = LabelImportResult()
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(lab_path), ""),
+    ):
+        wired._on_import_labels()
+    mock_controller.import_label_list.assert_called_once_with(lab_path.read_bytes())
+
+
+@pytest.mark.requirement("REQ-LABEL-051")
+def test_import_labels_shows_no_dialog_on_clean_import(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    from mdf_viewer.controller.app_controller import LabelImportResult
+
+    mock_controller.active_signals = []
+    lab_path = tmp_path / "labels.lab"
+    lab_path.write_bytes(b"[Measurement]\n")
+    mock_controller.import_label_list.return_value = LabelImportResult()
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(lab_path), ""),
+    ), patch(
+        "mdf_viewer.view.main_window.LabelImportResultDialog"
+    ) as mock_dialog:
+        wired._on_import_labels()
+    mock_dialog.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-LABEL-050")
+def test_import_labels_shows_dialog_when_something_to_report(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    from mdf_viewer.controller.app_controller import LabelImportResult
+
+    mock_controller.active_signals = []
+    lab_path = tmp_path / "labels.lab"
+    lab_path.write_bytes(b"[Measurement]\n")
+    mock_controller.import_label_list.return_value = LabelImportResult(not_found=["Ghost"])
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(lab_path), ""),
+    ), patch(
+        "mdf_viewer.view.main_window.LabelImportResultDialog"
+    ) as mock_dialog:
+        wired._on_import_labels()
+    mock_dialog.assert_called_once_with(["Ghost"], [], parent=wired)
+    mock_dialog.return_value.exec.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-LABEL-010")
+def test_import_labels_shows_error_on_parse_failure(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    from mdf_viewer.errors import LabelListParseError
+
+    mock_controller.active_signals = []
+    lab_path = tmp_path / "labels.lab"
+    lab_path.write_bytes(b"not a label list")
+    mock_controller.import_label_list.side_effect = LabelListParseError("bad file")
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(lab_path), ""),
+    ), patch(
+        "mdf_viewer.view.main_window.QMessageBox.critical"
+    ) as mock_critical:
+        wired._on_import_labels()
+    mock_critical.assert_called_once()
+
+
+def test_import_labels_shows_error_when_file_cannot_be_read(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mock_controller.active_signals = []
+    missing_path = tmp_path / "does_not_exist.lab"
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(missing_path), ""),
+    ), patch(
+        "mdf_viewer.view.main_window.QMessageBox.critical"
+    ) as mock_critical:
+        wired._on_import_labels()
+    mock_critical.assert_called_once()
+    mock_controller.import_label_list.assert_not_called()
+
+
+def test_export_labels_cancelled_dialog_does_nothing(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.active_signals = []
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getSaveFileName", return_value=("", "")
+    ):
+        wired._on_export_labels()
+    mock_controller.export_label_list.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-LABEL-060")
+def test_export_labels_writes_controller_output(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mock_controller.active_signals = []
+    mock_controller.export_label_list.return_value = b"[Measurement]\n\n[Group]\nSpeed\n"
+    out_path = tmp_path / "out.lab"
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getSaveFileName",
+        return_value=(str(out_path), ""),
+    ):
+        wired._on_export_labels()
+    assert out_path.read_bytes() == b"[Measurement]\n\n[Group]\nSpeed\n"
+
+
+def test_export_labels_shows_error_when_file_cannot_be_written(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mock_controller.active_signals = []
+    mock_controller.export_label_list.return_value = b"[Measurement]\n"
+    bad_path = tmp_path / "no_such_dir" / "out.lab"  # parent dir doesn't exist
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getSaveFileName",
+        return_value=(str(bad_path), ""),
+    ), patch(
+        "mdf_viewer.view.main_window.QMessageBox.critical"
+    ) as mock_critical:
+        wired._on_export_labels()
+    mock_critical.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # closeEvent — prompt logic
 # ---------------------------------------------------------------------------
 

@@ -15,3 +15,7 @@ class MdfLoadError(Exception):
 
 class ConfigLoadError(Exception):
     """Raised when a .mvc config file cannot be parsed or is structurally invalid."""
+
+
+class LabelListParseError(Exception):
+    """Raised when a .lab label list file is not structurally valid."""

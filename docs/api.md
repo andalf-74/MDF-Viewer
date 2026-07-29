@@ -4,7 +4,7 @@
 
 | Module | Description |
 |--------|-------------|
-| `errors.py` | `MdfLoadError`, `ConfigLoadError` — shared exception types imported by model/controller and view |
+| `errors.py` | `MdfLoadError`, `ConfigLoadError`, `LabelListParseError` (#143) — shared exception types imported by model/controller and view |
 | `enums.py` | `CursorMode` — shared enum imported by both `view/` and `controller/` (#138); re-exported from `controller/cursor_controller.py` for backward compatibility |
 | `model/mdf_loader.py` | `MdfLoader` + `ChannelGroupInfo` |
 | `model/measurement_loader.py` | `MeasurementLoader` — `Protocol` capturing the structural contract `LoadedMeasurement.loader` requires (`is_open`, `path`, `measurement_info()`, `channel_tree()`, `find_signal_by_name()`, `find_similar_signal_by_name()`, `load_signal()`, `close()`); satisfied by both `MdfLoader` and `VirtualMeasurementLoader` (#147) |
@@ -15,6 +15,7 @@
 | `model/signal_metadata.py` | `SignalMetadata` dataclass — descriptive channel metadata (name, unit, comment, min/max, group/channel index, raster, enum map); no samples |
 | `model/measurement.py` | `MeasurementInfo` dataclass — file-level MDF metadata (file name, version, author, recorded-at, duration, comment) for the Measurement Info Box |
 | `model/interpolate.py` | `interpolate(active, x)` — shared linear interpolation helper used by `CursorController` and `CursorStripesView` |
+| `model/label_list.py` | `LabelGroup` dataclass, `parse_label_list(data: bytes) -> list[LabelGroup]` / `format_label_list(groups) -> bytes` (#143) — Vector CANape-style `.lab` label list parsing/serialization; UTF-8 with a `cp1252` decode fallback |
 | `model/viewer_config.py` | `ViewerConfig`/`TabConfig`/`StripeConfig`/`SignalConfig`/`MeasurementConfig`/`SignalRef` — pure-data snapshot of a saved workspace session (#106): every tab, every tab's stripe layout, every active signal, every loaded measurement; `ViewerConfig.primary_measurement_index: int \| None` (widened #147 — `None` when no real measurement was Primary at save time); `TabConfig.view_type: str = "plot"` (#148 — a plugin-registered type_id for a non-plot tab) |
 | `config_manager.py` | `ConfigManager` — save/load `.mvc` JSON files; `CONFIG_FORMAT_VERSION`; migrates a pre-#106 flat single-tab/single-measurement file on load |
 | `view/_mime.py` | Shared MIME type constants for drag-and-drop: `SIGNAL_MIME_TYPE` (Signal Browser → plot/AST; payload is a flat list of `(measurement_index, group_index, channel_index)` triples, #103) and `ROW_MIME_TYPE` (AST-internal row moves, #100/#116), plus their encode/decode helpers |
@@ -36,6 +37,7 @@
 | `view/measurement_mapping_dialog.py` | `MeasurementMappingDialog` — one combo box per saved config measurement slot, mapping it onto an already-loaded measurement or "None"; enforces a 1:1 mapping (#105) |
 | `view/signals_not_found_dialog.py` | `SignalsNotFoundDialog` — reports signals that couldn't be matched at all after a reload/`.mvc` load, with a copy-to-clipboard button |
 | `view/signal_group_picker_dialog.py` | `SignalGroupPickerDialog` — asks which channel group/measurement to use when a signal name is ambiguous |
+| `view/label_import_result_dialog.py` | `LabelImportResultDialog` — reports a `.lab` import's not-found and already-active-skipped names as two separate lists, each with its own copy-to-clipboard button (#143) |
 | `view/plot_stripe.py` | `PlotStripe` — one plot stripe: PyQtGraph, shared X-axis, per-signal ViewBox + Y-axis, per-measurement axis rows (#101), Sync/Un-Sync button (#102), drop target, zoom state snapshot |
 | `view/plot_stripes_area.py` | `PlotStripesArea` — composes one or more `PlotStripe`s: stripe lifecycle, signal-to-stripe routing, active-stripe tracking, cross-stripe X-sharing, axis-width alignment, zoom-scope rules, measurement axis/sync fan-out (#101/#102) |
 | `view/cursors.py` | `CursorView` — per-stripe InfiniteLine items, delta-time line + label, off-screen chevron indicators; `CursorStripesView` — composes one `CursorView` per stripe: value labels, nearest-cursor logic, lockstep cursor dragging, active-stripe-only delta-time routing |
@@ -209,6 +211,12 @@ Act on `current.selected_signals`: `on_display_mode_requested`, `on_marker_shape
 - `find_signal_by_name(name)` / `find_similar_signal_by_name(name)` — union across the whole measurement pool, falling back to the legacy loader if the pool is empty
 - `find_signal_locations_by_name(name)` / `find_similar_signal_locations_by_name(name)` — like the above but tag each result with its source `LoadedMeasurement`, to disambiguate a name matching in more than one loaded measurement (multi-file Replace carry-over); no legacy fallback
 
+### Label list import/export (#143)
+
+- `import_label_list(data: bytes) -> LabelImportResult` — parses *data* via `model/label_list.py`'s `parse_label_list()` (propagates `LabelListParseError`); one new stripe per group, named after the group via `table.rename_stripe_segment()`, populated by matching each candidate name against every currently loaded measurement (`find_signal_locations_by_name()`) and adding every match via `add_signal()`. Processes candidates sequentially (not a batch pre-pass) so a name repeated within the same import correctly sees an earlier add as already-active. A group left with nothing newly plotted (no matches, or every match already active/failed to load) gets its stripe deleted again via `delete_stripe()`. `LabelImportResult(not_found, already_active)` buckets each candidate once by outcome — a name matching two measurements where only one add succeeds is neither "not found" nor "already active".
+- `export_label_list() -> bytes` — one `LabelGroup` per stripe in the active tab (`current.plot.get_stripes()`), signal names taken from `current.active` filtered by `get_stripe_for_signal(active) is stripe` (on-screen row order, not `get_signals_in_stripe()`'s dict-insertion order — the #119 footgun), excluding virtual signals (`measurement.owner_plugin is not None`) and stripes with nothing exportable; serialized via `format_label_list()`.
+- `LabelImportResult` (`not_found: list[str]`, `already_active: list[str]`) — dataclass result, alongside `LoadResult` near the top of `app_controller.py`.
+
 ### Config (`.mvc`) capture/restore (#106)
 
 Captures/restores the *entire* workspace — every tab, every tab's stripe layout, every active signal, and every loaded measurement — not just the active tab.
@@ -350,7 +358,7 @@ Constructor creates the five view widgets above as public attrs, then `_build_ac
 
 ### Menu Bar / Toolbar (ground truth, see also `docs/ui.md`)
 
-- **File**: Open… (Ctrl+O) → Apply Config… (#105) → Save Workspace (Ctrl+S) → Save Workspace As… → Replace Measurement (submenu, rebuilt on `aboutToShow`, #122; excludes virtual measurements, #147/REQ-VMEAS-440 — disabled entirely when only virtual measurements are loaded) → Close Measurement (submenu, rebuilt on `aboutToShow`, #103; lists every measurement, real or virtual) → separator → [recent files, dynamically inserted here on `aboutToShow`] → separator → Preferences… → separator → Exit (Ctrl+Q)
+- **File**: Open… (Ctrl+O) → Apply Config… (#105) → Save Workspace (Ctrl+S) → Save Workspace As… → separator → Import Labels… → Export Labels… (#143; enablement recomputed on `aboutToShow` via `_update_import_export_labels_enabled()`, same lazy-refresh pattern as `_update_apply_config_enabled`) → Replace Measurement (submenu, rebuilt on `aboutToShow`, #122; excludes virtual measurements, #147/REQ-VMEAS-440 — disabled entirely when only virtual measurements are loaded) → Close Measurement (submenu, rebuilt on `aboutToShow`, #103; lists every measurement, real or virtual) → separator → [recent files, dynamically inserted here on `aboutToShow`] → separator → Preferences… → separator → Exit (Ctrl+Q)
 - **Edit** (#115): New Tab → New Stripe → separator → Undo (Ctrl+Z) → Redo (Ctrl+Shift+Z) → separator → Sync Measurements (checkable, #102)
 - **Plugins** (#73/#150/#159, rebuilt via `_rebuild_plugins_menu()`, called from `_sync_plugin_ui()` — once from `set_controller()`, again after every Rescan/Reload): always present, even when the registry is empty (#150 reversed the original "hidden when empty" rule) — Rescan Plugins → Reload Plugin (submenu, one entry per currently active plugin name, disabled when none) → Plugin Preferences… (#159, disabled when no plugin has registered a preferences page) → separator → one `QAction` per `PluginRegistry.menu_actions` entry (wired to `registration.invoke()`, with a status-bar message on failure) → [separator if both menu actions and a dialog-mode dock widget exist] → one entry per dialog-mode `dock_widgets` entry (labeled `f"{title}…"`, lazily builds+caches a `QDialog` on first click via `registration.build()`). Spliced in with `QMenuBar.insertMenu(self._help_menu.menuAction(), ...)`, not `addMenu()` — it's built after Help already exists, since `MainWindow` has no `AppController`/`plugin_registry` yet at `_build_menu()`/`__init__` time.
 - **Help**: Check for Update… → separator → License (text toggles Enter/View) → separator → About MDF-Viewer
