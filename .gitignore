@@ -50,6 +50,7 @@ $RECYCLE.BIN/
 
 # ---- Project ----
 # Local sample/measurement data should not be committed.
+*.lab
 *.mf4
 *.mdf
 *.dat
