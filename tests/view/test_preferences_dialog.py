@@ -302,3 +302,73 @@ def test_keep_signals_apply_saves_always(
     dlg._keep_always.setChecked(True)
     dlg._apply()
     assert settings.keep_signals_on_load == "always"
+
+
+# ---------------------------------------------------------------------------
+# Logging controls (#126)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-LOG-040")
+def test_logging_checkbox_reflects_settings(qtbot: QtBot, settings: Settings) -> None:
+    settings.logging_enabled = False
+    dlg = PreferencesDialog(settings)
+    qtbot.addWidget(dlg)
+    assert dlg._logging_enabled.isChecked() is False
+
+
+@pytest.mark.requirement("REQ-LOG-041")
+def test_log_level_combo_reflects_settings(qtbot: QtBot, settings: Settings) -> None:
+    settings.logging_level = "DEBUG"
+    dlg = PreferencesDialog(settings)
+    qtbot.addWidget(dlg)
+    assert dlg._log_level.currentText() == "DEBUG"
+
+
+@pytest.mark.requirement("REQ-LOG-041")
+def test_log_level_combo_disabled_when_logging_already_disabled_on_open(
+    qtbot: QtBot, settings: Settings
+) -> None:
+    """A freshly-constructed QCheckBox already unchecked doesn't emit
+    `toggled` from .setChecked(False) — the initial disabled state must be
+    set explicitly, not rely solely on the toggled connection."""
+    settings.logging_enabled = False
+    dlg = PreferencesDialog(settings)
+    qtbot.addWidget(dlg)
+    assert dlg._log_level.isEnabled() is False
+
+
+@pytest.mark.requirement("REQ-LOG-041")
+def test_log_level_combo_enabled_when_logging_enabled_on_open(
+    dlg: PreferencesDialog,
+) -> None:
+    assert dlg._logging_enabled.isChecked() is True
+    assert dlg._log_level.isEnabled() is True
+
+
+def test_log_level_combo_toggles_live_with_checkbox(dlg: PreferencesDialog) -> None:
+    dlg._logging_enabled.setChecked(False)
+    assert dlg._log_level.isEnabled() is False
+    dlg._logging_enabled.setChecked(True)
+    assert dlg._log_level.isEnabled() is True
+
+
+@pytest.mark.requirement("REQ-LOG-023")
+def test_apply_saves_logging_settings(dlg: PreferencesDialog, settings: Settings) -> None:
+    dlg._logging_enabled.setChecked(False)
+    dlg._log_level.setCurrentText("ERROR")
+    dlg._apply()
+    assert settings.logging_enabled is False
+    assert settings.logging_level == "ERROR"
+
+
+@pytest.mark.requirement("REQ-LOG-042")
+def test_open_log_folder_button_calls_open_log_folder(
+    dlg: PreferencesDialog, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+    monkeypatch.setattr(
+        "mdf_viewer.view.preferences_dialog.open_log_folder",
+        lambda s: calls.append(s),
+    )
+    dlg._open_log_folder_btn.click()
+    assert calls == [settings]

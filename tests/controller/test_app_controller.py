@@ -236,6 +236,24 @@ def test_load_file_without_settings_does_not_crash(
     ctrl.load_file("test.mf4")  # no settings injected — must not raise
 
 
+@pytest.mark.requirement("REQ-LOG-031")
+def test_load_file_success_logs_info(ctrl: AppController, deps: dict, caplog) -> None:
+    with caplog.at_level("INFO", logger="mdf_viewer.controller"):
+        ctrl.load_file("test.mf4")
+    assert any("Opened measurement 'test.mf4'" in r.message for r in caplog.records)
+
+
+@pytest.mark.requirement("REQ-LOG-031")
+def test_load_file_failure_logs_error(ctrl: AppController, deps: dict, caplog) -> None:
+    deps["loader"].open.side_effect = MdfLoadError("bad file")
+    with caplog.at_level("ERROR", logger="mdf_viewer.controller"):
+        with pytest.raises(MdfLoadError):
+            ctrl.load_file("bad.mf4")
+    assert any(
+        "Failed to open measurement 'bad.mf4'" in r.message for r in caplog.records
+    )
+
+
 # ---------------------------------------------------------------------------
 # add_signal
 # ---------------------------------------------------------------------------
@@ -1763,6 +1781,19 @@ def test_replace_measurements_collects_failures(deps: dict) -> None:
     assert ctrl2.measurement_count == 1
 
 
+@pytest.mark.requirement("REQ-LOG-031")
+def test_replace_measurements_logs_info_and_error(deps: dict, caplog) -> None:
+    bad = MagicMock()
+    bad.open.side_effect = MdfLoadError("bad file")
+    good = _make_pool_loader()
+    ctrl2 = _make_ctrl_with_loaders(deps, [bad, good])
+    with caplog.at_level("INFO", logger="mdf_viewer.controller"):
+        ctrl2.replace_measurements(["bad.mf4", "good.mf4"])
+    messages = [r.message for r in caplog.records]
+    assert any("Failed to open measurement 'bad.mf4'" in m for m in messages)
+    assert any("Opened measurement 'good.mf4'" in m for m in messages)
+
+
 @pytest.mark.requirement("REQ-FILE-021")
 def test_replace_measurements_clears_current_tab_signals(deps: dict) -> None:
     ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
@@ -1793,6 +1824,19 @@ def test_add_measurements_failure_does_not_affect_existing_pool(deps: dict) -> N
     result = ctrl2.add_measurements(["bad.mf4"])
     assert len(result.failed) == 1
     assert ctrl2.measurement_count == 1
+
+
+@pytest.mark.requirement("REQ-LOG-031")
+def test_add_measurements_logs_info_and_error(deps: dict, caplog) -> None:
+    bad = MagicMock()
+    bad.open.side_effect = MdfLoadError("bad file")
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), bad])
+    ctrl2.replace_measurements(["a.mf4"])
+    with caplog.at_level("INFO", logger="mdf_viewer.controller"):
+        ctrl2.add_measurements(["bad.mf4"])
+    assert any(
+        "Failed to open measurement 'bad.mf4'" in r.message for r in caplog.records
+    )
 
 
 @pytest.mark.requirement("REQ-FILE-028")
@@ -1839,6 +1883,16 @@ def test_close_measurement_removes_only_its_own_signals(deps: dict) -> None:
     remaining = ctrl2.active_signals
     assert len(remaining) == 1
     assert remaining[0].measurement is m2
+
+
+@pytest.mark.requirement("REQ-LOG-032")
+def test_close_measurement_logs_info(deps: dict, caplog) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    with caplog.at_level("INFO", logger="mdf_viewer.controller"):
+        ctrl2.close_measurement(m1)
+    assert any(f"Closed measurement '{m1.label}'" in r.message for r in caplog.records)
 
 
 @pytest.mark.requirement("REQ-PLOT-020")

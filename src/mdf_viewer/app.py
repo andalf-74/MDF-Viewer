@@ -44,8 +44,11 @@ def _wire_tab(
 
     # Applied explicitly rather than left to construction-time defaults: the
     # very first tab's PlotStripesArea is built in MainWindow.__init__(),
-    # before Settings() exists (#117), so its stripe(s) always start black
-    # regardless of the persisted preference until this runs.
+    # which itself runs before this function does, so its stripe(s) always
+    # start black regardless of the persisted preference until this runs
+    # (#117; Settings() itself is now constructed even earlier, at the top
+    # of run(), for #126's logging setup — MainWindow just doesn't receive
+    # it until later).
     plot_area.set_background(settings.plot_background_color)
 
     cursor_view = CursorStripesView()
@@ -120,6 +123,7 @@ def run(argv: list[str]) -> int:
 
     Returns the application's exit code.
     """
+    import logging
     import sys
     from pathlib import Path
 
@@ -131,10 +135,20 @@ def run(argv: list[str]) -> int:
     from mdf_viewer.controller.app_controller import AppController
     from mdf_viewer.errors import MdfLoadError
     from mdf_viewer.license.license_manager import LicenseManager
+    from mdf_viewer.logging_config import configure_logging, install_excepthook
     from mdf_viewer.model.mdf_loader import MdfLoader
     from mdf_viewer.plugin_api.loader import PluginLoader, resolve_plugins_dir
     from mdf_viewer.settings import Settings
     from mdf_viewer.view.main_window import MainWindow
+
+    # Constructed first, and logging configured immediately after, so as
+    # much of startup as possible (MainWindow/AppController construction,
+    # plugin loading) runs under logging/crash capture (#126).
+    settings = Settings()
+    configure_logging(settings)
+    install_excepthook()
+    logger = logging.getLogger("mdf_viewer.app")
+    logger.info("MDF-Viewer %s starting", __version__)
 
     if sys.platform == "win32":
         # Without an explicit AppUserModelID, Windows shows python.exe's icon
@@ -194,7 +208,6 @@ def run(argv: list[str]) -> int:
     app.processEvents()
 
     window = MainWindow()
-    settings = Settings()
 
     license_manager = LicenseManager()
     license_info = license_manager.load_stored()
@@ -269,5 +282,6 @@ def run(argv: list[str]) -> int:
                     QMessageBox.critical(window, "Load Error", str(exc))
 
     exit_code = app.exec()
+    logger.info("MDF-Viewer shutting down")
     plugin_loader.deactivate_all()
     return exit_code

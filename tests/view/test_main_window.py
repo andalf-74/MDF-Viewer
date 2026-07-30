@@ -4886,3 +4886,56 @@ def test_on_plugin_overview_toggled_tears_down_live_ui_before_disabling(wired: M
     assert dialog_reg not in wired._plugin_dialogs
     assert "Alpha" not in wired._plugin_preferences_tab_widgets
     assert wired._real_tab_count() == before_tab_count - 1
+
+
+# ---------------------------------------------------------------------------
+# _on_preferences — logging live-apply (#126)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-LOG-024")
+def test_on_preferences_configures_logging_when_accepted(
+    window: MainWindow, tmp_path
+) -> None:
+    from mdf_viewer.settings import Settings
+
+    settings = Settings(path=tmp_path / "settings.json")
+    window.set_settings(settings)
+    calls = []
+    with patch(
+        "mdf_viewer.view.preferences_dialog.PreferencesDialog.exec", return_value=True
+    ), patch("mdf_viewer.logging_config.configure_logging", side_effect=lambda s: calls.append(s)):
+        window._on_preferences()
+    assert calls == [settings]
+
+
+def test_on_preferences_configures_logging_even_without_controller(
+    window: MainWindow, tmp_path
+) -> None:
+    """Logging config has nothing to do with the controller — must not be
+    silently skipped just because no controller happens to be wired yet."""
+    from mdf_viewer.settings import Settings
+
+    settings = Settings(path=tmp_path / "settings.json")
+    window.set_settings(settings)
+    assert window._controller is None
+    calls = []
+    with patch(
+        "mdf_viewer.view.preferences_dialog.PreferencesDialog.exec", return_value=True
+    ), patch("mdf_viewer.logging_config.configure_logging", side_effect=lambda s: calls.append(s)):
+        window._on_preferences()
+    assert calls == [settings]
+
+
+def test_on_preferences_does_not_configure_logging_when_cancelled(
+    window: MainWindow, tmp_path
+) -> None:
+    from mdf_viewer.settings import Settings
+
+    settings = Settings(path=tmp_path / "settings.json")
+    window.set_settings(settings)
+    calls = []
+    with patch(
+        "mdf_viewer.view.preferences_dialog.PreferencesDialog.exec", return_value=False
+    ), patch("mdf_viewer.logging_config.configure_logging", side_effect=lambda s: calls.append(s)):
+        window._on_preferences()
+    assert calls == []

@@ -2189,13 +2189,16 @@ class MainWindow(QMainWindow):
         if self._controller is not None and self._controller.selected_signal is not None:
             preview = self._controller.selected_signal.metadata.name
         dlg = PreferencesDialog(self._settings, self, preview_name=preview)
-        if dlg.exec() and self._controller is not None:
-            self._controller.refresh_cursors()
-            self._controller.refresh_z_order()
-            self._controller.refresh_display_names()
-            self._controller.refresh_plot_background()
-            for table in self._all_active_signals_tables():
-                table.set_shorten_names_enabled(self._settings.display_name_rule_enabled)
+        if dlg.exec():
+            from mdf_viewer.logging_config import configure_logging
+            configure_logging(self._settings)
+            if self._controller is not None:
+                self._controller.refresh_cursors()
+                self._controller.refresh_z_order()
+                self._controller.refresh_display_names()
+                self._controller.refresh_plot_background()
+                for table in self._all_active_signals_tables():
+                    table.set_shorten_names_enabled(self._settings.display_name_rule_enabled)
 
     def _on_configure_display_names(self, preview_name: str) -> None:
         if self._settings is None or self._controller is None:

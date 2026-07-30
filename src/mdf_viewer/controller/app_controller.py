@@ -11,6 +11,7 @@ display, without either layer importing the other.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -33,6 +34,8 @@ from mdf_viewer.model.mdf_loader import MdfLoader
 from mdf_viewer.model.virtual_measurement_loader import VirtualMeasurementLoader
 from mdf_viewer.plugin_api.registry import PluginRegistry
 from mdf_viewer.view_model.active_signal import ActiveSignal
+
+logger = logging.getLogger("mdf_viewer.controller")
 
 
 @dataclass
@@ -693,7 +696,12 @@ class AppController:
         self._measurements_synchronized = False
         self._measurement_load_counter = 0
 
-        self._loader.open(path)  # raises MdfLoadError on failure
+        try:
+            self._loader.open(path)  # raises MdfLoadError on failure
+        except MdfLoadError as exc:
+            logger.error("Failed to open measurement '%s': %s", path, exc)
+            raise
+        logger.info("Opened measurement '%s'", path)
 
         info = self._loader.measurement_info()
         self._measurements = [
@@ -743,8 +751,10 @@ class AppController:
             try:
                 loader.open(path)
             except MdfLoadError as exc:
+                logger.error("Failed to open measurement '%s': %s", path, exc)
                 result.failed.append((str(path), exc))
                 continue
+            logger.info("Opened measurement '%s'", path)
             info = loader.measurement_info()
             label = make_label(self._measurement_load_counter, labels)
             self._measurement_load_counter += 1
@@ -793,8 +803,10 @@ class AppController:
             try:
                 loader.open(path)
             except MdfLoadError as exc:
+                logger.error("Failed to open measurement '%s': %s", path, exc)
                 result.failed.append((str(path), exc))
                 continue
+            logger.info("Opened measurement '%s'", path)
             info = loader.measurement_info()
             label = make_label(self._measurement_load_counter, labels)
             self._measurement_load_counter += 1
@@ -973,6 +985,7 @@ class AppController:
         measurement's signals never linger orphaned in a non-current tab.
         """
         self._remove_measurement_signals(measurement)
+        logger.info("Closed measurement '%s'", measurement.label)
         self.events.measurement_closed.emit(
             MeasurementClosedEvent(
                 label=measurement.label,
@@ -1049,8 +1062,10 @@ class AppController:
         try:
             loader.open(path)
         except MdfLoadError as exc:
+            logger.error("Failed to open measurement '%s': %s", path, exc)
             result.failed.append((str(path), exc))
             return result
+        logger.info("Opened measurement '%s'", path)
         info = loader.measurement_info()
 
         self._remove_measurement_signals(measurement)

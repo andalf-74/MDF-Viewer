@@ -218,6 +218,31 @@ def test_load_all_activates_a_real_plugin(tmp_path: Path) -> None:
     assert result.failed == []
 
 
+@pytest.mark.requirement("REQ-LOG-033")
+def test_activating_a_plugin_logs_info(tmp_path: Path, caplog) -> None:
+    plugins_dir = tmp_path / "plugins"
+    _write_single_file_plugin(plugins_dir, "exporter_plugin", "Exporter")
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+
+    with caplog.at_level("INFO", logger="mdf_viewer.plugin_api"):
+        loader.load_all()
+
+    assert any("Activated plugin 'Exporter'" in r.message for r in caplog.records)
+
+
+@pytest.mark.requirement("REQ-LOG-033")
+def test_disabling_a_plugin_logs_info(tmp_path: Path, caplog) -> None:
+    plugins_dir = tmp_path / "plugins"
+    _write_single_file_plugin(plugins_dir, "exporter_plugin", "Exporter")
+    loader = PluginLoader(app=_make_app(), plugins_dir=plugins_dir)
+    loader.load_all()
+
+    with caplog.at_level("INFO", logger="mdf_viewer.plugin_api"):
+        loader.set_enabled("exporter_plugin", False)
+
+    assert any("Deactivated plugin 'Exporter'" in r.message for r in caplog.records)
+
+
 @pytest.mark.requirement("REQ-PLUGIN-261")
 def test_load_all_rejects_duplicate_plugin_name(tmp_path: Path) -> None:
     plugins_dir = tmp_path / "plugins"

@@ -321,6 +321,7 @@ class PluginLoader:
                 instance=instance, module_name=module_name, entry_path=entry_path,
             )
             result.loaded.append(instance.name)
+            logger.info("Activated plugin '%s'", instance.name)
         else:
             result.failed.append(instance.name)
 
@@ -356,6 +357,7 @@ class PluginLoader:
         fresh code rather than risking a stale cached submodule (the same
         class of bug REQ-PLUGIN-371 already fixed for Reload)."""
         active.instance.stop()
+        logger.info("Deactivated plugin '%s'", active.instance.name)
         del self._active[active.instance.name]
         self._purge_module_cache(active.module_name)
         self._purge_bytecode_cache(active.entry_path.parent)

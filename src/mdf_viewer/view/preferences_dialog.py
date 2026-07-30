@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from mdf_viewer.logging_config import open_log_folder
 from mdf_viewer.settings import (
     DEFAULT_CONFIG_PATH_MODE,
     DEFAULT_CURSOR_COLOR_C1,
@@ -36,6 +37,8 @@ from mdf_viewer.settings import (
     DEFAULT_SHOW_ONLY_SELECTED_Y_AXIS,
     Settings,
 )
+
+_LOGGING_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
 
 _Z_ORDER_OPTIONS: list[tuple[str, str]] = [
     ("top_first",    "Top row on top"),
@@ -124,6 +127,35 @@ class PreferencesDialog(QDialog):
             "When active signals are loaded, ask whether to save a .mvc config file on exit."
         )
         general_layout.addWidget(self._prompt_save_config)
+
+        general_layout.addSpacing(8)
+        self._logging_enabled = QCheckBox("Enable logging")
+        self._logging_enabled.setChecked(self._settings.logging_enabled)
+        self._logging_enabled.setToolTip(
+            "Write application lifecycle events and errors to a log file."
+        )
+        general_layout.addWidget(self._logging_enabled)
+
+        log_level_row = QHBoxLayout()
+        log_level_row.addWidget(QLabel("Log level:"))
+        self._log_level = QComboBox()
+        self._log_level.addItems(_LOGGING_LEVELS)
+        level = self._settings.logging_level
+        self._log_level.setCurrentIndex(
+            _LOGGING_LEVELS.index(level) if level in _LOGGING_LEVELS else 1
+        )
+        # Set explicitly, not left to the toggled signal below: a freshly
+        # constructed QCheckBox already unchecked doesn't emit `toggled` when
+        # .setChecked(False) is a no-op, so a dialog opened with logging
+        # already disabled would otherwise leave this incorrectly enabled.
+        self._log_level.setEnabled(self._logging_enabled.isChecked())
+        self._logging_enabled.toggled.connect(self._log_level.setEnabled)
+        log_level_row.addWidget(self._log_level)
+        log_level_row.addStretch()
+        self._open_log_folder_btn = QPushButton("Open log folder")
+        self._open_log_folder_btn.clicked.connect(lambda: open_log_folder(self._settings))
+        log_level_row.addWidget(self._open_log_folder_btn)
+        general_layout.addLayout(log_level_row)
 
         general_layout.addStretch()
         tabs.addTab(general, "General")
@@ -323,6 +355,8 @@ class PreferencesDialog(QDialog):
         self._settings.keep_signals_on_load = ("always", "ask", "never")[bid] if bid >= 0 else DEFAULT_KEEP_SIGNALS_ON_LOAD
         self._settings.config_path_mode = self._config_path_mode.currentData() or DEFAULT_CONFIG_PATH_MODE
         self._settings.prompt_save_config_on_close = self._prompt_save_config.isChecked()
+        self._settings.logging_enabled = self._logging_enabled.isChecked()
+        self._settings.logging_level = self._log_level.currentText()
         self._settings.signal_z_order = _Z_ORDER_OPTIONS[self._z_order_combo.currentIndex()][0]
         self._settings.selected_line_boost = self._line_boost.value()
         self._settings.show_only_selected_y_axis = self._show_only_selected_y_axis.isChecked()

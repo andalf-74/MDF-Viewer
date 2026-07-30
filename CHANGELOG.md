@@ -4,6 +4,14 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Application logging (#126): the app now writes lifecycle events, errors,
+  and uncaught exceptions to a rotating log file
+  (`<config dir>/logs/mdf_viewer.log`, 5MB × 3 backups). Preferences ▸
+  General gained an "Enable logging" checkbox, a log level dropdown
+  (DEBUG/INFO/WARNING/ERROR), and an "Open log folder" button. Enabled by
+  default at the INFO level; changes apply immediately without restarting.
+
 ## [2.3.1] - 2026-07-29
 
 ### Added

@@ -15,6 +15,18 @@ import pytest
 from mdf_viewer.app import run
 
 
+@pytest.fixture(autouse=True)
+def _noop_logging_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """run() calls the real configure_logging()/install_excepthook() against
+    a fully-mocked Settings instance — harmless (RotatingFileHandler's
+    FileNotFoundError against a MagicMock-derived path is swallowed by
+    configure_logging()'s own OSError guard) but pointless I/O attempts in
+    every test in this file; stub them out except where explicitly tested.
+    """
+    monkeypatch.setattr("mdf_viewer.logging_config.configure_logging", lambda settings: None)
+    monkeypatch.setattr("mdf_viewer.logging_config.install_excepthook", lambda: None)
+
+
 @pytest.fixture()
 def app_mocks():
     with (
@@ -98,6 +110,17 @@ def test_run_loads_plugins(app_mocks) -> None:
 def test_run_deactivates_plugins_on_shutdown(app_mocks) -> None:
     run(["mdf-viewer"])
     app_mocks["plugin_loader"].deactivate_all.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-LOG-030")
+def test_run_logs_startup_and_shutdown(app_mocks, caplog) -> None:
+    from mdf_viewer import __version__
+
+    with caplog.at_level("INFO", logger="mdf_viewer.app"):
+        run(["mdf-viewer"])
+    messages = [r.message for r in caplog.records]
+    assert any(f"MDF-Viewer {__version__} starting" in m for m in messages)
+    assert any("MDF-Viewer shutting down" in m for m in messages)
 
 
 @pytest.mark.requirement("REQ-PLUGIN-410")

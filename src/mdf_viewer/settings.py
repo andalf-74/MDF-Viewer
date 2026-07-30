@@ -74,6 +74,11 @@ DEFAULT_CONFIG_PATH_MODE = "absolute"
 # Default for whether to prompt the user to save a config when closing the app
 DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE = True
 
+# Defaults for application logging (#126)
+DEFAULT_LOGGING_ENABLED = True
+DEFAULT_LOGGING_LEVEL = "INFO"
+_VALID_LOGGING_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR")
+
 
 def _is_json_safe(value: Any) -> bool:
     """True if *value* is a JSON primitive, or a list/dict built entirely of
@@ -137,6 +142,8 @@ class Settings:
         self._keep_signals_on_load: str = DEFAULT_KEEP_SIGNALS_ON_LOAD
         self._config_path_mode: str = DEFAULT_CONFIG_PATH_MODE
         self._prompt_save_config_on_close: bool = DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE
+        self._logging_enabled: bool = DEFAULT_LOGGING_ENABLED
+        self._logging_level: str = DEFAULT_LOGGING_LEVEL
         self._plugins_dir: Path | None = None
         self._plugin_settings: dict[str, dict[str, Any]] = {}
         self._disabled_plugins: set[str] = set()
@@ -156,6 +163,12 @@ class Settings:
     def recent_files(self) -> list[Path]:
         """Return the current recent files list (may include missing paths)."""
         return list(self._recent)
+
+    @property
+    def config_dir(self) -> Path:
+        """Directory containing settings.json — the base for other
+        per-user app state (e.g. the log directory, #126)."""
+        return self._path.parent
 
     @property
     def plugins_dir(self) -> Path | None:
@@ -426,6 +439,24 @@ class Settings:
         self._prompt_save_config_on_close = bool(value)
         self._save()
 
+    @property
+    def logging_enabled(self) -> bool:
+        return self._logging_enabled
+
+    @logging_enabled.setter
+    def logging_enabled(self, value: bool) -> None:
+        self._logging_enabled = bool(value)
+        self._save()
+
+    @property
+    def logging_level(self) -> str:
+        return self._logging_level
+
+    @logging_level.setter
+    def logging_level(self, value: str) -> None:
+        self._logging_level = value if value in _VALID_LOGGING_LEVELS else DEFAULT_LOGGING_LEVEL
+        self._save()
+
     def get_plugin_setting(self, plugin_name: str, key: str, default: Any = None) -> Any:
         """Read a plugin's own persisted setting, namespaced by *plugin_name*
         (REQ-PLUGIN-410). A miss returns *default* without writing it back —
@@ -505,6 +536,9 @@ class Settings:
             raw_cpm = str(data.get("config_path_mode", DEFAULT_CONFIG_PATH_MODE))
             self._config_path_mode = raw_cpm if raw_cpm in ("absolute", "relative") else DEFAULT_CONFIG_PATH_MODE
             self._prompt_save_config_on_close = bool(data.get("prompt_save_config_on_close", DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE))
+            self._logging_enabled = bool(data.get("logging_enabled", DEFAULT_LOGGING_ENABLED))
+            raw_logging_level = str(data.get("logging_level", DEFAULT_LOGGING_LEVEL))
+            self._logging_level = raw_logging_level if raw_logging_level in _VALID_LOGGING_LEVELS else DEFAULT_LOGGING_LEVEL
             raw_plugins_dir = data.get("plugins_dir")
             self._plugins_dir = Path(raw_plugins_dir) if raw_plugins_dir else None
             raw_plugin_settings = data.get("plugin_settings", {})
@@ -560,6 +594,8 @@ class Settings:
             self._keep_signals_on_load = DEFAULT_KEEP_SIGNALS_ON_LOAD
             self._config_path_mode = DEFAULT_CONFIG_PATH_MODE
             self._prompt_save_config_on_close = DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE
+            self._logging_enabled = DEFAULT_LOGGING_ENABLED
+            self._logging_level = DEFAULT_LOGGING_LEVEL
             self._plugins_dir = None
             self._plugin_settings = {}
             self._disabled_plugins = set()
@@ -604,6 +640,8 @@ class Settings:
                     "keep_signals_on_load": self._keep_signals_on_load,
                     "config_path_mode": self._config_path_mode,
                     "prompt_save_config_on_close": self._prompt_save_config_on_close,
+                    "logging_enabled": self._logging_enabled,
+                    "logging_level": self._logging_level,
                     "plugins_dir": str(self._plugins_dir) if self._plugins_dir else None,
                     "plugin_settings": self._plugin_settings,
                     "disabled_plugins": sorted(self._disabled_plugins),
