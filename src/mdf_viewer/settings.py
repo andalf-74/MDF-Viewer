@@ -71,6 +71,11 @@ DEFAULT_KEEP_SIGNALS_ON_LOAD = "always"
 # "absolute" = full path | "relative" = relative to the .mvc file's directory
 DEFAULT_CONFIG_PATH_MODE = "absolute"
 
+# Default Signal Browser view mode ("flat" = today's single cross-measurement
+# list, "tree" = grouped by measurement/channel group, #141) — "flat"
+# preserves today's appearance for existing users (REQ-BROWSER-062).
+DEFAULT_SIGNAL_BROWSER_VIEW_MODE = "flat"
+
 # Default for whether to prompt the user to save a config when closing the app
 DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE = True
 
@@ -141,6 +146,7 @@ class Settings:
         self._display_name_segments: int = DEFAULT_DISPLAY_NAME_SEGMENTS
         self._keep_signals_on_load: str = DEFAULT_KEEP_SIGNALS_ON_LOAD
         self._config_path_mode: str = DEFAULT_CONFIG_PATH_MODE
+        self._signal_browser_view_mode: str = DEFAULT_SIGNAL_BROWSER_VIEW_MODE
         self._prompt_save_config_on_close: bool = DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE
         self._logging_enabled: bool = DEFAULT_LOGGING_ENABLED
         self._logging_level: str = DEFAULT_LOGGING_LEVEL
@@ -431,6 +437,17 @@ class Settings:
         self._save()
 
     @property
+    def signal_browser_view_mode(self) -> str:
+        return self._signal_browser_view_mode
+
+    @signal_browser_view_mode.setter
+    def signal_browser_view_mode(self, value: str) -> None:
+        if value not in ("flat", "tree"):
+            value = DEFAULT_SIGNAL_BROWSER_VIEW_MODE
+        self._signal_browser_view_mode = value
+        self._save()
+
+    @property
     def prompt_save_config_on_close(self) -> bool:
         return self._prompt_save_config_on_close
 
@@ -535,6 +552,8 @@ class Settings:
             self._keep_signals_on_load = raw_keep if raw_keep in ("always", "ask", "never") else DEFAULT_KEEP_SIGNALS_ON_LOAD
             raw_cpm = str(data.get("config_path_mode", DEFAULT_CONFIG_PATH_MODE))
             self._config_path_mode = raw_cpm if raw_cpm in ("absolute", "relative") else DEFAULT_CONFIG_PATH_MODE
+            raw_view_mode = str(data.get("signal_browser_view_mode", DEFAULT_SIGNAL_BROWSER_VIEW_MODE))
+            self._signal_browser_view_mode = raw_view_mode if raw_view_mode in ("flat", "tree") else DEFAULT_SIGNAL_BROWSER_VIEW_MODE
             self._prompt_save_config_on_close = bool(data.get("prompt_save_config_on_close", DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE))
             self._logging_enabled = bool(data.get("logging_enabled", DEFAULT_LOGGING_ENABLED))
             raw_logging_level = str(data.get("logging_level", DEFAULT_LOGGING_LEVEL))
@@ -593,6 +612,7 @@ class Settings:
             self._display_name_segments = DEFAULT_DISPLAY_NAME_SEGMENTS
             self._keep_signals_on_load = DEFAULT_KEEP_SIGNALS_ON_LOAD
             self._config_path_mode = DEFAULT_CONFIG_PATH_MODE
+            self._signal_browser_view_mode = DEFAULT_SIGNAL_BROWSER_VIEW_MODE
             self._prompt_save_config_on_close = DEFAULT_PROMPT_SAVE_CONFIG_ON_CLOSE
             self._logging_enabled = DEFAULT_LOGGING_ENABLED
             self._logging_level = DEFAULT_LOGGING_LEVEL
@@ -639,6 +659,7 @@ class Settings:
                     "display_name_segments": self._display_name_segments,
                     "keep_signals_on_load": self._keep_signals_on_load,
                     "config_path_mode": self._config_path_mode,
+                    "signal_browser_view_mode": self._signal_browser_view_mode,
                     "prompt_save_config_on_close": self._prompt_save_config_on_close,
                     "logging_enabled": self._logging_enabled,
                     "logging_level": self._logging_level,

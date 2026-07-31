@@ -179,6 +179,11 @@ class AppController:
         self._info_box = measurement_info_box
         self._signal_info = signal_info_box
         self._settings = settings
+        # Set before any real populate_all() call (first file load) uses
+        # it, so a non-default saved preference is honored from the very
+        # first render (#141, REQ-BROWSER-063).
+        if settings is not None:
+            self._browser.set_view_mode(settings.signal_browser_view_mode)
 
         self._workspaces: list[TabWorkspace] = [
             TabWorkspace(plot=plot_area, table=active_signals_table)
@@ -615,6 +620,14 @@ class AppController:
         color = self._plot_background_color
         for workspace in self.all_workspaces():
             workspace.plot.set_background(color)
+
+    def refresh_signal_browser_view_mode(self) -> None:
+        """Push the current Flat/Tree view-mode setting to the Signal
+        Browser and rebuild it immediately (#141, REQ-BROWSER-063).
+        """
+        if self._settings is not None:
+            self._browser.set_view_mode(self._settings.signal_browser_view_mode)
+        self._refresh_signal_browser()
 
     # ------------------------------------------------------------------
     # Zoom proxy — MainWindow calls these for all zoom actions so the

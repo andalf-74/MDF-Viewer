@@ -6,7 +6,7 @@ All tests require a QApplication (provided by pytest-qt's qtbot fixture).
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtCore import QItemSelectionModel
+from PyQt6.QtCore import QItemSelectionModel, Qt
 from PyQt6.QtWidgets import QAbstractItemView
 from pytestqt.qtbot import QtBot
 
@@ -611,3 +611,191 @@ def test_add_signals_requested_can_span_measurements(
     locations = blocker.args[0]
     assert (0, 0, 1) in locations
     assert (1, 0, 1) in locations
+
+
+# ---------------------------------------------------------------------------
+# Tree mode (#141)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def tree_browser(browser: SignalBrowser) -> SignalBrowser:
+    browser.set_view_mode("tree")
+    return browser
+
+
+def _measurement_item(browser: SignalBrowser, row: int):
+    return browser._model.item(row)
+
+
+@pytest.mark.requirement("REQ-BROWSER-070")
+def test_tree_structure_measurement_group_channel(
+    tree_browser: SignalBrowser, sample_groups, other_groups,
+) -> None:
+    tree_browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
+    assert tree_browser._model.rowCount() == 2  # two measurement nodes
+
+    m1 = _measurement_item(tree_browser, 0)
+    assert m1.text() == "M1"
+    assert m1.rowCount() == 2  # Group 0, Group 1
+    group0 = m1.child(0)
+    assert group0.text() == "Group 0"
+    assert group0.rowCount() == 3  # time, sin, cos
+    assert group0.child(0).text() == "time [s]"
+
+    m2 = _measurement_item(tree_browser, 1)
+    assert m2.text() == "M2"
+    assert m2.rowCount() == 1
+    assert m2.child(0).text() == "Group 0"
+    assert m2.child(0).rowCount() == 2
+
+
+@pytest.mark.requirement("REQ-BROWSER-071")
+def test_tree_preserves_file_order_after_prior_flat_populate(
+    browser: SignalBrowser, sample_groups,
+) -> None:
+    """Direct regression for the sticky-proxy-sort crash: Flat mode's
+    sort(0) must not survive into a subsequent Tree populate, or appending
+    a second sibling (no _LOCATION_ROLE) under the same parent raises."""
+    browser.populate_all([("M1", sample_groups, False)])  # Flat, sets sort(0)
+    browser.set_view_mode("tree")
+    browser.populate_all([("M1", sample_groups, False)])
+
+    m1 = _measurement_item(browser, 0)
+    group_names = [m1.child(i).text() for i in range(m1.rowCount())]
+    assert group_names == ["Group 0", "Group 1"]  # file order, not resorted
+    channel_names = [m1.child(0).child(i).text() for i in range(m1.child(0).rowCount())]
+    assert channel_names == ["time [s]", "sin [V]", "cos [A]"]
+
+
+@pytest.mark.requirement("REQ-BROWSER-072")
+def test_tree_measurement_expanded_group_collapsed_by_default(
+    tree_browser: SignalBrowser, sample_groups,
+) -> None:
+    tree_browser.populate_all([("M1", sample_groups, False)])
+    m1_index = tree_browser._proxy.mapFromSource(tree_browser._model.indexFromItem(_measurement_item(tree_browser, 0)))
+    assert tree_browser._tree.isExpanded(m1_index) is True
+    group0_item = _measurement_item(tree_browser, 0).child(0)
+    group0_index = tree_browser._proxy.mapFromSource(tree_browser._model.indexFromItem(group0_item))
+    assert tree_browser._tree.isExpanded(group0_index) is False
+
+
+@pytest.mark.requirement("REQ-BROWSER-073")
+def test_tree_measurement_node_carries_virtual_marker(
+    tree_browser: SignalBrowser, sample_groups,
+) -> None:
+    tree_browser.populate_all([("M1", sample_groups, True)])
+    assert _measurement_item(tree_browser, 0).text() == "(virtual) M1"
+    # Channel rows underneath are plain, not re-marked (identity lives on
+    # the ancestor node only).
+    channel_texts = [
+        _measurement_item(tree_browser, 0).child(0).child(i).text()
+        for i in range(_measurement_item(tree_browser, 0).child(0).rowCount())
+    ]
+    assert all("(virtual)" not in t for t in channel_texts)
+
+
+@pytest.mark.requirement("REQ-BROWSER-073")
+def test_tree_measurement_node_no_prefix_on_channel_rows(
+    tree_browser: SignalBrowser, sample_groups, other_groups,
+) -> None:
+    tree_browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
+    for mi in range(tree_browser._model.rowCount()):
+        m_item = _measurement_item(tree_browser, mi)
+        for gi in range(m_item.rowCount()):
+            g_item = m_item.child(gi)
+            for ci in range(g_item.rowCount()):
+                assert not g_item.child(ci).text().startswith("[")
+
+
+@pytest.mark.requirement("REQ-BROWSER-074")
+def test_tree_measurement_and_group_nodes_not_selectable(
+    tree_browser: SignalBrowser, sample_groups,
+) -> None:
+    tree_browser.populate_all([("M1", sample_groups, False)])
+    m1 = _measurement_item(tree_browser, 0)
+    group0 = m1.child(0)
+    assert not bool(m1.flags() & Qt.ItemFlag.ItemIsSelectable)
+    assert not bool(group0.flags() & Qt.ItemFlag.ItemIsSelectable)
+
+
+@pytest.mark.requirement("REQ-BROWSER-074")
+def test_tree_selecting_group_node_does_not_enable_add_button(
+    tree_browser: SignalBrowser, sample_groups,
+) -> None:
+    tree_browser.populate_all([("M1", sample_groups, False)])
+    group0 = _measurement_item(tree_browser, 0).child(0)
+    group0_index = tree_browser._proxy.mapFromSource(tree_browser._model.indexFromItem(group0))
+    tree_browser._tree.setCurrentIndex(group0_index)
+    assert not tree_browser._add_btn.isEnabled()
+    assert tree_browser._selected_locations() == []
+
+
+@pytest.mark.requirement("REQ-BROWSER-074")
+def test_tree_leaf_channel_add_and_double_click_still_work(
+    tree_browser: SignalBrowser, sample_groups, qtbot: QtBot,
+) -> None:
+    tree_browser.populate_all([("M1", sample_groups, False)])
+    sin_item = _measurement_item(tree_browser, 0).child(0).child(1)
+    assert sin_item.text() == "sin [V]"
+    sin_index = tree_browser._proxy.mapFromSource(tree_browser._model.indexFromItem(sin_item))
+    with qtbot.waitSignal(tree_browser.add_signals_requested, timeout=500) as blocker:
+        tree_browser._tree.doubleClicked.emit(sin_index)
+    assert blocker.args == [[(0, 0, 1)]]
+
+
+@pytest.mark.requirement("REQ-BROWSER-023")
+@pytest.mark.requirement("REQ-BROWSER-025")
+def test_tree_filter_match_expands_ancestors_and_clears_restores_default(
+    tree_browser: SignalBrowser, sample_groups,
+) -> None:
+    tree_browser.populate_all([("M1", sample_groups, False)])
+    group0 = _measurement_item(tree_browser, 0).child(0)
+    group0_index = tree_browser._proxy.mapFromSource(tree_browser._model.indexFromItem(group0))
+    assert tree_browser._tree.isExpanded(group0_index) is False  # default collapsed
+
+    tree_browser._filter_edit.setText("sin")
+    tree_browser._apply_filter()
+    assert tree_browser._tree.isExpanded(group0_index) is True  # match revealed
+
+    tree_browser._filter_edit.clear()
+    tree_browser._apply_filter()
+    assert tree_browser._tree.isExpanded(group0_index) is False  # restored
+
+
+@pytest.mark.requirement("REQ-BROWSER-075")
+def test_tree_measurement_filter_combo_always_hidden(
+    tree_browser: SignalBrowser, sample_groups, other_groups,
+) -> None:
+    tree_browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
+    assert tree_browser._measurement_filter_combo.isHidden() is True
+
+
+@pytest.mark.requirement("REQ-BROWSER-075")
+def test_tree_mode_shows_all_measurements_after_flat_filter_carryover(
+    browser: SignalBrowser, sample_groups, other_groups,
+) -> None:
+    """Direct regression: filtering Flat mode to one measurement, then
+    switching to Tree, must not silently hide the other measurement's
+    whole subtree with no visible control left to explain why."""
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
+    browser._measurement_filter_combo.setCurrentIndex(2)  # M2 only, in Flat mode
+
+    browser.set_view_mode("tree")
+    browser.populate_all([("M1", sample_groups, False), ("M2", other_groups, False)])
+
+    assert browser._model.rowCount() == 2
+    assert _measurement_item(browser, 0).text() == "M1"
+    assert _measurement_item(browser, 1).text() == "M2"
+
+
+@pytest.mark.requirement("REQ-BROWSER-060")
+def test_switching_back_to_flat_restores_flat_structure(
+    browser: SignalBrowser, sample_groups,
+) -> None:
+    browser.set_view_mode("tree")
+    browser.populate_all([("M1", sample_groups, False)])
+    browser.set_view_mode("flat")
+    browser.populate_all([("M1", sample_groups, False)])
+    assert browser._model.rowCount() == 5  # flat: 5 channel rows, no groups
+    for row in range(browser._model.rowCount()):
+        assert browser._model.item(row).rowCount() == 0

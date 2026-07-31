@@ -4228,6 +4228,51 @@ def test_refresh_plot_background_pushes_to_every_open_tab(
 
 
 # ---------------------------------------------------------------------------
+# Signal Browser view mode (#141)
+# ---------------------------------------------------------------------------
+
+def _ctrl_with_view_mode(tmp_path, deps: dict, mode: str):
+    from mdf_viewer.settings import Settings
+    s = Settings(path=tmp_path / "s.json")
+    s.signal_browser_view_mode = mode
+    ctrl = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+        settings=s,
+    )
+    return ctrl, s
+
+
+@pytest.mark.requirement("REQ-BROWSER-063")
+def test_init_pushes_saved_view_mode_to_browser(tmp_path, deps: dict) -> None:
+    _ctrl_with_view_mode(tmp_path, deps, "tree")
+    deps["browser"].set_view_mode.assert_called_once_with("tree")
+
+
+def test_init_without_settings_does_not_touch_view_mode(ctrl: AppController, deps: dict) -> None:
+    deps["browser"].set_view_mode.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-BROWSER-063")
+def test_refresh_signal_browser_view_mode_pushes_and_repopulates(
+    tmp_path, deps: dict
+) -> None:
+    ctrl, s = _ctrl_with_view_mode(tmp_path, deps, "flat")
+    deps["browser"].set_view_mode.reset_mock()
+    deps["browser"].populate_all.reset_mock()
+    s.signal_browser_view_mode = "tree"
+
+    ctrl.refresh_signal_browser_view_mode()
+
+    deps["browser"].set_view_mode.assert_called_once_with("tree")
+    deps["browser"].populate_all.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # Zoom scope (All Stripes / Active Stripe toggle)
 # ---------------------------------------------------------------------------
 

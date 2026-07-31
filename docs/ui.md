@@ -5,7 +5,7 @@
 ```
 +---------------------------+-----------------------------------------------+------------------+
 | ‹ (pin/collapse button)   |  [Tab 1] [Tab 2] [+]                           |                  |
-| Signal Browser (flat list)|  +---------------------+----------------+      |  Signal Info /   |
+| Signal Browser (Flat/Tree)|  +---------------------+----------------+      |  Signal Info /   |
 | + measurement filter      |  | Plot Stripe 1        | Active Signals |      |  Properties      |
 | (2+ measurements loaded)  |  +---------------------+ Table (per-    |      |  drawer          |
 |                           |  | Plot Stripe 2 (opt.) | stripe         |      |  (pin/collapse   |
@@ -14,7 +14,7 @@
 ```
 
 - **Left panel** (`DockablePanel`, pinned or hover-reveal overlay) – vertical splitter:
-  - **Top** – Signal Browser (flat, cross-measurement channel list + measurement filter once 2+ measurements are loaded, #103)
+  - **Top** – Signal Browser (Flat, #103, or Tree, #141, chosen in Preferences → Signals; Flat is the default)
   - **Bottom** – Measurement Info Box (always tabbed, one tab per loaded measurement, #103)
   - Pin-toggle chevron button collapses the panel to a hidden drawer that slides out on hovering near the window's left edge
 - **Center** – one `QTabWidget` (tabs #99), each tab holding an independent workspace: a horizontal splitter of `[Plot Stripes | Active Signals Table]`. A "+" tab pinned at the end creates a new tab; closing the last tab shows a "No tabs open" placeholder with its own "New Tab" button.
@@ -98,12 +98,24 @@ A per-stripe "Sync"/"Un-Sync" button also floats in the corner of the measuremen
 
 ---
 
-## Signal Browser (Left Panel) (#103)
+## Signal Browser (Left Panel) (#103, #141)
 
+Two display modes, chosen via Preferences → Signals → "Signal Browser view" (Flat/Tree combo, applies immediately on OK, no restart); **Flat is the default**.
+
+**Flat mode (#103):**
 - A single flat, alphabetically-sorted list of every channel from every loaded measurement — no channel-group tree. A channel's original channel-group name is still shown as a hover tooltip.
 - Once 2+ measurements are loaded, each row is prefixed with its measurement's short name (e.g. `[M1] Drehzahl`, `[M2] Drehzahl`) — sorting is keyed on the bare channel name, not the prefix, so identically-named channels from different measurements land next to each other. With exactly one measurement loaded, no prefix is shown.
 - A channel belonging to a virtual (plugin-contributed, not file-backed) measurement is marked with a `(virtual)` prefix on the channel name (#147) — shown regardless of whether the `[label]` prefix itself is shown, so a lone virtual measurement isn't mistaken for a real one with no other measurement loaded for contrast.
 - A measurement filter combo ("All" / one short name per measurement) appears above the list once 2+ measurements are loaded (hidden with 0 or 1); it narrows the list without reloading anything, and composes with the text filter below (both narrow together).
+
+**Tree mode (#141):**
+- Each loaded measurement is a top-level, collapsible node (its own label carries the short name and `(virtual)` marker, so channel/group rows underneath stay plain); its channel groups are child nodes; its channels are leaves — reflecting the file's own hierarchy and order, not an alphabetical resort.
+- A measurement node starts expanded, its channel-group children start collapsed.
+- No measurement filter combo — a measurement's own node is already collapsible.
+- Typing a match into the filter field auto-expands the ancestor group/measurement of any match; clearing the filter collapses back to the default state.
+- Only channel (leaf) rows are selectable/addable/draggable — a Channel Group or Measurement node exists purely to organize the hierarchy and can't be bulk-selected.
+
+**Both modes:**
 - A wildcard filter field (`*`/`?`) above the list narrows it further by name.
 - Signals can be added to the plot via:
   - Double-click on a channel
@@ -164,4 +176,4 @@ Right-edge `DockablePanel` (pin-toggle chevron ›, or hover-reveal near the win
 Tabbed dialog (Edit → Preferences…):
 - **General** — "Undo steps" spinbox (1–100, zoom/pan history depth). The "Check for updates on startup" checkbox that used to live here moved to the Update Checker plugin's own tab in Plugins → Plugin Preferences… (#76) — a separate dialog, not a tab of this one. "Enable logging" checkbox + log level combo box (DEBUG/INFO/WARNING/ERROR, grayed out while disabled) + "Open log folder" button (#126 — opens the log file's folder in the OS file browser, creating it first if it doesn't exist yet; always enabled, independent of the checkbox, so old logs stay reachable after disabling). Changes to the logging controls apply immediately, no restart required.
 - **Cursors** — cursor mode, "persistent" toggle, 4 color swatches (Cursor 1 / Cursor 2 / Cursor Left / Cursor Right chevrons), "Show ∆-Time" checkbox + its own color swatch, arrow-key step size (unit combo box + spinbox), reset-to-defaults button
-- **Signals** — Z-Order combo box (which Active Signals Table row renders on top), selected-signal line-width boost spinbox, "Show only selected signal's Y-axis" checkbox, plot background color swatch + reset-to-default button (#117, defaults to black), Display Name Rule controls (enable toggle, separator/direction/segment count, live preview)
+- **Signals** — "Signal Browser view" combo box (Flat/Tree, #141, defaults to Flat), Z-Order combo box (which Active Signals Table row renders on top), selected-signal line-width boost spinbox, "Show only selected signal's Y-axis" checkbox, plot background color swatch + reset-to-default button (#117, defaults to black), Display Name Rule controls (enable toggle, separator/direction/segment count, live preview)

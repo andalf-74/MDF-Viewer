@@ -45,6 +45,11 @@ _Z_ORDER_OPTIONS: list[tuple[str, str]] = [
     ("bottom_first", "Bottom row on top"),
 ]
 
+_SIGNAL_BROWSER_VIEW_MODE_OPTIONS: list[tuple[str, str]] = [
+    ("flat", "Flat"),
+    ("tree", "Tree"),
+]
+
 
 _FALLBACK_PREVIEW = "ZF_DTI._.AutoDiagPosition.PosADP"
 
@@ -276,6 +281,26 @@ class PreferencesDialog(QDialog):
         signals = QWidget()
         signals_layout = QVBoxLayout(signals)
 
+        view_mode_row = QHBoxLayout()
+        view_mode_row.addWidget(QLabel("Signal Browser view:"))
+        self._view_mode_combo = QComboBox()
+        for _, label in _SIGNAL_BROWSER_VIEW_MODE_OPTIONS:
+            self._view_mode_combo.addItem(label)
+        view_mode_keys = [k for k, _ in _SIGNAL_BROWSER_VIEW_MODE_OPTIONS]
+        self._view_mode_combo.setCurrentIndex(
+            view_mode_keys.index(self._settings.signal_browser_view_mode)
+            if self._settings.signal_browser_view_mode in view_mode_keys else 0
+        )
+        self._view_mode_combo.setToolTip(
+            "Flat: every channel from every loaded measurement in one list.\n"
+            "Tree: channels grouped by measurement and channel group."
+        )
+        view_mode_row.addWidget(self._view_mode_combo)
+        view_mode_row.addStretch()
+        signals_layout.addLayout(view_mode_row)
+
+        signals_layout.addSpacing(8)
+
         z_row = QHBoxLayout()
         z_row.addWidget(QLabel("Z-Order:"))
         self._z_order_combo = QComboBox()
@@ -357,6 +382,7 @@ class PreferencesDialog(QDialog):
         self._settings.prompt_save_config_on_close = self._prompt_save_config.isChecked()
         self._settings.logging_enabled = self._logging_enabled.isChecked()
         self._settings.logging_level = self._log_level.currentText()
+        self._settings.signal_browser_view_mode = _SIGNAL_BROWSER_VIEW_MODE_OPTIONS[self._view_mode_combo.currentIndex()][0]
         self._settings.signal_z_order = _Z_ORDER_OPTIONS[self._z_order_combo.currentIndex()][0]
         self._settings.selected_line_boost = self._line_boost.value()
         self._settings.show_only_selected_y_axis = self._show_only_selected_y_axis.isChecked()

@@ -5,6 +5,11 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Signal Browser Tree view (#141): Preferences ▸ Signals gained a "Signal
+  Browser view" dropdown to switch the Signal Browser between Flat
+  (today's single cross-measurement list, still the default) and Tree
+  (channels grouped by measurement and channel group, matching the file's
+  own order). Applies immediately, no restart required.
 - Application logging (#126): the app now writes lifecycle events, errors,
   and uncaught exceptions to a rotating log file
   (`<config dir>/logs/mdf_viewer.log`, 5MB × 3 backups). Preferences ▸

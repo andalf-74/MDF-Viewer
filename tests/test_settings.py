@@ -794,6 +794,50 @@ def test_config_path_mode_defaults_on_missing_key(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# signal_browser_view_mode
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-BROWSER-062")
+def test_signal_browser_view_mode_default_is_flat(settings: Settings) -> None:
+    assert settings.signal_browser_view_mode == "flat"
+
+
+@pytest.mark.requirement("REQ-BROWSER-060")
+def test_signal_browser_view_mode_can_be_set_to_tree(settings: Settings) -> None:
+    settings.signal_browser_view_mode = "tree"
+    assert settings.signal_browser_view_mode == "tree"
+
+
+@pytest.mark.requirement("REQ-BROWSER-062")
+@pytest.mark.requirement("REQ-NFR-020")
+def test_signal_browser_view_mode_invalid_falls_back_to_default(settings: Settings) -> None:
+    settings.signal_browser_view_mode = "bogus"
+    assert settings.signal_browser_view_mode == "flat"
+
+
+@pytest.mark.requirement("REQ-BROWSER-061")
+def test_signal_browser_view_mode_persists(settings: Settings) -> None:
+    settings.signal_browser_view_mode = "tree"
+    reloaded = Settings(path=settings._path)
+    assert reloaded.signal_browser_view_mode == "tree"
+
+
+@pytest.mark.requirement("REQ-BROWSER-062")
+def test_signal_browser_view_mode_defaults_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text("{}", encoding="utf-8")
+    assert Settings(path=path).signal_browser_view_mode == "flat"
+
+
+@pytest.mark.requirement("REQ-BROWSER-062")
+@pytest.mark.requirement("REQ-NFR-020")
+def test_signal_browser_view_mode_corrupt_value_on_disk_falls_back_to_default(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"signal_browser_view_mode": "bogus"}), encoding="utf-8")
+    assert Settings(path=path).signal_browser_view_mode == "flat"
+
+
+# ---------------------------------------------------------------------------
 # prompt_save_config_on_close
 # ---------------------------------------------------------------------------
 

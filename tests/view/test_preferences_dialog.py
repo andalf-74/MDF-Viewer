@@ -250,6 +250,44 @@ def test_show_only_selected_y_axis_apply_false_saves_to_settings(
 
 
 # ---------------------------------------------------------------------------
+# signal_browser_view_mode combo (#141)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-BROWSER-062")
+def test_view_mode_combo_defaults_to_flat(dlg: PreferencesDialog) -> None:
+    assert dlg._view_mode_combo.currentIndex() == 0
+    assert dlg._view_mode_combo.currentText() == "Flat"
+
+
+@pytest.mark.requirement("REQ-BROWSER-060")
+def test_view_mode_combo_initialised_from_settings(qtbot: QtBot, settings: Settings) -> None:
+    settings.signal_browser_view_mode = "tree"
+    dlg = PreferencesDialog(settings)
+    qtbot.addWidget(dlg)
+    assert dlg._view_mode_combo.currentIndex() == 1
+    assert dlg._view_mode_combo.currentText() == "Tree"
+
+
+@pytest.mark.requirement("REQ-BROWSER-060")
+def test_view_mode_combo_apply_saves_tree_to_settings(
+    dlg: PreferencesDialog, settings: Settings
+) -> None:
+    dlg._view_mode_combo.setCurrentIndex(1)  # Tree
+    dlg._apply()
+    assert settings.signal_browser_view_mode == "tree"
+
+
+@pytest.mark.requirement("REQ-BROWSER-062")
+def test_view_mode_combo_apply_saves_flat_to_settings(
+    dlg: PreferencesDialog, settings: Settings
+) -> None:
+    settings.signal_browser_view_mode = "tree"
+    dlg._view_mode_combo.setCurrentIndex(0)  # Flat
+    dlg._apply()
+    assert settings.signal_browser_view_mode == "flat"
+
+
+# ---------------------------------------------------------------------------
 # keep_signals_on_load radio buttons
 # ---------------------------------------------------------------------------
 
