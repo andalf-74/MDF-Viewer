@@ -5,6 +5,13 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Status Bar Message History (#125): an always-visible button on the left
+  of the status bar opens a non-modal history of every status message
+  shown this session, each with a timestamp, in a selectable/copyable
+  list with a "Copy to Clipboard" button — useful for pasting recent
+  activity into a bug report. Live-updates while open; history resets on
+  the next launch. Most messages are also written to the application log
+  (#126) at INFO level.
 - Signal Browser Tree view (#141): Preferences ▸ Signals gained a "Signal
   Browser view" dropdown to switch the Signal Browser between Flat
   (today's single cross-measurement list, still the default) and Tree

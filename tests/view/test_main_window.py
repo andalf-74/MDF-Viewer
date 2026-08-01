@@ -2059,6 +2059,107 @@ def test_show_status_displays_message(window: MainWindow) -> None:
     assert window.statusBar().currentMessage() == "hello world"
 
 
+@pytest.mark.requirement("REQ-STATUS-010")
+def test_show_status_records_into_history(window: MainWindow) -> None:
+    window.show_status("hello world", timeout_ms=0)
+    assert [e.text for e in window._status_history.entries] == ["hello world"]
+
+
+@pytest.mark.requirement("REQ-STATUS-010")
+def test_show_status_records_every_call_regardless_of_log(window: MainWindow) -> None:
+    window.show_status("logged", timeout_ms=0)
+    window.show_status("not logged", timeout_ms=0, log=False)
+    assert [e.text for e in window._status_history.entries] == ["logged", "not logged"]
+
+
+@pytest.mark.requirement("REQ-STATUS-014")
+def test_show_status_logs_at_info_by_default(window: MainWindow, caplog) -> None:
+    with caplog.at_level("INFO", logger="mdf_viewer.view.main_window"):
+        window.show_status("workspace saved", timeout_ms=0)
+    assert "workspace saved" in caplog.text
+
+
+@pytest.mark.requirement("REQ-STATUS-014")
+def test_show_status_log_false_skips_the_log(window: MainWindow, caplog) -> None:
+    with caplog.at_level("INFO", logger="mdf_viewer.view.main_window"):
+        window.show_status("routine guard message", timeout_ms=0, log=False)
+    assert "routine guard message" not in caplog.text
+
+
+@pytest.mark.requirement("REQ-STATUS-015")
+def test_show_status_log_false_still_recorded_in_history(window: MainWindow) -> None:
+    window.show_status("routine guard message", timeout_ms=0, log=False)
+    assert [e.text for e in window._status_history.entries] == ["routine guard message"]
+
+
+@pytest.mark.requirement("REQ-STATUS-020")
+def test_status_history_button_present(window: MainWindow) -> None:
+    from PyQt6.QtWidgets import QPushButton
+    button = window.statusBar().findChild(QPushButton, "status_history_button")
+    assert button is not None
+
+
+@pytest.mark.requirement("REQ-STATUS-020")
+def test_status_history_button_click_opens_dialog(window: MainWindow) -> None:
+    assert window._status_history_dialog is None
+    window._on_show_status_history()
+    assert window._status_history_dialog is not None
+    assert window._status_history_dialog.isVisible()
+
+
+@pytest.mark.requirement("REQ-STATUS-022")
+def test_status_history_button_reclick_reuses_same_dialog(window: MainWindow) -> None:
+    window._on_show_status_history()
+    first = window._status_history_dialog
+    window._on_show_status_history()
+    assert window._status_history_dialog is first
+
+
+@pytest.mark.requirement("REQ-STATUS-022")
+def test_status_history_reopen_after_close_reuses_same_instance(window: MainWindow) -> None:
+    window._on_show_status_history()
+    first = window._status_history_dialog
+    first.close()
+    assert not first.isVisible()
+    window._on_show_status_history()
+    assert window._status_history_dialog is first
+    assert first.isVisible()
+
+
+@pytest.mark.requirement("REQ-STATUS-023")
+def test_show_status_appends_live_to_open_dialog(window: MainWindow) -> None:
+    window._on_show_status_history()
+    window.show_status("a new message", timeout_ms=0)
+    assert "a new message" in window._status_history_dialog._text.toPlainText()
+
+
+@pytest.mark.requirement("REQ-STATUS-023")
+def test_show_status_appends_even_while_dialog_hidden(window: MainWindow) -> None:
+    window._on_show_status_history()
+    window._status_history_dialog.close()
+    window.show_status("recorded while hidden", timeout_ms=0)
+    window._on_show_status_history()
+    assert "recorded while hidden" in window._status_history_dialog._text.toPlainText()
+
+
+def test_show_status_with_no_dialog_built_does_not_error(window: MainWindow) -> None:
+    assert window._status_history_dialog is None
+    window.show_status("no dialog yet", timeout_ms=0)  # should not raise
+
+
+def test_close_event_closes_open_status_history_dialog(window: MainWindow) -> None:
+    window._on_show_status_history()
+    dialog = window._status_history_dialog
+    assert dialog.isVisible()
+    window.close()
+    assert not dialog.isVisible()
+
+
+def test_close_event_with_no_status_history_dialog_does_not_error(window: MainWindow) -> None:
+    assert window._status_history_dialog is None
+    window.close()  # should not raise
+
+
 # ---------------------------------------------------------------------------
 # _on_add_signals — multi-add and skip notification
 # ---------------------------------------------------------------------------

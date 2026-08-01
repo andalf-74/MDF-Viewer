@@ -22,6 +22,7 @@ data-loading or plotting logic.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
@@ -82,6 +83,8 @@ from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
 from mdf_viewer.view.plot_stripes_area import PlotStripesArea
 from mdf_viewer.view.signal_browser import SignalBrowser
 from mdf_viewer.view.signal_info_box import SignalInfoBox
+from mdf_viewer.view.status_history_dialog import StatusHistoryDialog
+from mdf_viewer.view.status_message_history import StatusMessageHistory
 from mdf_viewer.view.widgets import busy_cursor, make_splitter
 from mdf_viewer.view.widgets.icons import _ICONS_DIR, _icon_color, _load_icon
 from mdf_viewer.view.workspace_session_controller import WorkspaceSessionController
@@ -96,6 +99,8 @@ if TYPE_CHECKING:
         PreferencesPageRegistration,
         TabTypeRegistration,
     )
+
+logger = logging.getLogger("mdf_viewer.view.main_window")
 
 _PANEL_W = 260         # left panel default width in pixels
 _INFO_DRAWER_W = 260   # info/properties drawer default width in pixels
@@ -289,6 +294,12 @@ class MainWindow(QMainWindow):
         # _make_tab_page()) — AppController stays entirely unaware either
         # kind exists.
         self._tab_type_by_page: dict[QWidget, "TabTypeRegistration"] = {}
+        # In-session status bar message history (#125) — view-owned, no
+        # AppController/PluginContext involvement (REQ-STATUS-010/011).
+        self._status_history = StatusMessageHistory()
+        # Built lazily on first click (REQ-STATUS-020), reused/raised on
+        # every later click while still open (REQ-STATUS-022).
+        self._status_history_dialog: StatusHistoryDialog | None = None
         self.setWindowTitle("MDF-Viewer — unregistered")
         self.setWindowIcon(QIcon(str(_ICONS_DIR / "app_icon.ico")))
         self.resize(1280, 800)
@@ -297,6 +308,7 @@ class MainWindow(QMainWindow):
         self._build_toolbar()
         self._build_layout()
         self.statusBar()  # pre-create so its height is always reserved
+        self._build_status_history_button()
         # Every callable below is a lambda that looks up the target method on
         # `self` at CALL time, not a bound method captured here at __init__
         # time — tests patch these via patch.object(window, "_method_name")
@@ -777,9 +789,52 @@ class MainWindow(QMainWindow):
         """
         self._tab_factory = factory
 
-    def show_status(self, message: str, timeout_ms: int = 3000) -> None:
-        """Show a transient status bar message."""
+    def show_status(self, message: str, timeout_ms: int = 3000, *, log: bool = True) -> None:
+        """Show a transient status bar message, recording it into history.
+
+        *log* controls whether the message is also written to the
+        application log at INFO level (REQ-STATUS-014) — routine,
+        high-frequency guard messages pass ``log=False`` to match
+        `docs/requirements/logging.md`'s existing exclusion of those from
+        the log file. Every message is recorded into the in-session
+        history (REQ-STATUS-010) regardless of *log*.
+        """
         self.statusBar().showMessage(message, timeout_ms)
+        entry = self._status_history.record(message)
+        if log:
+            logger.info(message)
+        if self._status_history_dialog is not None:
+            # Appended regardless of the dialog's current visibility, not
+            # only while it's shown (REQ-STATUS-023) — otherwise reopening
+            # a dialog the user had merely closed (still cached, per
+            # REQ-STATUS-022) would show stale content missing whatever was
+            # recorded while it was hidden.
+            self._status_history_dialog.append_entry(entry)
+
+    def _build_status_history_button(self) -> None:
+        """Always-visible left-side status bar button opening the Status
+        Message History dialog (REQ-STATUS-020)."""
+        button = QPushButton()
+        button.setObjectName("status_history_button")
+        button.setIcon(_load_icon("status_log"))
+        button.setIconSize(QSize(16, 16))
+        button.setFlat(True)
+        button.setFixedSize(24, 20)
+        button.setToolTip("Status Message History")
+        button.clicked.connect(self._on_show_status_history)
+        self.statusBar().addWidget(button)
+
+    def _on_show_status_history(self) -> None:
+        """Open the Status Message History dialog, or raise it to the front
+        if it's already open (REQ-STATUS-021/022)."""
+        if self._status_history_dialog is None:
+            self._status_history_dialog = StatusHistoryDialog(self._status_history, parent=self)
+        dialog = self._status_history_dialog
+        if dialog.isVisible():
+            dialog.raise_()
+            dialog.activateWindow()
+        else:
+            dialog.show()
 
     def set_plugin_loader_hooks(
         self,
@@ -1690,7 +1745,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error Loading Signal", str(exc))
         if skipped:
             noun = "signal" if skipped == 1 else "signals"
-            self.show_status(f"{skipped} {noun} already active, skipped.")
+            self.show_status(f"{skipped} {noun} already active, skipped.", log=False)
 
     def _on_add_signals_to_stripe(self, locations: list, stripe) -> None:
         """A drag-and-drop of one or more channels from the Signal Browser
@@ -1712,7 +1767,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.critical(self, "Error Loading Signal", str(exc))
         if skipped:
             noun = "signal" if skipped == 1 else "signals"
-            self.show_status(f"{skipped} {noun} already active, skipped.")
+            self.show_status(f"{skipped} {noun} already active, skipped.", log=False)
 
     def _on_active_signals_dropped_to_stripe(self, ids: set, stripe) -> None:
         """An already-active signal was dragged from the Active Signals Table
@@ -1733,7 +1788,7 @@ class MainWindow(QMainWindow):
             return
         if not self._controller.get_signals_in_stripe(stripe):
             if not self._controller.delete_stripe(stripe):
-                self.show_status("Cannot delete the last remaining stripe.")
+                self.show_status("Cannot delete the last remaining stripe.", log=False)
             return
         reply = QMessageBox.question(
             self,
@@ -2131,13 +2186,13 @@ class MainWindow(QMainWindow):
         if self._controller is None:
             return
         if not self._controller.zoom_y_to_view():
-            self.show_status("No active signals to zoom.")
+            self.show_status("No active signals to zoom.", log=False)
 
     def _on_swimlanes(self) -> None:
         if self._controller is None:
             return
         if not self._controller.swimlanes():
-            self.show_status("No active signals to arrange.")
+            self.show_status("No active signals to arrange.", log=False)
 
     def _on_zoom_to_cursors(self) -> None:
         if self._controller is not None:
@@ -2233,7 +2288,7 @@ class MainWindow(QMainWindow):
             return
         units = {s.metadata.unit for s in signals}
         if len(units) > 1:
-            self.show_status("Cannot merge axis: selected signals have different units.")
+            self.show_status("Cannot merge axis: selected signals have different units.", log=False)
             return
         self._controller.on_merge_y_axis_requested(signals)
 
@@ -2242,7 +2297,7 @@ class MainWindow(QMainWindow):
             return
         units = {s.metadata.unit for s in signals}
         if len(units) > 1:
-            self.show_status("Cannot sync axes: selected signals have different units.")
+            self.show_status("Cannot sync axes: selected signals have different units.", log=False)
             return
         self._controller.on_sync_y_axis_requested(signals)
 
@@ -2309,6 +2364,13 @@ class MainWindow(QMainWindow):
         if self._parked_page is not None:
             self._parked_page.deleteLater()
             self._parked_page = None
+        # The Status Message History dialog (#125) is non-modal and can be
+        # left open indefinitely; QApplication's default
+        # quitOnLastWindowClosed only quits once the last VISIBLE top-level
+        # window closes, so leaving it open here would silently prevent the
+        # app from exiting once this window closes.
+        if self._status_history_dialog is not None:
+            self._status_history_dialog.close()
         event.accept()
 
     def _should_prompt_save_on_close(self) -> bool:

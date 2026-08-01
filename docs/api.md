@@ -391,7 +391,14 @@ Constructor creates the five view widgets above as public attrs, then `_build_ac
 
 ### Other public methods
 
-`set_controller(controller)` (wires the shared Signal Browser/drawer once, then `_wire_tab_view` for tab 1 only), `set_recent_files_provider(provider)`, `set_settings(settings)`, `trigger_startup_update_check()`, `show_status(message, timeout_ms=3000)`, `set_zoom_all_stripes(enabled)`, `set_license(info, manager=None)`, `open_config(path)` (`.mvc`, called from `app.py`).
+`set_controller(controller)` (wires the shared Signal Browser/drawer once, then `_wire_tab_view` for tab 1 only), `set_recent_files_provider(provider)`, `set_settings(settings)`, `trigger_startup_update_check()`, `show_status(message, timeout_ms=3000, *, log=True)` (see Status Bar below), `set_zoom_all_stripes(enabled)`, `set_license(info, manager=None)`, `open_config(path)` (`.mvc`, called from `app.py`).
+
+### Status Bar (#125)
+
+- `show_status(message, timeout_ms=3000, *, log=True)` — shows the transient message as before, unconditionally records it into `self._status_history` (a `StatusMessageHistory`, `src/mdf_viewer/view/status_message_history.py` — plain data, view-owned, no `AppController`/`PluginContext` involvement), and, when `log` is `True` (the default), also logs it at INFO via the module logger `logging.getLogger("mdf_viewer.view.main_window")`. `log=False` is passed at the small set of call sites matching `docs/requirements/logging.md`'s existing routine/high-frequency-action exclusion (e.g. "No active signals to zoom.", "Cannot merge axis..."). If `self._status_history_dialog` is already built, the new entry is also appended to it directly — regardless of the dialog's current visibility, so reopening a dialog the user had merely closed never shows stale content.
+- `self._status_history_dialog: StatusHistoryDialog | None` — built lazily on first click of the status-bar's "status_history_button" (`_build_status_history_button()`, called once from `__init__`), then cached for the rest of the session. `_on_show_status_history()` is the button's click handler: builds-and-shows on first call; on a later call, raises/activates the existing instance if visible, or re-`show()`s it if the user had closed it (`QDialog.close()` on a non-executed dialog just hides it, it isn't destroyed).
+- `StatusHistoryDialog` (`src/mdf_viewer/view/status_history_dialog.py`) — non-modal `QDialog`: a read-only `QPlainTextEdit` (one line per message, `"HH:MM:SS  text"`, native Qt text selection), a "Copy to Clipboard" button (`QGuiApplication.clipboard().setText(...)`, always the full history regardless of any selection), and a Close button. `append_entry(entry)` adds one new line without rebuilding the whole document.
+- `closeEvent()` explicitly closes `self._status_history_dialog` (if built) before accepting — the dialog being non-modal means it can be left open indefinitely, and Qt's default `quitOnLastWindowClosed` only quits once the last *visible* top-level window closes, so an open history dialog would otherwise silently prevent the app from exiting.
 
 ## WorkspaceSessionController (#136)
 

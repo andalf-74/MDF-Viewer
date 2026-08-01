@@ -11,9 +11,12 @@ for it — see #126.
 `docs/architecture.md`). A requirement below should read the same regardless
 of which layer ends up owning it. Also out of scope: an in-app log viewer
 (logging writes to a file only, there is no in-app panel that displays log
-entries), and any new `PluginContext` API — a plugin obtains a logger the
-same way core modules already do, via Python's standard `logging` module,
-and is captured automatically once the conditions in REQ-LOG-034 are met.
+entries — a separate in-session, non-persisted status bar message history is
+covered by `docs/requirements/status-bar.md`, which also feeds non-routine
+status messages into this log per REQ-STATUS-014), and any new
+`PluginContext` API — a plugin obtains a logger the same way core modules
+already do, via Python's standard `logging` module, and is captured
+automatically once the conditions in REQ-LOG-034 are met.
 
 **Conventions:** requirements are numbered `REQ-LOG-NNN`, grouped by
 sub-topic with gaps left for insertion. Each testable statement is tagged

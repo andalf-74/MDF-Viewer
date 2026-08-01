@@ -65,6 +65,12 @@ A per-stripe "Sync"/"Un-Sync" button also floats in the corner of the measuremen
 
 ---
 
+## Status Bar (#125)
+
+Transient status messages (e.g. "Workspace saved to X", plugin rescan/reload results) show briefly on the status bar as before. An always-visible button on the **left** side of the status bar opens the non-modal **Status Message History** dialog — every message shown this session, each prefixed with its `HH:MM:SS` timestamp, in a read-only, selectable text area. The dialog live-updates as new messages arrive while it stays open, and its "Copy to Clipboard" button always copies the entire history (not just a selection) — useful for pasting recent activity into a bug report. History is in-memory only and resets on the next launch; non-routine messages (most of them — routine guard messages like "No active signals to zoom" are excluded, matching the log file's own exclusion) are also written to the application log at INFO level (see the Logging entry in `docs/requirements/logging.md`). Only one instance of the dialog exists per session — clicking the button again while it's open raises the existing window instead of opening a second one.
+
+---
+
 ## Tabs (#99)
 
 - Each tab is an independent workspace: its own plot stripes, Active Signals Table, active-signal list, zoom/cursor history, and axis grouping — nothing is shared between tabs except the Signal Browser, Measurement Info Box, and the Signal Info/Properties drawer.
