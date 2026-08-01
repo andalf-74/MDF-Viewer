@@ -981,6 +981,47 @@ def test_ctrl_w_no_selection_does_not_emit(table: ActiveSignalsTable, qtbot: QtB
         qtbot.keyClick(table, Qt.Key.Key_W, Qt.KeyboardModifier.ControlModifier)
 
 
+@pytest.mark.requirement("REQ-PLOT-341")
+def test_ctrl_c_copies_raw_names_of_selected_signals(populated: tuple, qtbot: QtBot) -> None:
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtGui import QGuiApplication
+    t, sigs = populated
+    _select_rows(t, 0, 1)
+    with qtbot.waitSignal(t.names_copied, timeout=500) as blocker:
+        qtbot.keyClick(t, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+    assert blocker.args[0] == 2
+    assert QGuiApplication.clipboard().text() == "alpha\nbeta"
+
+
+@pytest.mark.requirement("REQ-PLOT-342")
+def test_ctrl_c_no_selection_does_not_copy(table: ActiveSignalsTable, qtbot: QtBot) -> None:
+    from PyQt6.QtCore import Qt
+    with qtbot.assertNotEmitted(table.names_copied):
+        qtbot.keyClick(table, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+
+
+@pytest.mark.requirement("REQ-PLOT-341")
+def test_copy_names_action_present_in_context_menu(populated: tuple) -> None:
+    t, sigs = populated
+    titles = [a.text() for a in _open_context_menu(t).actions()]
+    assert "Copy Name" in titles
+
+
+@pytest.mark.requirement("REQ-PLOT-342")
+def test_copy_names_context_menu_falls_back_to_right_clicked_row(
+    populated: tuple, qtbot: QtBot
+) -> None:
+    """Mirrors Remove/Toggle Visibility's existing fallback: nothing
+    selected, right-click a row — that row alone is used."""
+    from PyQt6.QtGui import QGuiApplication
+    t, sigs = populated  # nothing selected
+    menu = _open_context_menu(t)  # right-clicks row 0 (see _open_context_menu)
+    copy_action = next(a for a in menu.actions() if a.text().startswith("Copy Name"))
+    with qtbot.waitSignal(t.names_copied, timeout=500):
+        copy_action.trigger()
+    assert QGuiApplication.clipboard().text() == "alpha"
+
+
 @pytest.mark.requirement("REQ-PLOT-059")
 def test_ctrl_d_requests_autozoom_for_selected_signals(populated: tuple, qtbot: QtBot) -> None:
     from PyQt6.QtCore import Qt

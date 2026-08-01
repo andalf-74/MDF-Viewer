@@ -128,6 +128,7 @@ Two display modes, chosen via Preferences → Signals → "Signal Browser view" 
   - Select (highlight) + click "Add Signal" button below the list
   - Drag one or more selected channels onto a Plot Stripe or the Active Signals Table
 - Multi-select: `ExtendedSelection` mode — Ctrl+click (individual), Shift+click (range); a selection (and a single drag gesture) can span rows from different measurements — each channel resolves its own measurement rather than sharing one for the whole request.
+- **Ctrl+C** (#163) copies the raw channel name(s) — no `[M1]` measurement prefix, no unit — of the current selection to the system clipboard, one per line; a status bar message reports how many were copied. No-op with nothing selected.
 
 ---
 
@@ -158,10 +159,11 @@ Divided into one segment per stripe, stacked top-to-bottom in the same order as 
 
 - Each segment's stripe name is shown as a label above it (double-click to rename, mirroring tab renaming).
 - Dragging a row within or across segments reorders it or moves the signal to a different stripe (the drop target's segment); this also relocates the signal in the plot.
-- Right-click context menu: Remove Signal(s), Toggle Visibility (#133), Y Autozoom (#142), Enable/Disable Step Mode, Shorten Signal Names (toggle), Display Name Rule…, Merge Y-Axis / Sync Y-Axis / Remove from merged-synced axis (2+ signals), Move to Stripe / Move to new Stripe.
+- Right-click context menu: Copy Name(s) (#163), Remove Signal(s), Toggle Visibility (#133), Y Autozoom (#142), Enable/Disable Step Mode, Shorten Signal Names (toggle), Display Name Rule…, Merge Y-Axis / Sync Y-Axis / Remove from merged-synced axis (2+ signals), Move to Stripe / Move to new Stripe.
 - **Remove Signal** / **Remove All** buttons below the table (spanning all segments) remove the selected/every active signal from the table and plot.
 - **Ctrl+W** toggles visibility for whichever row(s) are currently selected, each independently — a mix of visible/hidden rows ends up with each one inverted, never forced to one shared state (#133).
 - **Ctrl+D** (or the "Y Autozoom" context-menu entry) rescales the Y-axis of whichever row(s) are currently selected to fit the data visible within the current X range, applied independently to each selected signal's own axis (or its whole Merged/Synced group, if it's in one) (#142).
+- **Ctrl+C** (or the "Copy Name(s)" context-menu entry, #163) copies the raw channel name(s) of the current selection to the system clipboard, one per line; a status bar message reports how many were copied. The keyboard shortcut is a no-op with nothing selected; the context-menu entry falls back to the right-clicked row instead, matching every other entry in this menu.
 - Hiding a signal (#133) hides its curve and its own Y-axis (a Merged/Synced group's shared axis stays until every member is hidden); it stays fully selectable and editable, its Cursor 1/2/Delta values keep updating, and Zoom to Fit/Zoom Y to View/Swimlanes ignore its data range.
 - Selection here drives the Signal Info/Properties drawer's content.
 

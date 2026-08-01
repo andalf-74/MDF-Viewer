@@ -2234,6 +2234,30 @@ def test_on_undo_nothing_to_undo_not_logged(
 
 
 # ---------------------------------------------------------------------------
+# Copy Signal Names (#163) — status message wiring
+# ---------------------------------------------------------------------------
+
+def test_on_names_copied_shows_status_message_singular(wired: MainWindow) -> None:
+    wired._on_names_copied(1)
+    assert wired.statusBar().currentMessage() == "1 signal name copied to clipboard."
+
+
+def test_on_names_copied_shows_status_message_plural(wired: MainWindow) -> None:
+    wired._on_names_copied(3)
+    assert wired.statusBar().currentMessage() == "3 signal names copied to clipboard."
+
+
+def test_signal_browser_names_copied_wired_to_status(wired: MainWindow) -> None:
+    wired.signal_browser.names_copied.emit(2)
+    assert wired.statusBar().currentMessage() == "2 signal names copied to clipboard."
+
+
+def test_active_signals_table_names_copied_wired_to_status(wired: MainWindow) -> None:
+    wired.active_signals_table.names_copied.emit(2)
+    assert wired.statusBar().currentMessage() == "2 signal names copied to clipboard."
+
+
+# ---------------------------------------------------------------------------
 # _on_add_signals — multi-add and skip notification
 # ---------------------------------------------------------------------------
 

@@ -137,3 +137,12 @@ selected to add its descendant channels in bulk [REQ-BROWSER-074]. The
 measurement filter (REQ-BROWSER-052) is not shown in Tree mode, since
 collapsing a measurement's own node already narrows the view to the
 others [REQ-BROWSER-075].
+
+## Copy Signal Names (#163)
+
+The Ctrl+C keyboard shortcut copies the raw channel names (not the
+on-screen display name, and not any measurement-disambiguation prefix)
+of the currently selected channel(s) to the system clipboard, one per
+line [REQ-BROWSER-080]. Ctrl+C acts only when at least one channel is
+selected [REQ-BROWSER-081]. A status bar message reports how many names
+were copied [REQ-BROWSER-082].

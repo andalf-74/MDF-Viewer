@@ -747,3 +747,15 @@ visible signal's would [REQ-PLOT-338]. Hidden state is saved and
 restored as part of a signal's other per-signal display settings
 (`file-handling.md` REQ-FILE-061) — a signal reloads with the same
 visibility it had when the workspace was saved [REQ-PLOT-339].
+
+## Copy Signal Names (#163)
+
+The Active Signals Table copies the raw channel names (not the on-screen
+display name, and not any measurement-disambiguation prefix) of its
+currently selected signal(s) to the system clipboard, one per line, via
+the Ctrl+C keyboard shortcut or a "Copy Name"/"Copy Names" context-menu
+entry [REQ-PLOT-341]. Ctrl+C acts only when at least one row is selected; the
+context-menu entry falls back to the right-clicked row when nothing is
+selected, mirroring every other Active Signals Table context-menu action
+[REQ-PLOT-342]. A status bar message reports how many names were copied
+[REQ-PLOT-343].

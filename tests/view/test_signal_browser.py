@@ -359,6 +359,50 @@ def test_selected_locations_returns_multiple(
 
 
 # ---------------------------------------------------------------------------
+# Copy Signal Names (#163)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-BROWSER-080")
+def test_ctrl_c_copies_raw_names_of_selected_channels(
+    populated_browser: SignalBrowser, qtbot: QtBot,
+) -> None:
+    from PyQt6.QtGui import QGuiApplication
+
+    sm = populated_browser._tree.selectionModel()
+    sin_idx = _px(populated_browser, _item_by_text(populated_browser, "sin [V]"))
+    cos_idx = _px(populated_browser, _item_by_text(populated_browser, "cos [A]"))
+    sm.select(sin_idx, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+    sm.select(cos_idx, QItemSelectionModel.SelectionFlag.Select)
+    with qtbot.waitSignal(populated_browser.names_copied, timeout=500) as blocker:
+        qtbot.keyClick(
+            populated_browser._tree, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier
+        )
+    assert blocker.args[0] == 2
+    copied = set(QGuiApplication.clipboard().text().split("\n"))
+    assert copied == {"sin", "cos"}
+
+
+@pytest.mark.requirement("REQ-BROWSER-081")
+def test_ctrl_c_no_selection_does_not_copy(
+    populated_browser: SignalBrowser, qtbot: QtBot,
+) -> None:
+    with qtbot.assertNotEmitted(populated_browser.names_copied):
+        qtbot.keyClick(
+            populated_browser._tree, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier
+        )
+
+
+@pytest.mark.requirement("REQ-BROWSER-080")
+def test_selected_names_returns_raw_names_without_unit_or_prefix(
+    populated_browser: SignalBrowser,
+) -> None:
+    sm = populated_browser._tree.selectionModel()
+    speed_idx = _px(populated_browser, _item_by_text(populated_browser, "speed [km/h]"))
+    sm.select(speed_idx, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+    assert populated_browser._selected_names() == ["speed"]
+
+
+# ---------------------------------------------------------------------------
 # Filter behaviour (text filter, unaffected in mechanics by #103)
 # ---------------------------------------------------------------------------
 

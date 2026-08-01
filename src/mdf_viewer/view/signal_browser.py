@@ -35,7 +35,7 @@ from PyQt6.QtCore import (
     QTimer,
     pyqtSignal,
 )
-from PyQt6.QtGui import QDrag, QStandardItem, QStandardItemModel
+from PyQt6.QtGui import QDrag, QGuiApplication, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -69,9 +69,10 @@ _FILTER_DELAY_MS = 250
 class _DragTreeView(QTreeView):
     """QTreeView that encodes selected signal locations as MIME data on drag."""
 
-    def __init__(self, get_locations, parent=None):
+    def __init__(self, get_locations, on_copy=None, parent=None):
         super().__init__(parent)
         self._get_locations = get_locations
+        self._on_copy = on_copy
 
     def startDrag(self, supported_actions):
         locations = self._get_locations()
@@ -83,6 +84,16 @@ class _DragTreeView(QTreeView):
         drag = QDrag(self)
         drag.setMimeData(mime)
         drag.exec(Qt.DropAction.CopyAction)
+
+    def keyPressEvent(self, event) -> None:
+        if (
+            self._on_copy is not None
+            and event.key() == Qt.Key.Key_C
+            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        ):
+            self._on_copy()
+        else:
+            super().keyPressEvent(event)
 
 
 class _FlatSignalProxy(QSortFilterProxyModel):
@@ -127,6 +138,9 @@ class SignalBrowser(QWidget):
 
     # Emits a list of (measurement_index, group_index, channel_index) triples.
     add_signals_requested = pyqtSignal(list)
+    # int — how many names were copied via Ctrl+C (#163); MainWindow shows a
+    # status message with it (REQ-BROWSER-082).
+    names_copied = pyqtSignal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -148,7 +162,7 @@ class SignalBrowser(QWidget):
         self._filter_edit.setClearButtonEnabled(True)
         layout.addWidget(self._filter_edit)
 
-        self._tree = _DragTreeView(self._selected_locations)
+        self._tree = _DragTreeView(self._selected_locations, on_copy=self._on_copy_names)
         self._tree.setHeaderHidden(True)
         self._tree.setRootIsDecorated(False)
         self._tree.setEditTriggers(QTreeView.EditTrigger.NoEditTriggers)
@@ -311,6 +325,15 @@ class SignalBrowser(QWidget):
         if locs:
             self.add_signals_requested.emit(locs)
 
+    def _on_copy_names(self) -> None:
+        """Copy each selected channel's raw name (not its on-screen display
+        text) to the clipboard, one per line (#163, REQ-BROWSER-080)."""
+        names = self._selected_names()
+        if not names:
+            return
+        QGuiApplication.clipboard().setText("\n".join(names))
+        self.names_copied.emit(len(names))
+
     def _on_double_click(self, proxy_index) -> None:
         source_index = self._proxy.mapToSource(proxy_index)
         item = self._model.itemFromIndex(source_index)
@@ -323,6 +346,19 @@ class SignalBrowser(QWidget):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _selected_names(self) -> list[str]:
+        """Return the raw channel name (no measurement prefix, no unit) for
+        each selected row, in _SORT_ROLE (#163)."""
+        names = []
+        for idx in self._tree.selectedIndexes():
+            src = self._proxy.mapToSource(idx)
+            item = self._model.itemFromIndex(src)
+            if item is not None:
+                name = item.data(_SORT_ROLE)
+                if name is not None:
+                    names.append(name)
+        return names
 
     def _selected_locations(self) -> list[tuple[int, int, int]]:
         """Return [(measurement_index, group_index, channel_index), ...] for the selection."""

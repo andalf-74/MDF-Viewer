@@ -356,6 +356,7 @@ class MainWindow(QMainWindow):
         self._controller = controller
         controller.set_cursor_mode_callback(self._on_cursor_mode_changed)
         self.signal_browser.add_signals_requested.connect(self._on_add_signals)
+        self.signal_browser.names_copied.connect(self._on_names_copied)
         self.measurement_info_box.primary_change_requested.connect(
             controller.set_primary_measurement
         )
@@ -759,6 +760,7 @@ class MainWindow(QMainWindow):
         active_signals_table.y_autozoom_requested.connect(
             controller.on_y_autozoom_requested
         )
+        active_signals_table.names_copied.connect(self._on_names_copied)
         active_signals_table.move_to_stripe_requested.connect(
             controller.move_signals_to_stripe
         )
@@ -824,6 +826,13 @@ class MainWindow(QMainWindow):
             # REQ-STATUS-022) would show stale content missing whatever was
             # recorded while it was hidden.
             self._status_history_dialog.append_entry(entry)
+
+    def _on_names_copied(self, count: int) -> None:
+        """SignalBrowser/ActiveSignalsTable both emit names_copied(count)
+        after writing to the clipboard themselves (#163) — this only
+        surfaces the status message."""
+        noun = "name" if count == 1 else "names"
+        self.show_status(f"{count} signal {noun} copied to clipboard.")
 
     def _build_status_history_button(self) -> None:
         """Always-visible left-side status bar button opening the Status

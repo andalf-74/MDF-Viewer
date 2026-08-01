@@ -102,6 +102,7 @@ Run `pytest --collect-only -q` for current per-file test counts — not tracked 
 - Filter field: `QLineEdit` at the top; text-filter mechanics (wildcard/substring, 250ms debounce) unchanged from before #103. In Tree mode, `_apply_filter()` additionally expands every branch when the filter is non-empty, and restores the default expand state when it's cleared
 - Selection mode: `ExtendedSelection` — Ctrl+click and Shift+click select multiple channels, which may belong to different measurements; the Add Signal button emits all of them at once
 - Drag: `_DragTreeView` subclass encodes every selected row's own `(measurement_index, group_index, channel_index)` as `encode_signal_payload(items)` JSON in `application/x-mdf-viewer-signals` MIME data; drop targets are each `PlotStripe` (dropping onto a specific stripe adds there — see `PlotStripesArea`) and `ActiveSignalsTable`
+- `names_copied(int)` (#163) — PyQt signal emitted after Ctrl+C copies the selection's raw `_SORT_ROLE` names (no `[label]` prefix, no unit) to the clipboard, one per line, via `_selected_names()`/`_on_copy_names()`; a no-op with nothing selected. `_DragTreeView` takes an `on_copy` callback (mirroring its existing `get_locations` injection) and intercepts Ctrl+C in `keyPressEvent` before falling through to the base `QTreeView` implementation.
 
 `Settings.signal_browser_view_mode` (`"flat"` default) persists the choice globally, applied by `AppController.__init__` (initial push) and `refresh_signal_browser_view_mode()` (called from `MainWindow._on_preferences()`, which also repopulates via the existing centralized `_refresh_signal_browser()`).
 
@@ -399,6 +400,7 @@ Constructor creates the five view widgets above as public attrs, then `_build_ac
 - `self._status_history_dialog: StatusHistoryDialog | None` — built lazily on first click of the status-bar's "status_history_button" (`_build_status_history_button()`, called once from `__init__`), then cached for the rest of the session. `_on_show_status_history()` is the button's click handler: builds-and-shows on first call; on a later call, raises/activates the existing instance if visible, or re-`show()`s it if the user had closed it (`QDialog.close()` on a non-executed dialog just hides it, it isn't destroyed).
 - `StatusHistoryDialog` (`src/mdf_viewer/view/status_history_dialog.py`) — non-modal `QDialog`: a read-only `QPlainTextEdit` (one line per message, `"HH:MM:SS  text"`, native Qt text selection), a "Copy to Clipboard" button (`QGuiApplication.clipboard().setText(...)`, always the full history regardless of any selection), and a Close button. `append_entry(entry)` adds one new line without rebuilding the whole document.
 - `closeEvent()` explicitly closes `self._status_history_dialog` (if built) before accepting — the dialog being non-modal means it can be left open indefinitely, and Qt's default `quitOnLastWindowClosed` only quits once the last *visible* top-level window closes, so an open history dialog would otherwise silently prevent the app from exiting.
+- `_on_names_copied(count: int)` (#163) — connected to both `SignalBrowser.names_copied` (once, in `set_controller()`) and `ActiveSignalsTable.names_copied` (once per tab, in `_wire_tab_view()`); both widgets already wrote to the clipboard themselves, this only calls `show_status()` with the count.
 
 ## WorkspaceSessionController (#136)
 
@@ -474,7 +476,7 @@ One shared ordered list for the whole tab, `self._signals: list[ActiveSignal]` (
 ### Rename, context menu
 
 - `_rename_segment(seg)` — double-click a segment's name label → `QInputDialog`, mirrors `MainWindow._rename_tab`'s pattern exactly (no controller round-trip; names aren't persisted model state, REQ-PLOT-294).
-- Context menu (`_on_context_menu`), in order: Remove Signal(s) → Toggle Visibility (#133) → separator → Enable/Disable Step Mode (for all) → separator → Shorten Signal Names (checkable) → Display Name Rule… → separator → Merge Y-Axis (n≥2, not already synced) / Sync Y-Axis (n≥2, not already merged) → Remove from merged/synced axis (if any selected signal is grouped) → separator → Move to Stripe submenu (other stripes only) → Move to new Stripe.
+- Context menu (`_on_context_menu`), in order: Copy Name(s) (#163) → separator → Remove Signal(s) → Toggle Visibility (#133) → separator → Enable/Disable Step Mode (for all) → separator → Shorten Signal Names (checkable) → Display Name Rule… → separator → Merge Y-Axis (n≥2, not already synced) / Sync Y-Axis (n≥2, not already merged) → Remove from merged/synced axis (if any selected signal is grouped) → separator → Move to Stripe submenu (other stripes only) → Move to new Stripe.
 
 ### Signal Visibility (#133)
 
@@ -486,9 +488,13 @@ One shared ordered list for the whole tab, `self._signals: list[ActiveSignal]` (
 
 Fixed `_top_size_offset`/`_bottom_size_offset` (header height; button-row height, each + layout spacing) computed once, since this widget's column has chrome the plot's own splitter doesn't. `set_segment_sizes(sizes)` applies incoming stripe sizes, subtracting the offsets only from the first/last segment so every interior segment matches its stripe's height exactly (a straight 1:1 copy, or Qt's own `setSizes()` squash-to-fit, only preserves *ratios* — #100 postmortem). `segment_sizes_changed` pushes local drags back out. Wired bidirectionally in `MainWindow._wire_tab_view`, plus a one-time bootstrap push right after wiring (a freshly created segment otherwise keeps whatever arbitrary size `QSplitter.addWidget()` gave it).
 
+### Copy Signal Names (#163)
+
+`_copy_names(signals: list)` — copies each given signal's raw `metadata.name` (not the on-screen `[label]`-prefixed display name) to the clipboard via `QGuiApplication.clipboard().setText(...)`, one per line, then emits `names_copied(len(signals))`; a no-op (no clipboard write, no signal) if `signals` is empty. Two callers: `Ctrl+C` in `keyPressEvent` (acts only on the current selection — no fallback) and the "Copy Name(s)" context-menu entry (falls back to the right-clicked row when nothing is selected, the same convention every other entry in this menu already uses).
+
 ### Signals
 
-`selection_changed(object)`, `multi_selection_active(bool)`, `multi_selection_changed(list)`, `remove_requested(list)`, `remove_all_requested()`, `color_change_requested(list, QColor)`, `step_mode_set_requested(list, bool)`, `signals_dropped_on_stripe(list, object, int)`, `order_changed(list)`, `configure_display_names_requested(str)`, `shorten_names_toggled(bool)`, `merge_y_axis_requested(list)`, `sync_y_axis_requested(list)`, `ungroup_y_axis_requested(list)`, `move_to_stripe_requested(list, object)`, `move_to_new_stripe_requested(list)`, `segment_sizes_changed(list)`, `segment_activated(object)` (any mouse-press in a segment, REQ-PLOT-278).
+`selection_changed(object)`, `multi_selection_active(bool)`, `multi_selection_changed(list)`, `remove_requested(list)`, `remove_all_requested()`, `color_change_requested(list, QColor)`, `step_mode_set_requested(list, bool)`, `signals_dropped_on_stripe(list, object, int)`, `order_changed(list)`, `configure_display_names_requested(str)`, `shorten_names_toggled(bool)`, `merge_y_axis_requested(list)`, `sync_y_axis_requested(list)`, `ungroup_y_axis_requested(list)`, `move_to_stripe_requested(list, object)`, `move_to_new_stripe_requested(list)`, `segment_sizes_changed(list)`, `segment_activated(object)` (any mouse-press in a segment, REQ-PLOT-278), `names_copied(int)` (#163).
 
 ### Other public methods
 

@@ -5,6 +5,11 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Copy Signal Names (#163): Ctrl+C in the Signal Browser or Active Signals
+  Table copies the raw channel name(s) of the current selection to the
+  clipboard, one per line; the Active Signals Table also gained a "Copy
+  Name(s)" context-menu entry. A status bar message reports how many were
+  copied.
 - More status bar feedback (#166): Export Labels, a fully-clean Import
   Labels, Close Measurement, and Undo/Redo (when there's nothing to
   undo/redo) now show a status bar message where they previously gave no

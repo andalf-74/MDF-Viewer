@@ -37,7 +37,16 @@ import re
 from typing import Callable
 
 from PyQt6.QtCore import QByteArray, QEvent, QMimeData, QPoint, Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QDrag, QFontMetrics, QKeyEvent, QMouseEvent, QPalette
+from PyQt6.QtGui import (
+    QAction,
+    QColor,
+    QDrag,
+    QFontMetrics,
+    QGuiApplication,
+    QKeyEvent,
+    QMouseEvent,
+    QPalette,
+)
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -393,6 +402,11 @@ class ActiveSignalsTable(QWidget):
     # or Ctrl+D (#142); applied independently to each listed signal's own
     # Y-axis group (REQ-PLOT-058/059).
     y_autozoom_requested = pyqtSignal(list)
+    # int — how many names were copied, from the "Copy Name(s)" context-menu
+    # entry or Ctrl+C (#163); MainWindow shows a status message with it
+    # (REQ-PLOT-343). No payload of the names themselves — the clipboard
+    # write already happened by the time this fires.
+    names_copied = pyqtSignal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -954,8 +968,22 @@ class ActiveSignalsTable(QWidget):
             signals = self._selected_signals()
             if signals:
                 self.y_autozoom_requested.emit(signals)
+        elif (
+            event.key() == Qt.Key.Key_C
+            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+        ):
+            self._copy_names(self._selected_signals())
         else:
             super().keyPressEvent(event)
+
+    def _copy_names(self, signals: list) -> None:
+        """Copy each signal's raw channel name (not its on-screen display
+        name) to the clipboard, one per line (#163, REQ-PLOT-341)."""
+        if not signals:
+            return
+        names = [s.metadata.name for s in signals]
+        QGuiApplication.clipboard().setText("\n".join(names))
+        self.names_copied.emit(len(names))
 
     def _on_context_menu(self, seg: _ActiveTable, pos) -> None:
         index = seg.indexAt(pos)
@@ -967,6 +995,12 @@ class ActiveSignalsTable(QWidget):
             selected = [segment_signals[index.row()]]
         n = len(selected)
         menu = QMenu(self)
+
+        copy_names_label = f"Copy Names ({n})" if n > 1 else "Copy Name"
+        copy_names_action = QAction(copy_names_label, self)
+        copy_names_action.triggered.connect(lambda: self._copy_names(selected))
+        menu.addAction(copy_names_action)
+        menu.addSeparator()
 
         remove_label = f"Remove {n} Signals" if n > 1 else "Remove Signal"
         remove_action = QAction(remove_label, self)
