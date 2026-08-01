@@ -53,9 +53,11 @@ class LoadResult:
 @dataclass
 class LabelImportResult:
     """Outcome of import_label_list() (#143): candidate names that never
-    ended up newly plotted, bucketed by why (REQ-LABEL-050)."""
+    ended up newly plotted, bucketed by why (REQ-LABEL-050), plus how many
+    were newly plotted successfully (REQ-LABEL-052)."""
     not_found: list[str] = field(default_factory=list)
     already_active: list[str] = field(default_factory=list)
+    added: int = 0
 
 
 @dataclass
@@ -668,13 +670,17 @@ class AppController:
     # Undo/redo proxy
     # ------------------------------------------------------------------
 
-    def undo(self) -> None:
-        if self.current_workspace.zoom_ctrl is not None:
-            self.current_workspace.zoom_ctrl.undo()
+    def undo(self) -> bool:
+        """Returns False if there was nothing to undo (#166)."""
+        if self.current_workspace.zoom_ctrl is None:
+            return False
+        return self.current_workspace.zoom_ctrl.undo()
 
-    def redo(self) -> None:
-        if self.current_workspace.zoom_ctrl is not None:
-            self.current_workspace.zoom_ctrl.redo()
+    def redo(self) -> bool:
+        """Returns False if there was nothing to redo (#166)."""
+        if self.current_workspace.zoom_ctrl is None:
+            return False
+        return self.current_workspace.zoom_ctrl.redo()
 
     def load_file(self, path: str | os.PathLike) -> None:
         """Open an MDF file and populate the Signal Browser.
@@ -1330,6 +1336,7 @@ class AppController:
         current = self.current_workspace
         not_found: list[str] = []
         already_active: list[str] = []
+        added_count = 0
         for group in groups:
             stripe = self.create_stripe()
             current.table.rename_stripe_segment(stripe, group.name)
@@ -1347,13 +1354,14 @@ class AppController:
                         continue  # REQ-LABEL-033: treated the same as not found
                     if added:
                         added_any = True
+                        added_count += 1
                     else:
                         skipped_dup = True
                 if not added_any:
                     (already_active if skipped_dup else not_found).append(name)
             if not current.plot.get_signals_in_stripe(stripe):
                 self.delete_stripe(stripe)  # REQ-LABEL-042
-        return LabelImportResult(not_found=not_found, already_active=already_active)
+        return LabelImportResult(not_found=not_found, already_active=already_active, added=added_count)
 
     def export_label_list(self) -> bytes:
         """Bulk-export the active tab's stripes to .lab bytes (#143): one

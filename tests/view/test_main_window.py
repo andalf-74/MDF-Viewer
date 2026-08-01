@@ -1564,6 +1564,31 @@ def test_close_measurement_no_confirmation_without_active_signals(
     mock_controller.close_measurement.assert_called_once_with(m1)
 
 
+@pytest.mark.requirement("REQ-FILE-120")
+def test_close_measurement_shows_status_message(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    m1 = MagicMock(label="M1")
+    mock_controller.measurements = [m1]
+    mock_controller.measurement_has_signals.return_value = False
+    wired._file_menu.aboutToShow.emit()
+    wired._close_measurement_menu.actions()[0].trigger()
+    assert wired.statusBar().currentMessage() == "Closed measurement 'M1'."
+
+
+@pytest.mark.requirement("REQ-FILE-120")
+def test_close_measurement_status_message_not_logged(
+    wired: MainWindow, mock_controller: MagicMock, caplog
+) -> None:
+    m1 = MagicMock(label="M1")
+    mock_controller.measurements = [m1]
+    mock_controller.measurement_has_signals.return_value = False
+    wired._file_menu.aboutToShow.emit()
+    with caplog.at_level("INFO", logger="mdf_viewer.view.main_window"):
+        wired._close_measurement_menu.actions()[0].trigger()
+    assert "Closed measurement" not in caplog.text
+
+
 @pytest.mark.requirement("REQ-FILE-028")
 def test_close_measurement_confirmed_closes(
     wired: MainWindow, mock_controller: MagicMock
@@ -2161,6 +2186,54 @@ def test_close_event_with_no_status_history_dialog_does_not_error(window: MainWi
 
 
 # ---------------------------------------------------------------------------
+# Undo/Redo — nothing-to-do feedback (#166, REQ-PLOT-067)
+# ---------------------------------------------------------------------------
+
+def test_on_undo_shows_no_message_when_something_undone(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.undo.return_value = True
+    wired._on_undo()
+    assert wired.statusBar().currentMessage() == ""
+
+
+@pytest.mark.requirement("REQ-PLOT-067")
+def test_on_undo_shows_message_when_nothing_to_undo(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.undo.return_value = False
+    wired._on_undo()
+    assert wired.statusBar().currentMessage() == "Nothing to undo."
+
+
+def test_on_redo_shows_no_message_when_something_redone(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.redo.return_value = True
+    wired._on_redo()
+    assert wired.statusBar().currentMessage() == ""
+
+
+@pytest.mark.requirement("REQ-PLOT-067")
+def test_on_redo_shows_message_when_nothing_to_redo(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.redo.return_value = False
+    wired._on_redo()
+    assert wired.statusBar().currentMessage() == "Nothing to redo."
+
+
+@pytest.mark.requirement("REQ-PLOT-067")
+def test_on_undo_nothing_to_undo_not_logged(
+    wired: MainWindow, mock_controller: MagicMock, caplog
+) -> None:
+    mock_controller.undo.return_value = False
+    with caplog.at_level("INFO", logger="mdf_viewer.view.main_window"):
+        wired._on_undo()
+    assert "undo" not in caplog.text.lower()
+
+
+# ---------------------------------------------------------------------------
 # _on_add_signals — multi-add and skip notification
 # ---------------------------------------------------------------------------
 
@@ -2522,6 +2595,44 @@ def test_import_labels_shows_no_dialog_on_clean_import(
     mock_dialog.assert_not_called()
 
 
+@pytest.mark.requirement("REQ-LABEL-052")
+def test_import_labels_shows_status_message_on_clean_import(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    from mdf_viewer.controller.app_controller import LabelImportResult
+
+    mock_controller.active_signals = []
+    lab_path = tmp_path / "labels.lab"
+    lab_path.write_bytes(b"[Measurement]\n")
+    mock_controller.import_label_list.return_value = LabelImportResult(added=3)
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(lab_path), ""),
+    ):
+        wired._on_import_labels()
+    assert wired.statusBar().currentMessage() == "3 signals imported."
+
+
+@pytest.mark.requirement("REQ-LABEL-052")
+def test_import_labels_shows_status_message_alongside_dialog(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    from mdf_viewer.controller.app_controller import LabelImportResult
+
+    mock_controller.active_signals = []
+    lab_path = tmp_path / "labels.lab"
+    lab_path.write_bytes(b"[Measurement]\n")
+    mock_controller.import_label_list.return_value = LabelImportResult(
+        not_found=["Ghost"], added=1
+    )
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getOpenFileName",
+        return_value=(str(lab_path), ""),
+    ), patch("mdf_viewer.view.main_window.LabelImportResultDialog"):
+        wired._on_import_labels()
+    assert wired.statusBar().currentMessage() == "1 signal imported."
+
+
 @pytest.mark.requirement("REQ-LABEL-050")
 def test_import_labels_shows_dialog_when_something_to_report(
     wired: MainWindow, mock_controller: MagicMock, tmp_path
@@ -2603,6 +2714,21 @@ def test_export_labels_writes_controller_output(
     ):
         wired._on_export_labels()
     assert out_path.read_bytes() == b"[Measurement]\n\n[Group]\nSpeed\n"
+
+
+@pytest.mark.requirement("REQ-LABEL-064")
+def test_export_labels_shows_status_message(
+    wired: MainWindow, mock_controller: MagicMock, tmp_path
+) -> None:
+    mock_controller.active_signals = []
+    mock_controller.export_label_list.return_value = b"[Measurement]\n"
+    out_path = tmp_path / "out.lab"
+    with patch(
+        "mdf_viewer.view.main_window.QFileDialog.getSaveFileName",
+        return_value=(str(out_path), ""),
+    ):
+        wired._on_export_labels()
+    assert wired.statusBar().currentMessage() == "Labels exported to out.lab."
 
 
 def test_export_labels_shows_error_when_file_cannot_be_written(
@@ -4124,6 +4250,26 @@ def test_plugins_menu_action_failure_shows_status_message(window: MainWindow) ->
     assert "Export" in window.statusBar().currentMessage()
 
 
+def test_plugins_menu_action_failure_status_message_not_logged(window: MainWindow, caplog) -> None:
+    """#166: MenuActionRegistration.invoke() already logs the exception."""
+    from mdf_viewer.plugin_api.registry import MenuActionRegistration
+
+    def boom() -> None:
+        raise ValueError("plugin bug")
+
+    controller = MagicMock()
+    registry = PluginRegistry()
+    registry.add_menu_action(MenuActionRegistration("exporter", "Export", boom))
+    controller.plugin_registry = registry
+    window.set_controller(controller)
+
+    action = next(a for a in window._plugins_menu.actions() if a.text() == "Export")
+    with caplog.at_level("INFO", logger="mdf_viewer.view.main_window"):
+        action.trigger()
+    main_window_records = [r for r in caplog.records if r.name == "mdf_viewer.view.main_window"]
+    assert main_window_records == []
+
+
 def test_dialog_mode_dock_widget_gets_menu_action(window: MainWindow) -> None:
     from mdf_viewer.plugin_api.registry import DockWidgetRegistration
 
@@ -4581,6 +4727,19 @@ def test_on_rescan_plugins_shows_nothing_new_when_result_is_empty(wired: MainWin
     assert wired.statusBar().currentMessage() == "Rescan: nothing new"
 
 
+def test_on_rescan_plugins_status_message_not_logged(wired: MainWindow, caplog) -> None:
+    """#166: the loader already logs each plugin's own activation/error;
+    logging the rescan summary too would duplicate it."""
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(loaded=["A"], failed=["C"]),
+        reload_plugin=lambda name: True,
+        active_plugin_names=lambda: [],
+    )
+    with caplog.at_level("INFO", logger="mdf_viewer.view.main_window"):
+        wired._on_rescan_plugins()
+    assert "Rescan" not in caplog.text
+
+
 # ---------------------------------------------------------------------------
 # Reload trigger (#150)
 # ---------------------------------------------------------------------------
@@ -4679,6 +4838,15 @@ def test_on_reload_plugin_shows_failure_status_message_no_rollback(wired: MainWi
     wired._on_reload_plugin("Alpha")
 
     assert wired.statusBar().currentMessage() == "Reload of 'Alpha' failed — see log for detail."
+
+
+def test_on_reload_plugin_status_message_not_logged(wired: MainWindow, caplog) -> None:
+    wired.set_plugin_loader_hooks(
+        rescan=lambda: PluginLoadResult(), reload_plugin=lambda name: True, active_plugin_names=lambda: [],
+    )
+    with caplog.at_level("INFO", logger="mdf_viewer.view.main_window"):
+        wired._on_reload_plugin("Alpha")
+    assert "Alpha" not in caplog.text
 
 
 def test_on_reload_plugin_tears_down_live_ui_before_calling_the_hook(wired: MainWindow) -> None:
@@ -4927,6 +5095,24 @@ def test_on_plugin_overview_toggled_enable_that_fails_still_shows_checked_with_f
     checkbox = wired._plugin_overview_dialog.checkboxes["broken_plugin"]
     assert checkbox.isChecked() is True
     assert "failed to activate" in wired.statusBar().currentMessage()
+
+
+def test_on_plugin_overview_toggled_enable_failure_status_message_not_logged(
+    wired: MainWindow, caplog,
+) -> None:
+    still_broken = _pkg("broken_plugin", enabled=True, failed=True, failure_reason="boom")
+    _wire_overview_hooks(
+        wired,
+        list_packages=lambda: [still_broken],
+        set_plugin_enabled=lambda folder, enabled: PluginLoadResult(failed=["broken_plugin"]),
+        active_plugin_names_for=lambda folder: [],
+    )
+    with patch.object(QDialog, "exec", return_value=0):
+        wired._on_plugin_overview()
+
+    with caplog.at_level("INFO", logger="mdf_viewer.view.main_window"):
+        wired._on_plugin_overview_toggled("broken_plugin", True)
+    assert "failed to activate" not in caplog.text
 
 
 def test_on_plugin_overview_toggled_enable_success_shows_checked_without_failure(

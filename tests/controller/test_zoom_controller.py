@@ -212,6 +212,21 @@ def test_undo_when_empty_is_noop():
     pa.set_zoom_state.assert_not_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-067")
+def test_undo_returns_true_when_something_was_undone():
+    pa = _make_plot_area()
+    ctrl, _, _ = _make_ctrl(plot_area=pa)
+    ctrl._undo_stack.append(_state((0.0, 5.0)))
+    assert ctrl.undo() is True
+
+
+@pytest.mark.requirement("REQ-PLOT-067")
+def test_undo_returns_false_when_empty():
+    pa = _make_plot_area()
+    ctrl, _, _ = _make_ctrl(plot_area=pa)
+    assert ctrl.undo() is False
+
+
 @pytest.mark.requirement("REQ-PLOT-060")
 def test_redo_restores_undone_state():
     pa = _make_plot_area(x=(0.0, 10.0))
@@ -254,6 +269,21 @@ def test_redo_when_empty_is_noop():
     ctrl, _, _ = _make_ctrl(plot_area=pa)
     ctrl.redo()
     pa.set_zoom_state.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-PLOT-067")
+def test_redo_returns_true_when_something_was_redone():
+    pa = _make_plot_area()
+    ctrl, _, _ = _make_ctrl(plot_area=pa)
+    ctrl._redo_stack.append(_state((5.0, 15.0)))
+    assert ctrl.redo() is True
+
+
+@pytest.mark.requirement("REQ-PLOT-067")
+def test_redo_returns_false_when_empty():
+    pa = _make_plot_area()
+    ctrl, _, _ = _make_ctrl(plot_area=pa)
+    assert ctrl.redo() is False
 
 
 @pytest.mark.requirement("REQ-PLOT-061")

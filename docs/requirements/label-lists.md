@@ -75,7 +75,9 @@ After import finishes, a summary dialog lists every not-found candidate
 name and every already-active candidate name, each in its own separate
 list of plain, selectable text [REQ-LABEL-050]. No summary dialog is
 shown if the import produced neither a not-found nor an already-active
-entry [REQ-LABEL-051].
+entry [REQ-LABEL-051]. A status bar message reports the number of
+signals newly imported, shown whether or not the summary dialog also
+appears [REQ-LABEL-052].
 
 ## Export
 
@@ -87,7 +89,8 @@ on-screen display name [REQ-LABEL-061]. A virtual signal is excluded from
 the exported group it would otherwise belong to [REQ-LABEL-062]. A stripe
 with no exportable active signals — whether because it has none, or
 because its only signals are virtual — produces no group in the exported
-file [REQ-LABEL-063].
+file [REQ-LABEL-063]. A status bar message names the file the labels were
+exported to [REQ-LABEL-064].
 
 ## Menu Integration
 

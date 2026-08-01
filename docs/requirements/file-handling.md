@@ -376,3 +376,8 @@ current workspace's save path is not set to the applied config's own
 path, so a subsequent plain "Save Workspace" is never able to silently
 overwrite the original file with a different measurement mapping
 [REQ-FILE-119].
+
+## Status Feedback
+
+Closing a measurement (REQ-FILE-028/029) shows a status bar message
+naming the measurement that was closed [REQ-FILE-120].

@@ -165,7 +165,8 @@ new measurement file clears both the undo and redo history
 [REQ-PLOT-065]. Zoom actions performed in any stripe, and at any All
 Stripes/Active Stripe scope, share one undo/redo history for the whole
 plot area rather than each stripe keeping its own independent history
-[REQ-PLOT-066].
+[REQ-PLOT-066]. Triggering undo or redo while its respective history is
+empty shows a status bar message saying so [REQ-PLOT-067].
 
 ## Cursor Modes and Positioning
 

@@ -72,10 +72,11 @@ class ZoomController:
         self._ignore_range_changed = False
         self._stable_state = self._plot_area.get_zoom_state(self._get_active_signals())
 
-    def undo(self) -> None:
-        """Restore the previous zoom state."""
+    def undo(self) -> bool:
+        """Restore the previous zoom state. Returns False if there was
+        nothing to undo (#166)."""
         if not self._undo_stack:
-            return
+            return False
         current = self._plot_area.get_zoom_state(self._get_active_signals())
         self._redo_stack.append(current)
         state = self._undo_stack.pop()
@@ -86,11 +87,13 @@ class ZoomController:
         self._plot_area.set_zoom_state(state, self._get_active_signals())
         self._ignore_range_changed = False
         self._stable_state = state
+        return True
 
-    def redo(self) -> None:
-        """Re-apply the most recently undone zoom state."""
+    def redo(self) -> bool:
+        """Re-apply the most recently undone zoom state. Returns False if
+        there was nothing to redo (#166)."""
         if not self._redo_stack:
-            return
+            return False
         current = self._plot_area.get_zoom_state(self._get_active_signals())
         self._push_undo(current)
         state = self._redo_stack.pop()
@@ -101,6 +104,7 @@ class ZoomController:
         self._plot_area.set_zoom_state(state, self._get_active_signals())
         self._ignore_range_changed = False
         self._stable_state = state
+        return True
 
     def clear(self) -> None:
         """Clear both stacks and cancel any in-progress gesture (e.g. on file load)."""

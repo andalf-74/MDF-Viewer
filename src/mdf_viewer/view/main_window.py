@@ -504,9 +504,13 @@ class MainWindow(QMainWindow):
         result = self._rescan_hook()
         self._sync_plugin_ui()
         if result.loaded or result.failed:
-            self.show_status(f"Rescan: loaded {len(result.loaded)}, failed {len(result.failed)}", 5000)
+            # log=False: plugin_api/loader.py already logs each plugin's
+            # own activation/error independently (#166).
+            self.show_status(
+                f"Rescan: loaded {len(result.loaded)}, failed {len(result.failed)}", 5000, log=False,
+            )
         else:
-            self.show_status("Rescan: nothing new", 5000)
+            self.show_status("Rescan: nothing new", 5000, log=False)
 
     def _on_plugin_overview(self) -> None:
         """Open the "Plugin Overview" dialog (#160): every discovered
@@ -570,8 +574,11 @@ class MainWindow(QMainWindow):
             )
             if not live_names:
                 reason = ", ".join(result.failed) if result.failed else "activation failed"
+                # log=False: plugin_api/loader.py already logs the
+                # activation failure independently (#166).
                 self.show_status(
                     f"'{folder_name}' is enabled but failed to activate — {reason}", 5000,
+                    log=False,
                 )
 
         self._sync_plugin_ui()
@@ -594,10 +601,12 @@ class MainWindow(QMainWindow):
         self._teardown_plugin_ui(name)
         ok = self._reload_plugin_hook(name)
         self._sync_plugin_ui()
+        # log=False on both: plugin_api/loader.py already logs the
+        # deactivate/reactivate outcome independently (#166).
         if ok:
-            self.show_status(f"Reloaded '{name}'.", 5000)
+            self.show_status(f"Reloaded '{name}'.", 5000, log=False)
         else:
-            self.show_status(f"Reload of '{name}' failed — see log for detail.", 5000)
+            self.show_status(f"Reload of '{name}' failed — see log for detail.", 5000, log=False)
 
     def _teardown_plugin_ui(self, plugin_name: str) -> None:
         """Remove every currently-visible trace of *plugin_name*'s
@@ -640,7 +649,12 @@ class MainWindow(QMainWindow):
 
     def _on_plugin_menu_action(self, registration: "MenuActionRegistration") -> None:
         if not registration.invoke():
-            self.show_status(f"Plugin action '{registration.label}' failed — see log for detail.", 5000)
+            # log=False: MenuActionRegistration.invoke() already logs the
+            # exception itself (#166).
+            self.show_status(
+                f"Plugin action '{registration.label}' failed — see log for detail.", 5000,
+                log=False,
+            )
 
     def _on_plugin_dialog_action(self, registration: "DockWidgetRegistration") -> None:
         """Show *registration*'s dialog, building it lazily on first open and
@@ -2199,12 +2213,12 @@ class MainWindow(QMainWindow):
             self._controller.zoom_to_cursors()
 
     def _on_undo(self) -> None:
-        if self._controller is not None:
-            self._controller.undo()
+        if self._controller is not None and not self._controller.undo():
+            self.show_status("Nothing to undo.", log=False)
 
     def _on_redo(self) -> None:
-        if self._controller is not None:
-            self._controller.redo()
+        if self._controller is not None and not self._controller.redo():
+            self.show_status("Nothing to redo.", log=False)
 
     def _on_cursor_mode_changed(self, mode) -> None:
         from mdf_viewer.enums import CursorMode
@@ -2536,7 +2550,11 @@ class MainWindow(QMainWindow):
             )
             if reply != QMessageBox.StandardButton.Yes:
                 return
+        label = measurement.label
         self._controller.close_measurement(measurement)
+        # Already logged directly by AppController.close_measurement()
+        # (REQ-FILE-120) — log=False avoids a duplicate log line.
+        self.show_status(f"Closed measurement '{label}'.", log=False)
 
     def _update_apply_config_enabled(self) -> None:
         """Enable File ▸ Apply Config… only once at least one measurement
@@ -2579,6 +2597,8 @@ class MainWindow(QMainWindow):
         if result.not_found or result.already_active:  # REQ-LABEL-051
             dialog = LabelImportResultDialog(result.not_found, result.already_active, parent=self)
             dialog.exec()
+        noun = "signal" if result.added == 1 else "signals"
+        self.show_status(f"{result.added} {noun} imported.")
 
     def _on_export_labels(self) -> None:
         if self._controller is None:
@@ -2594,6 +2614,8 @@ class MainWindow(QMainWindow):
             Path(path_str).write_bytes(data)
         except OSError as exc:
             QMessageBox.critical(self, "Export Labels", f"Could not write '{path_str}':\n{exc}")
+            return
+        self.show_status(f"Labels exported to {Path(path_str).name}.")
 
     def _on_apply_config(self) -> None:
         self._session.apply_config()

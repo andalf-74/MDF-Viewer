@@ -5384,6 +5384,7 @@ def test_import_label_list_adds_matched_signal_to_new_stripe(deps: dict) -> None
 
     assert result.not_found == []
     assert result.already_active == []
+    assert result.added == 1
     assert len(ctrl2.active_signals) == 1
     deps["table"].rename_stripe_segment.assert_called_once_with(stripe, "Group One")
     mock_delete.assert_not_called()
@@ -5402,6 +5403,7 @@ def test_import_label_list_reports_not_found(deps: dict) -> None:
 
     assert result.not_found == ["Ghost"]
     assert result.already_active == []
+    assert result.added == 0
     mock_delete.assert_called_once()
 
 
@@ -5436,6 +5438,7 @@ def test_import_label_list_reports_already_active(deps: dict) -> None:
 
     assert result.already_active == ["Speed"]
     assert result.not_found == []
+    assert result.added == 0
     assert len(ctrl2.active_signals) == 1  # not duplicated
 
 
@@ -5454,6 +5457,7 @@ def test_import_label_list_adds_from_every_matching_measurement(deps: dict) -> N
     assert len(ctrl2.active_signals) == 2
     assert result.not_found == []
     assert result.already_active == []
+    assert result.added == 2  # one per matching measurement (REQ-LABEL-052)
 
 
 def test_import_label_list_does_not_falsely_report_already_active_when_one_match_succeeds(
@@ -5634,3 +5638,35 @@ def test_export_label_list_scoped_to_active_tab_only(deps: dict) -> None:
     groups = parse_label_list(ctrl2.export_label_list())
 
     assert groups == []
+
+
+# ---------------------------------------------------------------------------
+# Undo/Redo proxy (#166)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLOT-067")
+def test_undo_returns_false_when_no_zoom_controller(ctrl: AppController) -> None:
+    assert ctrl.current_workspace.zoom_ctrl is None
+    assert ctrl.undo() is False
+
+
+@pytest.mark.requirement("REQ-PLOT-067")
+def test_redo_returns_false_when_no_zoom_controller(ctrl: AppController) -> None:
+    assert ctrl.current_workspace.zoom_ctrl is None
+    assert ctrl.redo() is False
+
+
+@pytest.mark.requirement("REQ-PLOT-067")
+def test_undo_returns_zoom_controllers_result(ctrl: AppController) -> None:
+    zoom_ctrl = MagicMock()
+    zoom_ctrl.undo.return_value = True
+    ctrl.set_zoom_controller(zoom_ctrl)
+    assert ctrl.undo() is True
+
+
+@pytest.mark.requirement("REQ-PLOT-067")
+def test_redo_returns_zoom_controllers_result(ctrl: AppController) -> None:
+    zoom_ctrl = MagicMock()
+    zoom_ctrl.redo.return_value = False
+    ctrl.set_zoom_controller(zoom_ctrl)
+    assert ctrl.redo() is False

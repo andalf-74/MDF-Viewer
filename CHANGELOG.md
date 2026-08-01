@@ -5,6 +5,10 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- More status bar feedback (#166): Export Labels, a fully-clean Import
+  Labels, Close Measurement, and Undo/Redo (when there's nothing to
+  undo/redo) now show a status bar message where they previously gave no
+  feedback at all.
 - Status Bar Message History (#125): an always-visible button on the left
   of the status bar opens a non-modal history of every status message
   shown this session, each with a timestamp, in a selectable/copyable
