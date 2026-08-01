@@ -16,6 +16,10 @@ class VisibilityToggleButton(QPushButton):
         super().__init__(parent)
         self.setFixedSize(20, 16)
         self.setFlat(True)
+        self.setToolTip(
+            "Toggle signal visibility (Ctrl+W) — applies to the whole "
+            "selection if this row is part of one"
+        )
         self.set_visible_state(visible)
 
     def set_visible_state(self, visible: bool) -> None:

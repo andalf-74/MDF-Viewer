@@ -94,8 +94,18 @@ class _SignalPropertiesWidget(QWidget):
 
         # Enum label options — only shown when the selected signal has an enum map.
         self._enum_table_check = QCheckBox("Value table")
+        self._enum_table_check.setToolTip(
+            "Show enum text values instead of raw numbers in the Active "
+            "Signals Table's cursor value columns"
+        )
         self._enum_cursor_check = QCheckBox("Cursor label")
+        self._enum_cursor_check.setToolTip(
+            "Show enum text values instead of raw numbers in the cursor value label"
+        )
         self._enum_yaxis_check = QCheckBox("Y-axis")
+        self._enum_yaxis_check.setToolTip(
+            "Show enum text values instead of raw numbers on the Y-axis tick labels"
+        )
         self._enum_container = QWidget()
         enum_layout = QVBoxLayout(self._enum_container)
         enum_layout.setContentsMargins(0, 0, 0, 0)

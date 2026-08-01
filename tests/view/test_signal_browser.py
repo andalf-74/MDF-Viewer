@@ -392,6 +392,12 @@ def test_ctrl_c_no_selection_does_not_copy(
         )
 
 
+def test_measurement_filter_combo_has_a_tooltip(browser: SignalBrowser) -> None:
+    """#129: the combo has no adjacent label at all, unlike every other
+    combo in the app."""
+    assert browser._measurement_filter_combo.toolTip() != ""
+
+
 @pytest.mark.requirement("REQ-BROWSER-080")
 def test_selected_names_returns_raw_names_without_unit_or_prefix(
     populated_browser: SignalBrowser,

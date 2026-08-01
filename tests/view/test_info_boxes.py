@@ -235,6 +235,13 @@ def test_mbox_primary_checkbox_uses_accent_token(mbox: MeasurementInfoBox) -> No
     assert theme.ACCENT in _page(mbox, 0).checkbox.styleSheet()
 
 
+def test_mbox_primary_checkbox_has_a_tooltip(mbox: MeasurementInfoBox) -> None:
+    """#129: "Primary" alone doesn't explain what checking it does."""
+    m1 = _make_measurement("M1")
+    mbox.set_measurements([m1], m1)
+    assert _page(mbox, 0).checkbox.toolTip() != ""
+
+
 @pytest.mark.requirement("REQ-FILE-027")
 def test_mbox_name_edit_shows_short_name(mbox: MeasurementInfoBox) -> None:
     m = _make_measurement("M1")
@@ -890,6 +897,15 @@ def test_sbox_set_enum_options_shows_and_checks_boxes(sbox: SignalInfoBox) -> No
     assert sbox._props_widget._enum_table_check.isChecked() is True
     assert sbox._props_widget._enum_cursor_check.isChecked() is False
     assert sbox._props_widget._enum_yaxis_check.isChecked() is True
+
+
+def test_sbox_enum_checkboxes_each_have_a_tooltip(sbox: SignalInfoBox) -> None:
+    """#129: labels ("Value table"/"Cursor label"/"Y-axis") alone don't
+    explain what each toggle changes."""
+    props = sbox._props_widget
+    assert props._enum_table_check.toolTip() != ""
+    assert props._enum_cursor_check.toolTip() != ""
+    assert props._enum_yaxis_check.toolTip() != ""
 
 
 @pytest.mark.requirement("REQ-PLOT-131")

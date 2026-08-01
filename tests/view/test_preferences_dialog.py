@@ -54,6 +54,26 @@ def test_swatches_show_saved_colors(qtbot: QtBot, settings: Settings) -> None:
     assert dlg._swatch_cr.rgb() == (10, 11, 12)
 
 
+def test_swatches_each_have_a_distinct_tooltip(dlg: PreferencesDialog) -> None:
+    """#129: icon-only color chips, no other text cue at all."""
+    tooltips = {
+        dlg._swatch_c1.toolTip(),
+        dlg._swatch_c2.toolTip(),
+        dlg._swatch_cl.toolTip(),
+        dlg._swatch_cr.toolTip(),
+        dlg._swatch_delta.toolTip(),
+    }
+    assert "" not in tooltips
+    assert len(tooltips) == 5  # every swatch names its own cursor
+
+
+def test_reset_button_tooltip_discloses_its_wider_scope(dlg: PreferencesDialog) -> None:
+    """#129: the button resets more than colors (delta-time display, arrow-
+    key step settings too) — worth disclosing since the label alone
+    ("Reset to defaults") doesn't say that."""
+    assert dlg._cursor_reset_btn.toolTip() != ""
+
+
 # ---------------------------------------------------------------------------
 # Reset to defaults
 # ---------------------------------------------------------------------------
@@ -95,6 +115,11 @@ def test_apply_saves_colors_to_settings(dlg: PreferencesDialog, settings: Settin
 # ---------------------------------------------------------------------------
 # Plot background color swatch (#117)
 # ---------------------------------------------------------------------------
+
+def test_background_swatch_has_a_tooltip(dlg: PreferencesDialog) -> None:
+    """#129: icon-only color chip, no other text cue at all."""
+    assert dlg._swatch_bg.toolTip() != ""
+
 
 @pytest.mark.requirement("REQ-PLOT-015")
 def test_background_swatch_shows_default_color(dlg: PreferencesDialog) -> None:

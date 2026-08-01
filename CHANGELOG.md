@@ -5,6 +5,13 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Tooltips on several previously-unlabeled controls (#129): the Active
+  Signals Table's color swatch and visibility-eye icon, the Preferences
+  dialog's cursor/background color swatches, the Signal Browser's
+  measurement filter dropdown, the Measurement Info Box's "Primary"
+  checkbox, the Signal Info Box's enum-display checkboxes, and the plot
+  stripe's Sync/Un-Sync button (which now updates to describe whichever
+  action a click will actually take).
 - Copy Signal Names (#163): Ctrl+C in the Signal Browser or Active Signals
   Table copies the raw channel name(s) of the current selection to the
   clipboard, one per line; the Active Signals Table also gained a "Copy

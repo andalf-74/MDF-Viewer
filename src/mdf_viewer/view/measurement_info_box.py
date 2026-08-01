@@ -166,6 +166,10 @@ class _MeasurementInfoPage(QWidget):
         self._primary_checkbox.setStyleSheet(
             f"QCheckBox:checked {{ color: {theme.ACCENT}; font-weight: bold; }}"
         )
+        self._primary_checkbox.setToolTip(
+            "Use this measurement's own time axis as the reference when "
+            "Synchronized, and order it first in each stripe's axis rows"
+        )
         header.addWidget(self._primary_checkbox)
         header.addWidget(QLabel("Name:"))
         self._name_edit = QLineEdit()

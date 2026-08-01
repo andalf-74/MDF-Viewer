@@ -155,6 +155,9 @@ class SignalBrowser(QWidget):
 
         self._measurement_filter_combo = QComboBox()
         self._measurement_filter_combo.setVisible(False)
+        self._measurement_filter_combo.setToolTip(
+            "Filter the channel list to one measurement, or show all"
+        )
         layout.addWidget(self._measurement_filter_combo)
 
         self._filter_edit = QLineEdit()

@@ -516,6 +516,11 @@ class PlotStripe(QWidget):
         self._sync_button.setVisible(visible)
         if visible:
             self._sync_button.setText("Un-Sync" if synchronized else "Sync")
+            self._sync_button.setToolTip(
+                "Show each measurement's time axis separately again"
+                if synchronized
+                else "Collapse every measurement's own time axis into one shared ruler"
+            )
             self._reposition_sync_button()
 
     def _on_sync_button_clicked(self) -> None:

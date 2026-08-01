@@ -1239,6 +1239,19 @@ def test_set_measurement_sync_control_visible_shows_button_with_label(plot: Plot
     assert plot._sync_button.text() == "Un-Sync"
 
 
+def test_sync_button_tooltip_matches_current_action(plot: PlotStripe) -> None:
+    """#129: the single word "Sync"/"Un-Sync" doesn't explain the effect;
+    the tooltip should track whichever action a click will actually take."""
+    plot.set_measurement_sync_control(visible=True, synchronized=False)
+    unsynced_tooltip = plot._sync_button.toolTip()
+    assert unsynced_tooltip != ""
+
+    plot.set_measurement_sync_control(visible=True, synchronized=True)
+    synced_tooltip = plot._sync_button.toolTip()
+    assert synced_tooltip != ""
+    assert synced_tooltip != unsynced_tooltip
+
+
 @pytest.mark.requirement("REQ-PLOT-316")
 def test_set_measurement_sync_control_invisible_hides_button(plot: PlotStripe) -> None:
     plot.set_measurement_sync_control(visible=True, synchronized=False)

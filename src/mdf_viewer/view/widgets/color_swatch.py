@@ -13,6 +13,7 @@ class ColorSwatch(QPushButton):
         super().__init__(parent)
         self.setFixedSize(20, 16)
         self.setFlat(True)
+        self.setToolTip("Click to change this signal's color")
         self.set_color(color)
 
     def set_color(self, color: QColor) -> None:

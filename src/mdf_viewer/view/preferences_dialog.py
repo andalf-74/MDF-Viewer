@@ -201,13 +201,13 @@ class PreferencesDialog(QDialog):
 
         cursors_layout.addSpacing(8)
 
-        def _make_swatch(rgb: tuple[int, int, int]) -> _CursorColorSwatch:
-            return _CursorColorSwatch(QColor(*rgb))
+        def _make_swatch(rgb: tuple[int, int, int], label: str) -> _CursorColorSwatch:
+            return _CursorColorSwatch(QColor(*rgb), f"Click to change {label}'s color")
 
-        self._swatch_c1 = _make_swatch(self._settings.cursor_color_c1)
-        self._swatch_c2 = _make_swatch(self._settings.cursor_color_c2)
-        self._swatch_cl = _make_swatch(self._settings.cursor_color_cl)
-        self._swatch_cr = _make_swatch(self._settings.cursor_color_cr)
+        self._swatch_c1 = _make_swatch(self._settings.cursor_color_c1, "Cursor 1")
+        self._swatch_c2 = _make_swatch(self._settings.cursor_color_c2, "Cursor 2")
+        self._swatch_cl = _make_swatch(self._settings.cursor_color_cl, "Cursor L")
+        self._swatch_cr = _make_swatch(self._settings.cursor_color_cr, "Cursor R")
 
         color_grid = QGridLayout()
         color_grid.setHorizontalSpacing(6)
@@ -228,7 +228,7 @@ class PreferencesDialog(QDialog):
         delta_row = QHBoxLayout()
         self._show_delta_time = QCheckBox("Show ∆-Time in Plot")
         self._show_delta_time.setChecked(self._settings.show_delta_time_in_plot)
-        self._swatch_delta = _make_swatch(self._settings.delta_time_color)
+        self._swatch_delta = _make_swatch(self._settings.delta_time_color, "∆-Time")
         delta_row.addWidget(self._show_delta_time)
         delta_row.addStretch()
         delta_row.addWidget(self._swatch_delta)
@@ -270,9 +270,13 @@ class PreferencesDialog(QDialog):
 
         reset_row = QHBoxLayout()
         reset_row.addStretch()
-        reset_btn = QPushButton("Reset to defaults")
-        reset_btn.clicked.connect(self._reset_cursor_colors)
-        reset_row.addWidget(reset_btn)
+        self._cursor_reset_btn = QPushButton("Reset to defaults")
+        self._cursor_reset_btn.setToolTip(
+            "Reset cursor colors, ∆-Time display, and arrow-key step "
+            "settings to their defaults"
+        )
+        self._cursor_reset_btn.clicked.connect(self._reset_cursor_colors)
+        reset_row.addWidget(self._cursor_reset_btn)
         cursors_layout.addLayout(reset_row)
 
         cursors_layout.addStretch()
@@ -346,7 +350,10 @@ class PreferencesDialog(QDialog):
 
         bg_row = QHBoxLayout()
         bg_row.addWidget(QLabel("Plot background color:"))
-        self._swatch_bg = _CursorColorSwatch(QColor(*self._settings.plot_background_color))
+        self._swatch_bg = _CursorColorSwatch(
+            QColor(*self._settings.plot_background_color),
+            "Click to change the plot canvas background color",
+        )
         bg_row.addWidget(self._swatch_bg)
         bg_row.addStretch()
         bg_reset_btn = QPushButton("Reset to default")
@@ -446,10 +453,11 @@ class PreferencesDialog(QDialog):
 class _CursorColorSwatch(QPushButton):
     """Flat colored button that opens a color picker on click."""
 
-    def __init__(self, color: QColor, parent: QWidget | None = None) -> None:
+    def __init__(self, color: QColor, tooltip: str = "Click to change color", parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setFixedSize(20, 16)
         self.setFlat(True)
+        self.setToolTip(tooltip)
         self.set_color(color)
         self.clicked.connect(self._pick_color)
 
