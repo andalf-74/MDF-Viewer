@@ -966,19 +966,25 @@ def test_visibility_button_click_on_row_outside_selection_emits_just_that_row(
 
 @pytest.mark.requirement("REQ-PLOT-332")
 def test_ctrl_w_toggles_selected_signals(populated: tuple, qtbot: QtBot) -> None:
+    """Sent to the segment itself (the widget that actually has real
+    keyboard focus in the live app), not the outer facade — #111
+    live-testing found the outer widget was never really in the loop for
+    modifier-less keys, only happening to work for Ctrl+ combos because
+    QAbstractItemView's own default handling doesn't intercept those."""
     from PyQt6.QtCore import Qt
     t, sigs = populated
     t._segments[0].selectRow(0)
     with qtbot.waitSignal(t.visibility_toggle_requested, timeout=500) as blocker:
-        qtbot.keyClick(t, Qt.Key.Key_W, Qt.KeyboardModifier.ControlModifier)
+        qtbot.keyClick(t._segments[0], Qt.Key.Key_W, Qt.KeyboardModifier.ControlModifier)
     assert blocker.args[0] == [sigs[0]]
 
 
 @pytest.mark.requirement("REQ-PLOT-332")
 def test_ctrl_w_no_selection_does_not_emit(table: ActiveSignalsTable, qtbot: QtBot) -> None:
     from PyQt6.QtCore import Qt
+    seg = table.add_stripe_segment(_FakeStripe("s"))
     with qtbot.assertNotEmitted(table.visibility_toggle_requested):
-        qtbot.keyClick(table, Qt.Key.Key_W, Qt.KeyboardModifier.ControlModifier)
+        qtbot.keyClick(seg, Qt.Key.Key_W, Qt.KeyboardModifier.ControlModifier)
 
 
 @pytest.mark.requirement("REQ-PLOT-341")
@@ -988,7 +994,7 @@ def test_ctrl_c_copies_raw_names_of_selected_signals(populated: tuple, qtbot: Qt
     t, sigs = populated
     _select_rows(t, 0, 1)
     with qtbot.waitSignal(t.names_copied, timeout=500) as blocker:
-        qtbot.keyClick(t, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        qtbot.keyClick(t._segments[0], Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
     assert blocker.args[0] == 2
     assert QGuiApplication.clipboard().text() == "alpha\nbeta"
 
@@ -996,8 +1002,87 @@ def test_ctrl_c_copies_raw_names_of_selected_signals(populated: tuple, qtbot: Qt
 @pytest.mark.requirement("REQ-PLOT-342")
 def test_ctrl_c_no_selection_does_not_copy(table: ActiveSignalsTable, qtbot: QtBot) -> None:
     from PyQt6.QtCore import Qt
+    seg = table.add_stripe_segment(_FakeStripe("s"))
     with qtbot.assertNotEmitted(table.names_copied):
-        qtbot.keyClick(table, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        qtbot.keyClick(seg, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+
+
+# ---------------------------------------------------------------------------
+# Keyboard shortcut rebinding (#111)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-KEYS-010")
+def test_set_keymap_rebinds_toggle_visibility(populated: tuple, qtbot: QtBot) -> None:
+    from PyQt6.QtCore import Qt
+    t, sigs = populated
+    t.set_keymap({"ast_toggle_visibility": {"primary": "F5", "secondary": None}})
+    t._segments[0].selectRow(0)
+
+    with qtbot.assertNotEmitted(t.visibility_toggle_requested):
+        qtbot.keyClick(t._segments[0], Qt.Key.Key_W, Qt.KeyboardModifier.ControlModifier)
+    with qtbot.waitSignal(t.visibility_toggle_requested, timeout=500):
+        qtbot.keyClick(t._segments[0], Qt.Key.Key_F5)
+
+
+def test_set_keymap_does_not_affect_unmapped_actions(populated: tuple, qtbot: QtBot) -> None:
+    """Rebinding one action must not disturb the others (#111)."""
+    from PyQt6.QtCore import Qt
+    t, sigs = populated
+    t.set_keymap({"ast_toggle_visibility": {"primary": "F5", "secondary": None}})
+    t._segments[0].selectRow(0)
+
+    with qtbot.waitSignal(t.y_autozoom_requested, timeout=500):
+        qtbot.keyClick(t._segments[0], Qt.Key.Key_D, Qt.KeyboardModifier.ControlModifier)
+
+
+def test_set_keymap_modifier_less_key_rebind_works(populated: tuple, qtbot: QtBot) -> None:
+    """Regression for #111 live-testing: rebinding to a modifier-less key
+    (e.g. Space, a plain letter) previously never fired, because the key
+    handling lived on the outer ActiveSignalsTable facade — which only
+    ever receives a key event QAbstractItemView's own default handling
+    (type-ahead search for plain letters, item activation for Space)
+    didn't already consume internally. Living on the actually-focused
+    _ActiveTable segment (on_key_press, checked before super()) fixes it
+    by getting first refusal on every key regardless of modifiers."""
+    from PyQt6.QtCore import Qt
+    t, sigs = populated
+    t.set_keymap({"ast_toggle_visibility": {"primary": "Space", "secondary": None}})
+    t._segments[0].selectRow(0)
+    with qtbot.waitSignal(t.visibility_toggle_requested, timeout=500) as blocker:
+        qtbot.keyClick(t._segments[0], Qt.Key.Key_Space)
+    assert blocker.args[0] == [sigs[0]]
+
+
+def test_set_keymap_plain_letter_rebind_works(populated: tuple, qtbot: QtBot) -> None:
+    from PyQt6.QtCore import Qt
+    t, sigs = populated
+    t.set_keymap({"ast_move_to_new_stripe": {"primary": "L", "secondary": None}})
+    t._segments[0].selectRow(0)
+    with qtbot.waitSignal(t.move_to_new_stripe_requested, timeout=500) as blocker:
+        qtbot.keyClick(t._segments[0], Qt.Key.Key_L)
+    assert blocker.args[0] == [sigs[0]]
+
+
+@pytest.mark.requirement("REQ-KEYS-010")
+def test_move_to_new_stripe_keyboard_shortcut(populated: tuple, qtbot: QtBot) -> None:
+    """Unbound by default (REQ-KEYS-010) — must be explicitly bound before
+    it fires."""
+    from PyQt6.QtCore import Qt
+    t, sigs = populated
+    t.set_keymap({"ast_move_to_new_stripe": {"primary": "Ctrl+T", "secondary": None}})
+    t._segments[0].selectRow(0)
+
+    with qtbot.waitSignal(t.move_to_new_stripe_requested, timeout=500) as blocker:
+        qtbot.keyClick(t._segments[0], Qt.Key.Key_T, Qt.KeyboardModifier.ControlModifier)
+    assert blocker.args[0] == [sigs[0]]
+
+
+def test_move_to_new_stripe_no_shortcut_by_default(populated: tuple, qtbot: QtBot) -> None:
+    from PyQt6.QtCore import Qt
+    t, sigs = populated
+    t._segments[0].selectRow(0)
+    with qtbot.assertNotEmitted(t.move_to_new_stripe_requested):
+        qtbot.keyClick(t._segments[0], Qt.Key.Key_T, Qt.KeyboardModifier.ControlModifier)
 
 
 @pytest.mark.requirement("REQ-PLOT-341")
@@ -1028,15 +1113,16 @@ def test_ctrl_d_requests_autozoom_for_selected_signals(populated: tuple, qtbot: 
     t, sigs = populated
     t._segments[0].selectRow(0)
     with qtbot.waitSignal(t.y_autozoom_requested, timeout=500) as blocker:
-        qtbot.keyClick(t, Qt.Key.Key_D, Qt.KeyboardModifier.ControlModifier)
+        qtbot.keyClick(t._segments[0], Qt.Key.Key_D, Qt.KeyboardModifier.ControlModifier)
     assert blocker.args[0] == [sigs[0]]
 
 
 @pytest.mark.requirement("REQ-PLOT-059")
 def test_ctrl_d_no_selection_does_not_emit(table: ActiveSignalsTable, qtbot: QtBot) -> None:
     from PyQt6.QtCore import Qt
+    seg = table.add_stripe_segment(_FakeStripe("s"))
     with qtbot.assertNotEmitted(table.y_autozoom_requested):
-        qtbot.keyClick(table, Qt.Key.Key_D, Qt.KeyboardModifier.ControlModifier)
+        qtbot.keyClick(seg, Qt.Key.Key_D, Qt.KeyboardModifier.ControlModifier)
 
 
 def test_set_row_visible_icon_updates_button(populated: tuple) -> None:
@@ -1061,15 +1147,16 @@ def test_delete_key_emits_remove_requested(populated: tuple, qtbot: QtBot) -> No
     t, sigs = populated
     t._segments[0].selectRow(0)
     with qtbot.waitSignal(t.remove_requested) as blocker:
-        qtbot.keyClick(t, Qt.Key.Key_Delete)
+        qtbot.keyClick(t._segments[0], Qt.Key.Key_Delete)
     assert blocker.args[0] == [sigs[0]]
 
 
 @pytest.mark.requirement("REQ-PLOT-141")
 def test_delete_key_no_selection_does_not_emit(table: ActiveSignalsTable, qtbot: QtBot) -> None:
     from PyQt6.QtCore import Qt
+    seg = table.add_stripe_segment(_FakeStripe("s"))
     with qtbot.assertNotEmitted(table.remove_requested):
-        qtbot.keyClick(table, Qt.Key.Key_Delete)
+        qtbot.keyClick(seg, Qt.Key.Key_Delete)
 
 
 # ---------------------------------------------------------------------------
@@ -1143,7 +1230,7 @@ def test_delete_key_multi_select_emits_all(
         t._segments[0].selectionModel().SelectionFlag.Select | t._segments[0].selectionModel().SelectionFlag.Rows,
     )
     with qtbot.waitSignal(t.remove_requested) as blocker:
-        qtbot.keyClick(t, Qt.Key.Key_Delete)
+        qtbot.keyClick(t._segments[0], Qt.Key.Key_Delete)
     assert blocker.args[0] == [sigs[0], sigs[1]]
 
 

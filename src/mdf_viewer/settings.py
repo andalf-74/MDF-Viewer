@@ -153,6 +153,8 @@ class Settings:
         self._plugins_dir: Path | None = None
         self._plugin_settings: dict[str, dict[str, Any]] = {}
         self._disabled_plugins: set[str] = set()
+        self._keymap: dict[str, dict[str, Any]] = {}
+        self._keymap_preset_label: str = "Default"
         self._load()
 
     # ------------------------------------------------------------------
@@ -204,6 +206,29 @@ class Settings:
             self._disabled_plugins.add(folder_name)
         else:
             self._disabled_plugins.discard(folder_name)
+        self._save()
+
+    @property
+    def keymap(self) -> dict[str, dict[str, Any]]:
+        """The resolved keyboard-shortcut keymap (#111): action_id ->
+        {"primary": str, "secondary": str | None}. Empty dict means "use
+        keymap_presets.DEFAULT_PRESET" (nothing customized yet)."""
+        return dict(self._keymap)
+
+    @keymap.setter
+    def keymap(self, value: dict[str, dict[str, Any]]) -> None:
+        self._keymap = dict(value)
+        self._save()
+
+    @property
+    def keymap_preset_label(self) -> str:
+        """Display-only label of which preset the keymap was last loaded
+        from, or matches (REQ-KEYS-061) — not used to resolve bindings."""
+        return self._keymap_preset_label
+
+    @keymap_preset_label.setter
+    def keymap_preset_label(self, value: str) -> None:
+        self._keymap_preset_label = value
         self._save()
 
     def prune_disabled_plugins(self, existing_folder_names: set[str]) -> None:
@@ -572,6 +597,13 @@ class Settings:
             ):
                 raise TypeError("disabled_plugins must be a list of str")
             self._disabled_plugins = set(raw_disabled_plugins)
+            raw_keymap = data.get("keymap", {})
+            if not isinstance(raw_keymap, dict) or not all(
+                isinstance(v, dict) for v in raw_keymap.values()
+            ):
+                raise TypeError("keymap must be a dict of dicts")
+            self._keymap = raw_keymap
+            self._keymap_preset_label = str(data.get("keymap_preset_label", "Default"))
             # One-time migration (REQ-UPDATE-320): the update checker used
             # to be a built-in feature with its own top-level setting. If
             # an old settings.json still has that key, fold its value into
@@ -619,6 +651,8 @@ class Settings:
             self._plugins_dir = None
             self._plugin_settings = {}
             self._disabled_plugins = set()
+            self._keymap = {}
+            self._keymap_preset_label = "Default"
 
     @staticmethod
     def _load_color(
@@ -666,6 +700,8 @@ class Settings:
                     "plugins_dir": str(self._plugins_dir) if self._plugins_dir else None,
                     "plugin_settings": self._plugin_settings,
                     "disabled_plugins": sorted(self._disabled_plugins),
+                    "keymap": self._keymap,
+                    "keymap_preset_label": self._keymap_preset_label,
                 },
                 indent=2,
             ),

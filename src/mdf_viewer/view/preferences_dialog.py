@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from PyQt6.QtGui import QColor
+from pathlib import Path
+
+from PyQt6.QtGui import QColor, QKeySequence
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
@@ -9,11 +11,15 @@ from PyQt6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
     QDoubleSpinBox,
+    QFileDialog,
     QGridLayout,
     QHBoxLayout,
+    QKeySequenceEdit,
     QLabel,
+    QMessageBox,
     QPushButton,
     QRadioButton,
+    QScrollArea,
     QSpinBox,
     QTabWidget,
     QVBoxLayout,
@@ -36,6 +42,17 @@ from mdf_viewer.settings import (
     DEFAULT_SELECTED_LINE_BOOST,
     DEFAULT_SHOW_ONLY_SELECTED_Y_AXIS,
     Settings,
+)
+from mdf_viewer.view.keymap_presets import (
+    ACTION_IDS,
+    ACTION_LABELS,
+    BUILTIN_PRESETS,
+    DEFAULT_PRESET,
+    KeymapValidationError,
+    keymap_from_dict,
+    keymap_to_dict,
+    load_mvck,
+    save_mvck,
 )
 
 _LOGGING_LEVELS = ["DEBUG", "INFO", "WARNING", "ERROR"]
@@ -372,6 +389,8 @@ class PreferencesDialog(QDialog):
         signals_layout.addStretch()
         tabs.addTab(signals, "Signals")
 
+        self._build_shortcuts_tab(tabs)
+
         layout.addWidget(tabs)
 
         buttons = QDialogButtonBox(
@@ -410,6 +429,8 @@ class PreferencesDialog(QDialog):
         self._settings.cursor_step_samples = max(1, int(self._step_values["samples"]))
         self._settings.cursor_step_pixels = max(1, int(self._step_values["pixels"]))
         self._settings.cursor_step_time_ms = max(0.1, self._step_values["time"])
+        self._settings.keymap = keymap_to_dict(self._keymap_working)
+        self._settings.keymap_preset_label = self._keymap_label_value
         self.accept()
 
     def _on_step_unit_changed(self, index: int) -> None:
@@ -448,6 +469,212 @@ class PreferencesDialog(QDialog):
         }
         self._on_step_unit_changed(0)
         self._step_unit.setCurrentIndex(0)
+
+    # ------------------------------------------------------------------
+    # Shortcuts tab (#111)
+    # ------------------------------------------------------------------
+
+    def _build_shortcuts_tab(self, tabs: QTabWidget) -> None:
+        """A working copy of the keymap, edited entirely in this dialog's
+        own state — nothing touches `self._settings` until `_apply()`
+        (REQ-KEYS-050–055), matching every other tab's one-call-per-
+        `_apply()` convention."""
+        self._keymap_working: dict = dict(keymap_from_dict(self._settings.keymap))
+        self._keymap_label_value: str = self._settings.keymap_preset_label
+        self._keymap_row_widgets: dict = {}
+        self._keymap_edits_in_progress: set = set()
+
+        shortcuts = QWidget()
+        shortcuts_layout = QVBoxLayout(shortcuts)
+
+        preset_row = QHBoxLayout()
+        preset_row.addWidget(QLabel("Preset:"))
+        self._keymap_preset_combo = QComboBox()
+        self._keymap_preset_combo.addItems(list(BUILTIN_PRESETS))
+        self._keymap_preset_combo.setCurrentIndex(-1)
+        self._keymap_preset_combo.currentTextChanged.connect(self._on_keymap_preset_selected)
+        preset_row.addWidget(self._keymap_preset_combo)
+        load_btn = QPushButton("Load…")
+        load_btn.clicked.connect(self._on_keymap_load_clicked)
+        preset_row.addWidget(load_btn)
+        save_btn = QPushButton("Save As…")
+        save_btn.clicked.connect(self._on_keymap_save_clicked)
+        preset_row.addWidget(save_btn)
+        preset_row.addStretch()
+        shortcuts_layout.addLayout(preset_row)
+
+        self._keymap_status_label = QLabel()
+        shortcuts_layout.addWidget(self._keymap_status_label)
+        self._refresh_keymap_status_label()
+
+        # QGridLayout (not one QHBoxLayout per row) so every row's key
+        # fields line up in fixed columns regardless of each action's
+        # label length — a per-row QHBoxLayout left the fields starting at
+        # whatever X position that row's own label happened to end at
+        # (live-testing feedback).
+        rows_layout = QGridLayout()
+        rows_layout.setHorizontalSpacing(10)
+        rows_container = QWidget()
+        rows_container.setLayout(rows_layout)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setWidget(rows_container)
+        shortcuts_layout.addWidget(scroll)
+
+        header_font_bold = QLabel("Action").font()
+        header_font_bold.setBold(True)
+        for col, text in enumerate(["Action", "Primary", "Secondary", ""]):
+            header = QLabel(text)
+            header.setFont(header_font_bold)
+            rows_layout.addWidget(header, 0, col)
+
+        for row_index, action_id in enumerate(ACTION_IDS, start=1):
+            rows_layout.addWidget(QLabel(ACTION_LABELS[action_id]), row_index, 0)
+
+            primary_edit = QKeySequenceEdit()
+            primary_edit.setMaximumSequenceLength(1)
+            secondary_edit = QKeySequenceEdit()
+            secondary_edit.setMaximumSequenceLength(1)
+            primary, secondary = self._keymap_working[action_id]
+            primary_edit.setKeySequence(primary)
+            if secondary is not None:
+                secondary_edit.setKeySequence(secondary)
+            primary_edit.editingFinished.connect(
+                lambda aid=action_id, slot="primary": self._on_keymap_field_edited(aid, slot)
+            )
+            secondary_edit.editingFinished.connect(
+                lambda aid=action_id, slot="secondary": self._on_keymap_field_edited(aid, slot)
+            )
+            rows_layout.addWidget(primary_edit, row_index, 1)
+            rows_layout.addWidget(secondary_edit, row_index, 2)
+
+            reset_btn = QPushButton("Reset")
+            reset_btn.setToolTip(f'Reset "{ACTION_LABELS[action_id]}" to its default binding')
+            reset_btn.clicked.connect(lambda checked=False, aid=action_id: self._reset_keymap_row(aid))
+            rows_layout.addWidget(reset_btn, row_index, 3)
+
+            self._keymap_row_widgets[action_id] = (primary_edit, secondary_edit)
+
+        rows_layout.setColumnStretch(0, 1)  # label column absorbs extra width
+        rows_layout.setRowStretch(len(ACTION_IDS) + 1, 1)  # push rows to the top
+
+        reset_all_row = QHBoxLayout()
+        reset_all_row.addStretch()
+        reset_all_btn = QPushButton("Reset All to Defaults")
+        reset_all_btn.clicked.connect(self._on_keymap_reset_all)
+        reset_all_row.addWidget(reset_all_btn)
+        shortcuts_layout.addLayout(reset_all_row)
+
+        tabs.addTab(shortcuts, "Shortcuts")
+
+    def _refresh_keymap_status_label(self) -> None:
+        self._keymap_status_label.setText(f"Current: {self._keymap_label_value}")
+
+    def _find_keymap_conflict(self, action_id: str, seq: QKeySequence) -> "str | None":
+        """The action id already using *seq* (primary or secondary),
+        excluding *action_id* itself — or None (REQ-KEYS-040)."""
+        for other_id, (primary, secondary) in self._keymap_working.items():
+            if other_id == action_id:
+                continue
+            if (not primary.isEmpty() and primary == seq) or (
+                secondary is not None and secondary == seq
+            ):
+                return other_id
+        return None
+
+    def _on_keymap_field_edited(self, action_id: str, slot: str) -> None:
+        # Reentrancy guard (#111, live-testing found the conflict warning
+        # appeared twice): showing the modal QMessageBox below moves focus
+        # away from *edit*, and QKeySequenceEdit.editingFinished fires on
+        # focus-out as well as on sequence-complete — without this guard,
+        # that focus-out re-enters this same handler for the same (still
+        # conflicting) value before the revert below has run.
+        key = (action_id, slot)
+        if key in self._keymap_edits_in_progress:
+            return
+        self._keymap_edits_in_progress.add(key)
+        try:
+            primary_edit, secondary_edit = self._keymap_row_widgets[action_id]
+            edit = primary_edit if slot == "primary" else secondary_edit
+            new_seq = edit.keySequence()
+            primary, secondary = self._keymap_working[action_id]
+            previous = primary if slot == "primary" else (secondary or QKeySequence())
+
+            if not new_seq.isEmpty():
+                conflict = self._find_keymap_conflict(action_id, new_seq)
+                if conflict is not None:
+                    QMessageBox.warning(
+                        self,
+                        "Shortcut Conflict",
+                        f'"{new_seq.toString()}" is already assigned to '
+                        f'"{ACTION_LABELS[conflict]}".',
+                    )
+                    edit.setKeySequence(previous)
+                    return
+
+            if slot == "primary":
+                self._keymap_working[action_id] = (new_seq, secondary)
+            else:
+                self._keymap_working[action_id] = (
+                    primary, new_seq if not new_seq.isEmpty() else None,
+                )
+            self._keymap_label_value = "Custom"
+            self._refresh_keymap_status_label()
+        finally:
+            self._keymap_edits_in_progress.discard(key)
+
+    def _reset_keymap_row(self, action_id: str) -> None:
+        primary, secondary = DEFAULT_PRESET[action_id]
+        self._keymap_working[action_id] = (QKeySequence(primary), secondary)
+        primary_edit, secondary_edit = self._keymap_row_widgets[action_id]
+        primary_edit.setKeySequence(primary)
+        secondary_edit.setKeySequence(secondary or QKeySequence())
+        self._keymap_label_value = "Custom"
+        self._refresh_keymap_status_label()
+
+    def _load_keymap_preset(self, preset: dict, label: str) -> None:
+        self._keymap_working = dict(preset)
+        for action_id, (primary_edit, secondary_edit) in self._keymap_row_widgets.items():
+            primary, secondary = preset[action_id]
+            primary_edit.setKeySequence(primary)
+            secondary_edit.setKeySequence(secondary or QKeySequence())
+        self._keymap_label_value = label
+        self._refresh_keymap_status_label()
+
+    def _on_keymap_preset_selected(self, name: str) -> None:
+        if name in BUILTIN_PRESETS:
+            self._load_keymap_preset(BUILTIN_PRESETS[name], name)
+
+    def _on_keymap_reset_all(self) -> None:
+        self._load_keymap_preset(DEFAULT_PRESET, "Default")
+
+    def _on_keymap_load_clicked(self) -> None:
+        path_str, _ = QFileDialog.getOpenFileName(
+            self, "Load Shortcut Preset", "", "MDF Viewer Keymap (*.mvck);;All Files (*)"
+        )
+        if not path_str:
+            return
+        try:
+            keymap, label = load_mvck(path_str)
+        except KeymapValidationError as exc:
+            QMessageBox.critical(self, "Load Shortcut Preset", str(exc))
+            return
+        self._load_keymap_preset(keymap, label)
+
+    def _on_keymap_save_clicked(self) -> None:
+        path_str, _ = QFileDialog.getSaveFileName(
+            self, "Save Shortcut Preset As", "", "MDF Viewer Keymap (*.mvck);;All Files (*)"
+        )
+        if not path_str:
+            return
+        label = Path(path_str).stem
+        try:
+            save_mvck(path_str, self._keymap_working, label)
+        except OSError as exc:
+            QMessageBox.critical(self, "Save Shortcut Preset", f"Could not write '{path_str}':\n{exc}")
+            return
+        self._keymap_label_value = label
+        self._refresh_keymap_status_label()
 
 
 class _CursorColorSwatch(QPushButton):

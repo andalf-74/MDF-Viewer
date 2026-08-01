@@ -5,6 +5,13 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Keyboard Shortcut Configuration (#111): Preferences gained a "Shortcuts"
+  tab where almost every existing keyboard shortcut in the app can be
+  rebound (Copy Name(s)/Ctrl+C stays fixed) — click a field, press the
+  new key combination. Built-in Default/MDA/CANape presets, plus
+  save/load your own as a named `.mvck` file. Assigning a key already
+  used elsewhere is rejected and the conflicting action is named. Takes
+  effect immediately, no restart.
 - Tooltips on several previously-unlabeled controls (#129): the Active
   Signals Table's color swatch and visibility-eye icon, the Preferences
   dialog's cursor/background color swatches, the Signal Browser's

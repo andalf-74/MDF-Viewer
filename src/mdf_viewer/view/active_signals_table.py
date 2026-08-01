@@ -44,6 +44,7 @@ from PyQt6.QtGui import (
     QFontMetrics,
     QGuiApplication,
     QKeyEvent,
+    QKeySequence,
     QMouseEvent,
     QPalette,
 )
@@ -74,6 +75,7 @@ from mdf_viewer.view._mime import (
     encode_row_payload,
 )
 from mdf_viewer.view import theme
+from mdf_viewer.view.keymap_presets import DEFAULT_PRESET, keymap_from_dict
 from mdf_viewer.view.widgets import ColorSwatch, VisibilityToggleButton, make_splitter
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
@@ -274,6 +276,18 @@ class _ActiveTable(QTableWidget):
         # on_click_release: called on mouse release only when no drag
         # happened this press (REQ-PLOT-276/279 — see on_mouse_press).
         self.on_click_release: Callable[[QMouseEvent], None] | None = None
+        # on_key_press: called first on every key press, before Qt's own
+        # default QAbstractItemView handling gets a chance to consume it
+        # (#111 live-testing found modifier-less keys like Space/plain
+        # letters never reached ActiveSignalsTable.keyPressEvent when that
+        # override lived on the outer facade — QAbstractItemView's default
+        # type-ahead-search/activate handling absorbs them internally
+        # before an "unhandled" event would ever propagate to the parent;
+        # a Ctrl+ combo happened to bypass that, masking the bug in
+        # testing). Living on the actually-focused widget itself sidesteps
+        # this entirely — our own check always gets first refusal. Returns
+        # True if the event was handled (caller must not call super()).
+        self.on_key_press: Callable[[QKeyEvent], bool] | None = None
         # Both set by ActiveSignalsTable._add_segment() right after
         # construction (REQ-PLOT-290): name_label is this segment's stripe-
         # name row; container is the small wrapper widget stacking
@@ -316,6 +330,11 @@ class _ActiveTable(QTableWidget):
         if not self._drag_happened and self.on_click_release is not None:
             self.on_click_release(event)
         super().mouseReleaseEvent(event)
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        if self.on_key_press is not None and self.on_key_press(event):
+            return
+        super().keyPressEvent(event)
 
 
 class _SegmentLabel(QLabel):
@@ -384,7 +403,10 @@ class ActiveSignalsTable(QWidget):
     # list[ActiveSignal], target stripe — emitted when a specific stripe is chosen
     # from the "Move to Stripe" submenu
     move_to_stripe_requested = pyqtSignal(list, object)
-    # list[ActiveSignal] — emitted when "Move to new Stripe" is chosen
+    # list[ActiveSignal] — emitted when "Move to new Stripe" is chosen from
+    # the context menu, or via its keyboard shortcut (#111 — promoted into
+    # rebindable scope specifically because the MDA preset needs it; unbound
+    # by default).
     move_to_new_stripe_requested = pyqtSignal(list)
     # list[int] — the segment splitter's sizes after an interactive drag, so
     # MainWindow can mirror them onto PlotStripesArea's own stripe splitter
@@ -432,6 +454,10 @@ class ActiveSignalsTable(QWidget):
         # set_segment_sizes() — see PlotStripesArea._syncing_sizes for why
         # this is belt-and-suspenders rather than strictly required.
         self._syncing_segment_sizes = False
+        # action_id -> (primary, secondary|None) QKeySequence pair (#111).
+        # Empty until set_keymap() is called — keyPressEvent() falls back
+        # to keymap_presets.DEFAULT_PRESET for any action id not (yet) set.
+        self._keymap: dict = {}
         self._build_ui()
         # No segment is created eagerly — in production, segments are created
         # reactively from PlotStripesArea.stripe_created (wired, with a
@@ -762,6 +788,7 @@ class ActiveSignalsTable(QWidget):
         seg.on_mouse_press = lambda event, s=seg: self._on_segment_mouse_press(s, event)
         seg.on_drag_start = lambda s=seg: self._start_segment_drag(s)
         seg.on_click_release = lambda event, s=seg: self._on_segment_click_release(s, event)
+        seg.on_key_press = self._handle_key_press
 
         seg.viewport().setAcceptDrops(True)
         seg.viewport().installEventFilter(self)
@@ -951,30 +978,56 @@ class ActiveSignalsTable(QWidget):
         targets = selected if len(selected) > 1 and active in selected else [active]
         self.visibility_toggle_requested.emit(targets)
 
-    def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+    def set_keymap(self, mapping: dict) -> None:
+        """Resolve *mapping* (the plain JSON-native shape `Settings.keymap`
+        uses) against `keymap_presets.DEFAULT_PRESET` and store it for
+        `_handle_key_press()` to read (#111)."""
+        self._keymap = keymap_from_dict(mapping)
+
+    def _binding_for(self, action_id: str) -> tuple:
+        return self._keymap.get(action_id, DEFAULT_PRESET[action_id])
+
+    def _event_matches(self, event: QKeyEvent, action_id: str) -> bool:
+        seq = QKeySequence(event.keyCombination())
+        primary, secondary = self._binding_for(action_id)
+        return (not primary.isEmpty() and seq == primary) or (
+            secondary is not None and seq == secondary
+        )
+
+    def _handle_key_press(self, event: QKeyEvent) -> bool:
+        """Called from `_ActiveTable.on_key_press` — the segment that's
+        actually focused — before Qt's own default key handling gets a
+        chance to consume the event (#111). Returns True if handled.
+
+        Copy Name(s) stays a hardcoded Ctrl+C, not a rebindable action —
+        live-testing plus direct user feedback settled that a copy/paste-
+        style shortcut isn't something anyone should be rebinding.
+        """
+        if self._event_matches(event, "ast_remove_signal"):
             self._on_remove_clicked()
-        elif (
-            event.key() == Qt.Key.Key_W
-            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
-        ):
+            return True
+        if self._event_matches(event, "ast_toggle_visibility"):
             signals = self._selected_signals()
             if signals:
                 self.visibility_toggle_requested.emit(signals)
-        elif (
-            event.key() == Qt.Key.Key_D
-            and event.modifiers() & Qt.KeyboardModifier.ControlModifier
-        ):
+            return True
+        if self._event_matches(event, "ast_y_autozoom"):
             signals = self._selected_signals()
             if signals:
                 self.y_autozoom_requested.emit(signals)
-        elif (
+            return True
+        if (
             event.key() == Qt.Key.Key_C
             and event.modifiers() & Qt.KeyboardModifier.ControlModifier
         ):
             self._copy_names(self._selected_signals())
-        else:
-            super().keyPressEvent(event)
+            return True
+        if self._event_matches(event, "ast_move_to_new_stripe"):
+            signals = self._selected_signals()
+            if signals:
+                self.move_to_new_stripe_requested.emit(signals)
+            return True
+        return False
 
     def _copy_names(self, signals: list) -> None:
         """Copy each signal's raw channel name (not its on-screen display

@@ -1135,3 +1135,67 @@ def test_prune_disabled_plugins_noop_does_not_resave(tmp_path: Path) -> None:
     s.prune_disabled_plugins({"still_here"})
 
     assert path.stat().st_mtime_ns == mtime_before
+
+
+# ---------------------------------------------------------------------------
+# keymap / keymap_preset_label (#111)
+# ---------------------------------------------------------------------------
+
+def test_keymap_defaults_to_empty_dict(settings: Settings) -> None:
+    assert settings.keymap == {}
+
+
+def test_keymap_preset_label_defaults_to_default(settings: Settings) -> None:
+    assert settings.keymap_preset_label == "Default"
+
+
+@pytest.mark.requirement("REQ-KEYS-060")
+def test_keymap_round_trips_through_save_and_load(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    s1 = Settings(path=path)
+    s1.keymap = {"undo": {"primary": "Ctrl+Z", "secondary": None}}
+
+    s2 = Settings(path=path)
+
+    assert s2.keymap == {"undo": {"primary": "Ctrl+Z", "secondary": None}}
+
+
+@pytest.mark.requirement("REQ-KEYS-061")
+def test_keymap_preset_label_round_trips_through_save_and_load(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    s1 = Settings(path=path)
+    s1.keymap_preset_label = "CANape"
+
+    s2 = Settings(path=path)
+
+    assert s2.keymap_preset_label == "CANape"
+
+
+def test_keymap_setter_persists_immediately(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    s = Settings(path=path)
+    s.keymap = {"undo": {"primary": "Ctrl+Z", "secondary": None}}
+
+    raw = json.loads(path.read_text(encoding="utf-8"))
+
+    assert raw["keymap"] == {"undo": {"primary": "Ctrl+Z", "secondary": None}}
+    assert raw["keymap_preset_label"] == "Default"
+
+
+def test_keymap_falls_back_to_empty_dict_when_malformed(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"keymap": ["not", "a", "dict"]}), encoding="utf-8")
+
+    s = Settings(path=path)
+
+    assert s.keymap == {}
+
+
+def test_keymap_defaults_on_missing_key(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(json.dumps({"check_for_updates": False}), encoding="utf-8")
+
+    s = Settings(path=path)
+
+    assert s.keymap == {}
+    assert s.keymap_preset_label == "Default"

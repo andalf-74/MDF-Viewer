@@ -2514,6 +2514,70 @@ def test_save_config_action_shortcut_is_ctrl_s(window: MainWindow) -> None:
 
 
 # ---------------------------------------------------------------------------
+# apply_keymap() (#111)
+# ---------------------------------------------------------------------------
+
+def test_apply_keymap_rewires_a_qaction(window: MainWindow) -> None:
+    from PyQt6.QtGui import QKeySequence
+
+    window.apply_keymap({"undo": {"primary": "Ctrl+9", "secondary": None}})
+    assert window._undo_action.shortcut() == QKeySequence("Ctrl+9")
+
+
+def test_apply_keymap_rewires_a_qshortcut(window: MainWindow) -> None:
+    from PyQt6.QtGui import QKeySequence
+
+    window.apply_keymap({"cursor1_toggle": {"primary": "F5", "secondary": None}})
+    assert window._cursor1_shortcut.key() == QKeySequence("F5")
+
+
+def test_apply_keymap_sets_a_secondary_binding(window: MainWindow) -> None:
+    from PyQt6.QtGui import QKeySequence
+
+    window.apply_keymap({"undo": {"primary": "Ctrl+Z", "secondary": "F9"}})
+    assert window._undo_action.shortcuts() == [QKeySequence("Ctrl+Z"), QKeySequence("F9")]
+
+
+def test_apply_keymap_missing_action_falls_back_to_default(window: MainWindow) -> None:
+    from PyQt6.QtGui import QKeySequence
+
+    window.apply_keymap({})
+    assert window._save_config_action.shortcut() == QKeySequence("Ctrl+S")
+
+
+def test_apply_keymap_empty_primary_clears_the_action(window: MainWindow) -> None:
+    window.apply_keymap({"zoom_y_to_view": {"primary": "", "secondary": None}})
+    assert window._zoom_y_action.shortcuts() == []
+
+
+def test_apply_keymap_covers_the_cursor_toggle_action(window: MainWindow) -> None:
+    """#111 promotes the Cursors toggle into rebindable scope even though
+    it has no default shortcut at all (main_window.py never called
+    setShortcut on it before #111)."""
+    from PyQt6.QtGui import QKeySequence
+
+    window.apply_keymap({"cursor_toggle": {"primary": "Ctrl+R", "secondary": None}})
+    assert window._cursor_action.shortcut() == QKeySequence("Ctrl+R")
+
+
+@pytest.mark.requirement("REQ-KEYS-062")
+def test_new_tab_receives_current_keymap(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """Each tab gets its own ActiveSignalsTable instance — a freshly
+    created one must not silently fall back to defaults just because
+    apply_keymap() was only ever called against an earlier tab (#111)."""
+    mock_controller.active_signals = []  # avoid a real close-confirmation dialog
+    wired._settings = MagicMock(
+        keymap={"ast_toggle_visibility": {"primary": "F5", "secondary": None}},
+        prompt_save_config_on_close=False,
+    )
+    index = wired._on_new_tab()
+    page = wired._tab_widget.widget(index)
+    assert page.active_signals_table._keymap["ast_toggle_visibility"][0].toString() == "F5"
+
+
+# ---------------------------------------------------------------------------
 # Import/Export Labels (#143)
 # ---------------------------------------------------------------------------
 

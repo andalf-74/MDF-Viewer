@@ -35,7 +35,7 @@ from PyQt6.QtCore import (
     QTimer,
     pyqtSignal,
 )
-from PyQt6.QtGui import QDrag, QGuiApplication, QStandardItem, QStandardItemModel
+from PyQt6.QtGui import QDrag, QGuiApplication, QKeySequence, QStandardItem, QStandardItemModel
 from PyQt6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -86,6 +86,9 @@ class _DragTreeView(QTreeView):
         drag.exec(Qt.DropAction.CopyAction)
 
     def keyPressEvent(self, event) -> None:
+        # Copy Name(s) is deliberately not rebindable (#111) — a
+        # copy/paste-style shortcut isn't something a user should be able
+        # to reassign.
         if (
             self._on_copy is not None
             and event.key() == Qt.Key.Key_C

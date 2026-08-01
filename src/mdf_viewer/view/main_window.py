@@ -69,6 +69,18 @@ def _candidate_indices(candidate, measurement_aware: bool) -> tuple:
     return candidate.group_index, candidate.channel_index
 
 
+def _keybinding_to_list(binding) -> list:
+    """A keymap_presets Keybinding (primary, secondary|None) -> the list
+    QAction.setShortcuts()/QShortcut.setKeys() expect (#111) — an empty
+    primary means "unbound", so it's dropped rather than passed through as
+    an empty QKeySequence."""
+    primary, secondary = binding
+    seqs = [] if primary.isEmpty() else [primary]
+    if secondary is not None and not secondary.isEmpty():
+        seqs.append(secondary)
+    return seqs
+
+
 from mdf_viewer import __version__
 from mdf_viewer.errors import LabelListParseError, MdfLoadError
 from mdf_viewer.license.license_info import LicenseInfo
@@ -82,6 +94,7 @@ from mdf_viewer.view.license_dialog import LicenseDialog
 from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
 from mdf_viewer.view.plot_stripes_area import PlotStripesArea
 from mdf_viewer.view.signal_browser import SignalBrowser
+from mdf_viewer.view.keymap_presets import ACTION_IDS, DEFAULT_PRESET, keymap_from_dict
 from mdf_viewer.view.signal_info_box import SignalInfoBox
 from mdf_viewer.view.status_history_dialog import StatusHistoryDialog
 from mdf_viewer.view.status_message_history import StatusMessageHistory
@@ -711,6 +724,11 @@ class MainWindow(QMainWindow):
         duplicated per tab.
         """
         controller = self._controller
+        # Each tab gets its own ActiveSignalsTable instance, so a freshly
+        # created one needs the current keymap pushed in explicitly (#111)
+        # rather than inheriting whatever the last apply_keymap() call set —
+        # there's no shared state between per-tab AST instances.
+        active_signals_table.set_keymap(self._settings.keymap if self._settings else {})
         plot_area.signals_dropped_on_stripe.connect(self._on_add_signals_to_stripe)
         plot_area.active_signals_dropped_on_stripe.connect(
             self._on_active_signals_dropped_to_stripe
@@ -908,13 +926,56 @@ class MainWindow(QMainWindow):
         """Store the Settings instance (needed by Preferences dialog)."""
         self._settings = settings
 
+    def _rebindable_qt_objects(self) -> dict:
+        """action_id -> QAction|QShortcut for the actions MainWindow owns
+        directly (#111). The remaining keyPressEvent-based action ids
+        (Active Signals Table, Signal Browser) are pushed via their own
+        set_keymap() calls, wired alongside this one from app.py."""
+        return {
+            "open_file": self._load_action,
+            "zoom_to_fit": self._zoom_fit_action,
+            "zoom_y_to_view": self._zoom_y_action,
+            "swimlanes": self._swimlanes_action,
+            "zoom_to_cursors": self._zoom_cursors_action,
+            "cursor_toggle": self._cursor_action,
+            "undo": self._undo_action,
+            "redo": self._redo_action,
+            "save_workspace": self._save_config_action,
+            "exit": self._exit_action,
+            "cursor1_toggle": self._cursor1_shortcut,
+            "cursor2_toggle": self._cursor2_shortcut,
+            "cursor_step_left": self._cursor_left_shortcut,
+            "cursor_step_right": self._cursor_right_shortcut,
+            "next_tab": self._next_tab_shortcut,
+            "prev_tab": self._prev_tab_shortcut,
+        }
+
+    def apply_keymap(self, mapping: dict) -> None:
+        """Push a keymap (#111, REQ-KEYS-062) onto every QAction/QShortcut
+        this window owns directly, and every tab's Active Signals Table's
+        keyPressEvent-based bindings. *mapping* is the same plain
+        `{action_id: {"primary": str, "secondary": str | None}}` shape
+        `Settings.keymap` stores — need not cover every action id, a
+        missing one falls back to `DEFAULT_PRESET`'s value. The Signal
+        Browser's Ctrl+C (like the AST's) is deliberately not rebindable —
+        see `keymap_presets.py`'s module docstring."""
+        resolved = keymap_from_dict(mapping)
+        for action_id, obj in self._rebindable_qt_objects().items():
+            seqs = _keybinding_to_list(resolved[action_id])
+            if isinstance(obj, QShortcut):
+                obj.setKeys(seqs)
+            else:
+                obj.setShortcuts(seqs)
+        for table in self._all_active_signals_tables():
+            table.set_keymap(mapping)
+
     # ------------------------------------------------------------------
     # UI construction
     # ------------------------------------------------------------------
 
     def _build_actions(self) -> None:
         self._load_action = QAction(_load_icon("open_file"), "Open…", self)
-        self._load_action.setShortcut(QKeySequence.StandardKey.Open)
+        self._load_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["open_file"]))
         self._load_action.setToolTip("Open File (Ctrl+O)")
         self._load_action.triggered.connect(self._on_load_file)
 
@@ -934,23 +995,21 @@ class MainWindow(QMainWindow):
         self._zoom_fit_action = QAction(
             _load_icon("zoom_to_fit"), "Zoom to Fit", self
         )
-        self._zoom_fit_action.setShortcuts(
-            [QKeySequence("Ctrl+0"), QKeySequence("f")]
-        )
+        self._zoom_fit_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["zoom_to_fit"]))
         self._zoom_fit_action.setToolTip("Zoom to fit all active signals (Ctrl+0 / F)")
         self._zoom_fit_action.triggered.connect(self._on_zoom_to_fit)
 
         self._zoom_y_action = QAction(
             _load_icon("zoom_y_to_fit"), "Zoom Y to View", self
         )
-        self._zoom_y_action.setShortcut(QKeySequence("y"))
+        self._zoom_y_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["zoom_y_to_view"]))
         self._zoom_y_action.setToolTip("Zoom Y axes to current X span (Y)")
         self._zoom_y_action.triggered.connect(self._on_zoom_y_to_view)
 
         self._swimlanes_action = QAction(
             _load_icon("swimlanes"), "Swimlanes", self
         )
-        self._swimlanes_action.setShortcut(QKeySequence("b"))
+        self._swimlanes_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["swimlanes"]))
         self._swimlanes_action.setToolTip("Arrange signals in swimlanes (B)")
         self._swimlanes_action.triggered.connect(self._on_swimlanes)
 
@@ -966,40 +1025,47 @@ class MainWindow(QMainWindow):
         self._zoom_cursors_action = QAction(
             _load_icon("zoom_to_cursors"), "Zoom to Cursors", self
         )
-        self._zoom_cursors_action.setShortcut(QKeySequence("c"))
+        self._zoom_cursors_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["zoom_to_cursors"]))
         self._zoom_cursors_action.setToolTip("Zoom X to cursor range (C)")
         self._zoom_cursors_action.setEnabled(False)
         self._zoom_cursors_action.triggered.connect(self._on_zoom_to_cursors)
 
         self._cursor_action = QAction(_load_icon("cursors"), "Cursors", self)
+        self._cursor_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["cursor_toggle"]))
         self._cursor_action.setToolTip("Toggle cursors (off → 1 → 2 → off)")
         self._cursor_action.triggered.connect(self._on_cursor_toggle)
 
-        self._cursor1_shortcut = QShortcut(QKeySequence("."), self)
+        self._cursor1_shortcut = QShortcut(self)
+        self._cursor1_shortcut.setKeys(_keybinding_to_list(DEFAULT_PRESET["cursor1_toggle"]))
         self._cursor1_shortcut.activated.connect(self._on_cursor1)
-        self._cursor2_shortcut = QShortcut(QKeySequence(","), self)
+        self._cursor2_shortcut = QShortcut(self)
+        self._cursor2_shortcut.setKeys(_keybinding_to_list(DEFAULT_PRESET["cursor2_toggle"]))
         self._cursor2_shortcut.activated.connect(self._on_cursor2)
 
-        self._cursor_left_shortcut = QShortcut(QKeySequence("Left"), self)
+        self._cursor_left_shortcut = QShortcut(self)
+        self._cursor_left_shortcut.setKeys(_keybinding_to_list(DEFAULT_PRESET["cursor_step_left"]))
         self._cursor_left_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self._cursor_left_shortcut.activated.connect(self._on_cursor_left)
-        self._cursor_right_shortcut = QShortcut(QKeySequence("Right"), self)
+        self._cursor_right_shortcut = QShortcut(self)
+        self._cursor_right_shortcut.setKeys(_keybinding_to_list(DEFAULT_PRESET["cursor_step_right"]))
         self._cursor_right_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self._cursor_right_shortcut.activated.connect(self._on_cursor_right)
 
-        self._next_tab_shortcut = QShortcut(QKeySequence("Ctrl+Tab"), self)
+        self._next_tab_shortcut = QShortcut(self)
+        self._next_tab_shortcut.setKeys(_keybinding_to_list(DEFAULT_PRESET["next_tab"]))
         self._next_tab_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self._next_tab_shortcut.activated.connect(lambda: self._cycle_tab(1))
-        self._prev_tab_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Tab"), self)
+        self._prev_tab_shortcut = QShortcut(self)
+        self._prev_tab_shortcut.setKeys(_keybinding_to_list(DEFAULT_PRESET["prev_tab"]))
         self._prev_tab_shortcut.setContext(Qt.ShortcutContext.ApplicationShortcut)
         self._prev_tab_shortcut.activated.connect(lambda: self._cycle_tab(-1))
 
         self._undo_action = QAction("Undo", self)
-        self._undo_action.setShortcut(QKeySequence("Ctrl+Z"))
+        self._undo_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["undo"]))
         self._undo_action.triggered.connect(self._on_undo)
 
         self._redo_action = QAction("Redo", self)
-        self._redo_action.setShortcut(QKeySequence("Ctrl+Shift+Z"))
+        self._redo_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["redo"]))
         self._redo_action.triggered.connect(self._on_redo)
 
         self._sync_measurements_action = QAction("Sync Measurements", self)
@@ -1011,7 +1077,7 @@ class MainWindow(QMainWindow):
         self._sync_measurements_action.toggled.connect(self._on_sync_action_toggled)
 
         self._save_config_action = QAction("Save Workspace", self)
-        self._save_config_action.setShortcut(QKeySequence("Ctrl+S"))
+        self._save_config_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["save_workspace"]))
         self._save_config_action.triggered.connect(self._on_save_config)
 
         self._save_config_as_action = QAction("Save Workspace As…", self)
@@ -1047,7 +1113,7 @@ class MainWindow(QMainWindow):
         self._file_menu.addMenu(self._close_measurement_menu)
         self._file_menu.addSeparator()
         self._exit_action = QAction("Exit", self)
-        self._exit_action.setShortcut(QKeySequence("Ctrl+Q"))
+        self._exit_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["exit"]))
         self._exit_action.triggered.connect(self.close)
         self._file_menu.addAction(self._preferences_action)
         self._file_menu.addSeparator()
@@ -2278,6 +2344,7 @@ class MainWindow(QMainWindow):
                 self._controller.refresh_signal_browser_view_mode()
                 for table in self._all_active_signals_tables():
                     table.set_shorten_names_enabled(self._settings.display_name_rule_enabled)
+            self.apply_keymap(self._settings.keymap)
 
     def _on_configure_display_names(self, preview_name: str) -> None:
         if self._settings is None or self._controller is None:
