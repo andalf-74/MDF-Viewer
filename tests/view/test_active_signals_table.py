@@ -2077,6 +2077,33 @@ def test_y_autozoom_action_emits_selected_signals(
 
 
 # ---------------------------------------------------------------------------
+# Context menu — Search… (#110)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-SEARCH-013")
+def test_search_action_present_in_context_menu(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    _select_rows(t, 0)
+    titles = [a.text() for a in _open_context_menu(t).actions()]
+    assert "Search…" in titles
+
+
+@pytest.mark.requirement("REQ-SEARCH-013")
+def test_search_action_emits_selected_signals(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]], qtbot: QtBot,
+) -> None:
+    t, sigs = populated
+    _select_rows(t, 0, 1)
+    menu = _open_context_menu(t)
+    action = next(a for a in menu.actions() if a.text() == "Search…")
+    with qtbot.waitSignal(t.search_requested, timeout=500) as blocker:
+        action.trigger()
+    assert set(blocker.args[0]) == {sigs[0], sigs[1]}
+
+
+# ---------------------------------------------------------------------------
 # Context menu — Move to Stripe
 # ---------------------------------------------------------------------------
 

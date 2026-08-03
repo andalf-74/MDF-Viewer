@@ -45,6 +45,11 @@ def mock_controller() -> MagicMock:
     # would silently make iterating registry.menu_actions/dock_widgets in
     # _rebuild_plugins_menu behave unpredictably.
     controller.plugin_registry = PluginRegistry()
+    # A bare MagicMock return value isn't a str, so QTableWidgetItem(...)
+    # (Search dialog row-building, #110) would silently render blank —
+    # default to the real format_display_name's single-measurement
+    # behavior (raw channel name, no prefix) unless a test overrides it.
+    controller.format_display_name.side_effect = lambda active: active.metadata.name
     return controller
 
 
@@ -2183,6 +2188,288 @@ def test_close_event_closes_open_status_history_dialog(window: MainWindow) -> No
 def test_close_event_with_no_status_history_dialog_does_not_error(window: MainWindow) -> None:
     assert window._status_history_dialog is None
     window.close()  # should not raise
+
+
+# ---------------------------------------------------------------------------
+# Signal Value Search (#110)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-SEARCH-012")
+def test_edit_menu_has_search_action(window: MainWindow) -> None:
+    assert window._search_action in window._edit_menu.actions()
+    assert window._search_action.text() == "Search…"
+
+
+@pytest.mark.requirement("REQ-SEARCH-010")
+def test_show_search_opens_dialog_with_blank_rows(wired: MainWindow, mock_controller: MagicMock) -> None:
+    signal = MagicMock()
+    mock_controller.active_signals = [signal]
+    assert wired._search_dialog is None
+
+    wired._on_show_search()
+
+    assert wired._search_dialog is not None
+    assert wired._search_dialog.isVisible()
+    mock_controller.search_reset.assert_called_once()
+    assert wired._search_dialog._table.rowCount() == 1
+
+
+@pytest.mark.requirement("REQ-SEARCH-014")
+def test_show_search_reclick_reuses_same_dialog(wired: MainWindow, mock_controller: MagicMock) -> None:
+    mock_controller.active_signals = []
+    wired._on_show_search()
+    first = wired._search_dialog
+    wired._on_show_search()
+    assert wired._search_dialog is first
+
+
+@pytest.mark.requirement("REQ-SEARCH-014")
+def test_show_search_reopen_after_close_reuses_same_instance(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.active_signals = []
+    wired._on_show_search()
+    first = wired._search_dialog
+    first.close()
+    assert not first.isVisible()
+    wired._on_show_search()
+    assert wired._search_dialog is first
+    assert first.isVisible()
+
+
+@pytest.mark.requirement("REQ-SEARCH-010")
+def test_show_search_rebuilds_rows_on_every_trigger(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """Unlike Status History, Search must rebuild content on every
+    re-trigger, even when reusing the cached dialog instance."""
+    mock_controller.active_signals = [MagicMock()]
+    wired._on_show_search()
+    assert wired._search_dialog._table.rowCount() == 1
+
+    mock_controller.active_signals = [MagicMock(), MagicMock()]
+    wired._on_show_search()
+    assert wired._search_dialog._table.rowCount() == 2
+
+
+@pytest.mark.requirement("REQ-SEARCH-013")
+def test_ast_search_requested_prefills_from_cursor1_value(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    signal = MagicMock()
+    mock_controller.active_signals = [signal]
+    mock_controller.cursor1_value_for.return_value = 7.5
+
+    wired._on_ast_search_requested([signal])
+
+    mock_controller.cursor1_value_for.assert_called_once_with(signal)
+    value_edit = wired._search_dialog._table.cellWidget(0, 2)
+    assert value_edit.text() == "7.5"
+
+
+@pytest.mark.requirement("REQ-SEARCH-013")
+def test_ast_search_requested_leaves_blank_when_no_cursor_value(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    signal = MagicMock()
+    mock_controller.active_signals = [signal]
+    mock_controller.cursor1_value_for.return_value = None
+
+    wired._on_ast_search_requested([signal])
+
+    value_edit = wired._search_dialog._table.cellWidget(0, 2)
+    assert value_edit.text() == ""
+
+
+def test_search_dialog_search_clicked_calls_search_execute(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.active_signals = []
+    mock_controller.search_execute.return_value = 3.0
+    wired._on_show_search()
+
+    rows = [MagicMock()]
+    wired._on_search_dialog_search_clicked(rows)
+
+    mock_controller.search_execute.assert_called_once_with(rows)
+
+
+@pytest.mark.requirement("REQ-SEARCH-043")
+def test_search_dialog_search_clicked_shows_no_match_on_none(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.active_signals = []
+    mock_controller.search_execute.return_value = None
+    wired._on_show_search()
+
+    wired._on_search_dialog_search_clicked([MagicMock()])
+
+    assert wired._search_dialog._no_match_label.isHidden() is False
+
+
+def test_close_event_closes_open_search_dialog(wired: MainWindow, mock_controller: MagicMock) -> None:
+    mock_controller.active_signals = []
+    wired._on_show_search()
+    dialog = wired._search_dialog
+    assert dialog.isVisible()
+    wired.close()
+    assert not dialog.isVisible()
+
+
+def test_close_event_with_no_search_dialog_does_not_error(window: MainWindow) -> None:
+    assert window._search_dialog is None
+    window.close()  # should not raise
+
+
+def _named_signal(name: str) -> MagicMock:
+    signal = MagicMock()
+    signal.metadata.name = name
+    return signal
+
+
+@pytest.mark.requirement("REQ-SEARCH-017")
+@pytest.mark.requirement("REQ-SEARCH-018")
+def test_tab_switch_carries_forward_matching_signal_by_name(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    wired._on_new_tab()  # Tab 2, now current
+    wired._tab_widget.setCurrentIndex(0)  # back to Tab 1
+
+    sig_a_tab1 = _named_signal("a")
+    mock_controller.active_signals = [sig_a_tab1]
+    wired._on_show_search()
+    wired._search_dialog._table.cellWidget(0, 2).setText("5")
+
+    sig_a_tab2 = _named_signal("a")
+    sig_b_tab2 = _named_signal("b")
+    mock_controller.active_signals = [sig_a_tab2, sig_b_tab2]
+    mock_controller.search_reset.reset_mock()
+
+    wired._tab_widget.setCurrentIndex(1)  # switch to Tab 2
+
+    mock_controller.search_reset.assert_called_once()
+    dialog = wired._search_dialog
+    assert dialog._table.rowCount() == 2
+    names = [dialog._table.item(r, 0).text() for r in range(2)]
+    assert names == ["a", "b"]
+    assert dialog._table.cellWidget(0, 2).text() == "5"  # carried forward
+    assert dialog._table.cellWidget(1, 2).text() == ""  # unmatched, blank
+    assert "Tab 2" in dialog._tab_label.text()
+
+
+def test_tab_switch_with_search_dialog_closed_does_nothing(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.active_signals = []
+    wired._on_new_tab()
+    mock_controller.search_reset.reset_mock()
+    wired._tab_widget.setCurrentIndex(0)
+    mock_controller.search_reset.assert_not_called()
+
+
+def test_tab_switch_with_search_dialog_hidden_does_not_refresh(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.active_signals = []
+    wired._on_new_tab()
+    wired._tab_widget.setCurrentIndex(0)
+    wired._on_show_search()
+    wired._search_dialog.close()
+    mock_controller.search_reset.reset_mock()
+
+    wired._tab_widget.setCurrentIndex(1)
+
+    mock_controller.search_reset.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-SEARCH-017")
+def test_new_tab_refreshes_open_search_dialog(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """New Tab auto-focuses its new tab; the Search dialog follows it, the
+    same as any other tab-focus change. An earlier version excluded
+    tab-creation's auto-focus from this refresh specifically to protect
+    Duplicate Tab (which copies the exact same signal names) from silently
+    retargeting a search — but direct user feedback found that silent
+    exclusion itself confusing (the dialog's label not matching what's now
+    on screen), so tab-creation was folded back into the uniform
+    tab-focus-change refresh (#110 follow-up)."""
+    mock_controller.active_signals = [_named_signal("a")]
+    wired._on_show_search()
+    mock_controller.search_reset.reset_mock()
+    mock_controller.active_signals = []  # the new tab starts empty
+
+    wired._on_new_tab()  # auto-focuses the new tab
+
+    mock_controller.search_reset.assert_called_once()
+    assert "Tab 2" in wired._search_dialog._tab_label.text()
+    assert wired._search_dialog._table.rowCount() == 0
+
+
+@pytest.mark.requirement("REQ-SEARCH-017")
+def test_duplicate_tab_refreshes_search_dialog_to_final_name(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """Duplicate Tab internally calls _on_new_tab() (which fires one
+    premature refresh against the still-nameless, still-empty new tab, per
+    the test above) then renames it to "Copy of <source>" and copies
+    signals in — the dialog must end up reflecting that final state, not
+    the interim one caught mid-flight."""
+    mock_controller.active_signals = [_named_signal("a")]
+    wired._on_show_search()
+    assert "Tab 1" in wired._search_dialog._tab_label.text()
+
+    wired._on_duplicate_tab(0)
+
+    assert "Copy of Tab 1" in wired._search_dialog._tab_label.text()
+
+
+@pytest.mark.requirement("REQ-SEARCH-060")
+def test_closing_only_tab_with_search_dialog_open_closes_it(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """Closing the last remaining tab lands _tab_widget's currentIndex on
+    the "+" placeholder, which _on_tab_changed() ignores outright — with no
+    tab left to search in, the dialog must close itself rather than sit
+    open forever showing the closed tab's stale name/rows (live-testing
+    found this after the tab-switch carry-forward fix above)."""
+    mock_controller.active_signals = [_named_signal("a")]
+    mock_controller.tab_has_signals.return_value = False
+    wired._on_show_search()
+    assert wired._search_dialog.isVisible()
+
+    wired._on_tab_close_requested(0)  # the only real tab
+
+    assert not wired._search_dialog.isVisible()
+
+
+def test_closing_one_of_several_tabs_with_search_dialog_open_leaves_it_open(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.tab_has_signals.return_value = False
+    wired._on_new_tab()  # 2 real tabs now
+    mock_controller.active_signals = [_named_signal("a")]
+    wired._on_show_search()
+
+    wired._on_tab_close_requested(0)  # one tab remains
+
+    assert wired._search_dialog.isVisible()
+
+
+def test_search_refresh_resumes_after_new_tab_creation(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    """The suppression around _on_new_tab()'s own tab switch must not leak
+    into later, genuine tab switches."""
+    mock_controller.active_signals = []
+    wired._on_show_search()
+    wired._on_new_tab()  # Tab 2, suppressed — now current
+    mock_controller.active_signals = [_named_signal("z")]
+    mock_controller.search_reset.reset_mock()
+
+    wired._tab_widget.setCurrentIndex(0)  # a genuine switch back to Tab 1
+
+    mock_controller.search_reset.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

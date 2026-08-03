@@ -5,6 +5,19 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Signal Value Search (#110): Edit → Search… (Ctrl+F, rebindable) or the
+  Active Signals Table's new "Search…" context-menu entry (which pre-fills
+  the selected signal(s) with their current Cursor 1 value) open a
+  non-modal dialog listing every signal active in the current tab, each
+  with an operator (`=`, `≠`, `>`, `<`, `≥`, `≤`) and a value. Search scans
+  for the first (or, on a repeated click, next) timestamp where every
+  filled-in row's condition holds at once — jumping Cursor 1 there and
+  recentering the plot — or shows an inline "No match found" message. The
+  dialog shows which tab it's currently searching in, and switching tabs
+  while it's open carries forward each row's value for any signal present
+  in both tabs (matched by name). Each row shows the signal's usual display
+  name — the shortened + measurement-prefixed form used everywhere else in
+  the app — not the raw channel name.
 - Keyboard Shortcut Configuration (#111): Preferences gained a "Shortcuts"
   tab where almost every existing keyboard shortcut in the app can be
   rebound (Copy Name(s)/Ctrl+C stays fixed) — click a field, press the

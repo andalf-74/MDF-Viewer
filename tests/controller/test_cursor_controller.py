@@ -553,6 +553,52 @@ def test_press_cursor2_shows_cursor_columns(
 
 
 # ---------------------------------------------------------------------------
+# jump_cursor1_to / cursor1_value_for (#110)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-SEARCH-051")
+def test_jump_cursor1_to_from_hidden_auto_enables_cursor_one(ctrl: CursorController) -> None:
+    ctrl.jump_cursor1_to(0.42)
+    assert ctrl.mode == CursorMode.ONE
+    assert ctrl._positions[0] == pytest.approx(0.42)
+
+
+@pytest.mark.requirement("REQ-SEARCH-050")
+def test_jump_cursor1_to_moves_cursor_one_when_already_shown(ctrl: CursorController) -> None:
+    ctrl.toggle()  # ONE
+    ctrl.jump_cursor1_to(0.7)
+    assert ctrl.mode == CursorMode.ONE
+    assert ctrl._positions[0] == pytest.approx(0.7)
+
+
+@pytest.mark.requirement("REQ-SEARCH-052")
+def test_jump_cursor1_to_leaves_cursor_two_untouched(ctrl: CursorController) -> None:
+    ctrl.toggle()  # ONE
+    ctrl.toggle()  # TWO
+    before_c2 = ctrl._positions[1]
+    ctrl.jump_cursor1_to(0.55)
+    assert ctrl.mode == CursorMode.TWO
+    assert ctrl._positions[1] == before_c2
+
+
+def test_jump_cursor1_to_calls_view(ctrl: CursorController, view: MagicMock) -> None:
+    ctrl.jump_cursor1_to(0.3)
+    view.apply_mode.assert_called_with(CursorMode.ONE, ctrl._positions)
+
+
+@pytest.mark.requirement("REQ-SEARCH-013")
+def test_cursor1_value_for_returns_none_when_hidden(ctrl: CursorController) -> None:
+    signal = _make_active()
+    assert ctrl.cursor1_value_for(signal) is None
+
+
+def test_cursor1_value_for_returns_interpolated_value(ctrl: CursorController) -> None:
+    signal = _make_active()
+    ctrl.jump_cursor1_to(0.25)
+    assert ctrl.cursor1_value_for(signal) == pytest.approx(_interpolate(signal, 0.25))
+
+
+# ---------------------------------------------------------------------------
 # zoom_to_cursors
 # ---------------------------------------------------------------------------
 

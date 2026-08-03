@@ -19,6 +19,7 @@ import numpy as np
 
 from mdf_viewer.enums import CursorMode
 from mdf_viewer.model.interpolate import interpolate as _interpolate
+from mdf_viewer.model.signal_rate import highest_rate_signal as _highest_rate_signal
 
 if TYPE_CHECKING:
     from mdf_viewer.controller.interfaces import CursorValueSinkProtocol, CursorViewProtocol
@@ -244,6 +245,28 @@ class CursorController:
         else:  # TWO
             self._mode = CursorMode.HIDDEN
         self._commit_mode()
+
+    def jump_cursor1_to(self, x: float) -> None:
+        """Move Cursor 1 to *x*, auto-enabling it if cursors are hidden (#110).
+
+        Mirrors press_cursor1()'s HIDDEN→ONE transition; leaves Cursor 2/R
+        untouched (REQ-SEARCH-050/051/052).
+        """
+        if self._mode == CursorMode.HIDDEN:
+            self._ensure_initialized()
+            self._mode = CursorMode.ONE
+        self._positions[0] = x
+        self._commit_mode()
+
+    def cursor1_value_for(self, active: Any) -> float | None:
+        """Cursor 1's current interpolated value for *active* (#110).
+
+        Returns None while cursors are hidden — there is no "current
+        position" to read a value at (REQ-SEARCH-013).
+        """
+        if self._mode == CursorMode.HIDDEN:
+            return None
+        return _interpolate(active, self._positions[0])
 
     def reset(self) -> None:
         """Called by AppController on file load — next toggle re-places cursors."""
@@ -567,30 +590,6 @@ class CursorController:
                 x1=0.0, x2=0.0, delta_t_str="", y_pos=None, show=False, color=(0, 0, 0)
             )
 
-
-# ---------------------------------------------------------------------------
-# Module-level helpers
-# ---------------------------------------------------------------------------
-
-def _highest_rate_signal(signals: list) -> Any | None:
-    """Return the signal with the highest effective sample rate (REQ-PLOT-091).
-
-    Computed directly from each signal's own timestamps (samples per second
-    over its span) rather than SignalMetadata.raster_s, so a signal with an
-    indeterminate/variable raster still participates. A signal with fewer
-    than two samples, or a zero/negative timestamp span, rates lowest.
-    Ties keep the first candidate encountered.
-    """
-    best: Any | None = None
-    best_rate = -1.0
-    for signal in signals:
-        ts = signal.data.timestamps
-        span = float(ts[-1] - ts[0]) if len(ts) >= 2 else 0.0
-        rate = (len(ts) - 1) / span if span > 0 else 0.0
-        if rate > best_rate:
-            best_rate = rate
-            best = signal
-    return best
 
 
 def _fmt(value: float | None) -> str:

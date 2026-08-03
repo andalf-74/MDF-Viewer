@@ -27,10 +27,12 @@ from mdf_viewer.controller.events import (
     SignalAddedEvent,
     SignalRemovedEvent,
 )
+from mdf_viewer.controller.search_controller import SearchController
 from mdf_viewer.errors import MdfLoadError
 from mdf_viewer.model.label_list import LabelGroup, format_label_list, parse_label_list
 from mdf_viewer.model.loaded_measurement import LoadedMeasurement, make_label
 from mdf_viewer.model.mdf_loader import MdfLoader
+from mdf_viewer.model.signal_search import SearchRow
 from mdf_viewer.model.virtual_measurement_loader import VirtualMeasurementLoader
 from mdf_viewer.plugin_api.registry import PluginRegistry
 from mdf_viewer.view_model.active_signal import ActiveSignal
@@ -207,6 +209,11 @@ class AppController:
         self._signal_tokens: dict[int, ActiveSignal] = {}
         self._signal_token_by_id: dict[int, int] = {}
         self._next_signal_token: int = 1
+
+        # Single instance, not per-TabWorkspace (#110) — the Search dialog
+        # itself is a singleton, unlike CursorController/ZoomController
+        # which are 1:1 with a tab's plot.
+        self._search_controller = SearchController()
 
     def _default_measurement(self) -> LoadedMeasurement | None:
         """Resolve an implicit measurement when the pool has exactly one entry.
@@ -601,6 +608,18 @@ class AppController:
     def press_right(self) -> None:
         if self.current_workspace.cursor_ctrl is not None:
             self.current_workspace.cursor_ctrl.press_right()
+
+    def cursor1_value_for(self, active: ActiveSignal) -> float | None:
+        """Cursor 1's current value for *active*, or None (#110, REQ-SEARCH-013).
+
+        Resolves the workspace owning *active* rather than current_workspace,
+        so a search-dialog pre-fill reflects the tab the signal actually
+        belongs to even if a different tab is currently focused.
+        """
+        ws = self._workspace_owning_signal(active)
+        if ws is None or ws.cursor_ctrl is None:
+            return None
+        return ws.cursor_ctrl.cursor1_value_for(active)
 
     def set_cursor_mode_callback(self, cb) -> None:
         if self.current_workspace.cursor_ctrl is not None:
@@ -1630,14 +1649,15 @@ class AppController:
         shortening rule behaves identically regardless of measurement count.
         """
         for workspace in self._workspaces:
-            workspace.table.set_name_formatter(self._format_display_name)
+            workspace.table.set_name_formatter(self.format_display_name)
 
-    def _format_display_name(self, active: ActiveSignal) -> str:
+    def format_display_name(self, active: ActiveSignal) -> str:
         """Shared display-name formatting: shorten, then measurement-prefix.
 
-        Used by both refresh_display_names() (Active Signals Table) and
-        _push_selection_to_drawer() (Signal Info Box), so the two panels
-        never disagree on what a signal's display name is (REQ-PLOT-306/307).
+        Used by refresh_display_names() (Active Signals Table),
+        _push_selection_to_drawer() (Signal Info Box), and MainWindow's
+        Search dialog row-building (#110) so all three never disagree on
+        what a signal's display name is (REQ-PLOT-306/307, REQ-SEARCH-021).
         """
         if self._settings is not None:
             from mdf_viewer.settings import apply_display_name_rule
@@ -1787,7 +1807,7 @@ class AppController:
             self._signal_info.clear()
         else:
             self._signal_info.set_metadata(
-                active_signal.metadata, display_name=self._format_display_name(active_signal),
+                active_signal.metadata, display_name=self.format_display_name(active_signal),
             )
             self._signal_info.set_properties(active_signal.display_mode, active_signal.marker_shape, active_signal.line_width, active_signal.line_style)
             if active_signal.metadata.enum_map:
@@ -2459,6 +2479,48 @@ class AppController:
     @property
     def active_signals(self) -> list[ActiveSignal]:
         return list(self.current_workspace.active)
+
+    def _workspace_owning_signal(self, signal: ActiveSignal) -> TabWorkspace | None:
+        """Return whichever TabWorkspace's active list contains *signal* (#110).
+
+        Identity-based (via ActiveSignal's identity __eq__) — needed because
+        the Search dialog is non-modal (REQ-SEARCH-015) and can outlive a
+        tab switch or the closing of the tab its rows came from, so
+        search_execute() must never assume current_workspace.
+        """
+        for ws in self._workspaces:
+            if signal in ws.active:
+                return ws
+        return None
+
+    def search_reset(self) -> None:
+        """Discard find-next continuation state (#110) — the next
+        search_execute() call starts scanning from the beginning."""
+        self._search_controller.reset()
+
+    def search_execute(self, rows: list[SearchRow]) -> float | None:
+        """Run a Signal Value Search and, on a match, move Cursor 1 and pan
+        the plot in whichever tab actually owns the searched signals (#110).
+
+        Returns the matched timestamp, or None if nothing matched (or every
+        row's signal has since been removed from its workspace).
+        """
+        match = self._search_controller.run(rows)
+        if match is None or not rows:
+            return match
+        ws = self._workspace_owning_signal(rows[0].signal)
+        if ws is None or ws.cursor_ctrl is None:
+            # Every row's signal has been removed from its workspace since
+            # the dialog was opened — nothing to jump to or pan; report it
+            # the same as "no match found" (REQ-SEARCH-043).
+            return None
+        if ws.zoom_ctrl is not None:
+            ws.zoom_ctrl.before_discrete_action()
+        ws.cursor_ctrl.jump_cursor1_to(match)
+        ws.plot.pan_to_center(match)
+        if ws.zoom_ctrl is not None:
+            ws.zoom_ctrl.after_discrete_action()
+        return match
 
     def token_for_signal(self, active: ActiveSignal) -> int:
         """Mint (or reuse) *active*'s opaque plugin-facing token (#71).

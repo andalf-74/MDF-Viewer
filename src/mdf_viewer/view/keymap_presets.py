@@ -34,6 +34,7 @@ Keybinding = tuple[QKeySequence, "QKeySequence | None"]
 # Order here is also the row order in the Preferences "Shortcuts" tab.
 ACTION_LABELS: dict[str, str] = {
     "open_file": "Open…",
+    "search": "Search…",
     "zoom_to_fit": "Zoom to Fit",
     "zoom_y_to_view": "Zoom Y to View",
     "swimlanes": "Swimlanes",
@@ -72,6 +73,7 @@ def _preset(pairs: dict[str, tuple[str, "str | None"]]) -> dict[str, Keybinding]
 
 DEFAULT_PRESET: dict[str, Keybinding] = _preset({
     "open_file": ("Ctrl+O", None),
+    "search": ("Ctrl+F", None),
     "zoom_to_fit": ("Ctrl+0", "F"),
     "zoom_y_to_view": ("Y", None),
     "swimlanes": ("B", None),

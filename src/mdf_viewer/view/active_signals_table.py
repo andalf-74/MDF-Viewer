@@ -143,7 +143,7 @@ def _fit_chars(text: str, budget: int, metrics: QFontMetrics) -> str:
 
 def _elide_display_name(text: str, available_width: int, metrics: QFontMetrics) -> str:
     """Elide *text* to fit *available_width*, without letting a leading
-    "[M1] " measurement prefix (added by AppController._format_display_name
+    "[M1] " measurement prefix (added by AppController.format_display_name
     when more than one measurement is loaded) eat into the space reserved
     for the actual signal name (#164).
 
@@ -424,6 +424,11 @@ class ActiveSignalsTable(QWidget):
     # or Ctrl+D (#142); applied independently to each listed signal's own
     # Y-axis group (REQ-PLOT-058/059).
     y_autozoom_requested = pyqtSignal(list)
+    # list[ActiveSignal] — emitted from the "Search…" context-menu entry
+    # (#110); MainWindow opens the Search dialog pre-filled for these
+    # signals (REQ-SEARCH-013). Pure view-state, not routed through
+    # AppController — see main_window.py's _on_ast_search_requested.
+    search_requested = pyqtSignal(list)
     # int — how many names were copied, from the "Copy Name(s)" context-menu
     # entry or Ctrl+C (#163); MainWindow shows a status message with it
     # (REQ-PLOT-343). No payload of the names themselves — the clipboard
@@ -1074,6 +1079,10 @@ class ActiveSignalsTable(QWidget):
         )
         y_autozoom_action.triggered.connect(lambda: self.y_autozoom_requested.emit(selected))
         menu.addAction(y_autozoom_action)
+
+        search_action = QAction("Search…", self)
+        search_action.triggered.connect(lambda: self.search_requested.emit(selected))
+        menu.addAction(search_action)
 
         menu.addSeparator()
 

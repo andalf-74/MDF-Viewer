@@ -174,6 +174,31 @@ def test_new_stripe_picks_up_existing_x_range_immediately(area: PlotStripesArea)
     assert s2.plot_item.vb.viewRange()[0] == pytest.approx(expected, abs=1e-6)
 
 
+def test_get_x_range_matches_anchor_stripe(area: PlotStripesArea) -> None:
+    area.zoom_to_x_range(0.2, 0.8)
+    assert area.get_x_range() == pytest.approx(
+        tuple(area._stripes[0].plot_item.vb.viewRange()[0]), abs=1e-6
+    )
+
+
+def test_pan_to_center_keeps_width_and_recenters(area: PlotStripesArea) -> None:
+    area.zoom_to_x_range(0.0, 1.0)
+    x_min, x_max = area.get_x_range()
+    width = x_max - x_min
+    area.pan_to_center(10.0)
+    new_min, new_max = area.get_x_range()
+    assert new_max - new_min == pytest.approx(width, abs=1e-6)
+    assert (new_min + new_max) / 2 == pytest.approx(10.0, abs=1e-6)
+
+
+def test_pan_to_center_propagates_to_other_stripes(area: PlotStripesArea) -> None:
+    s2 = area.create_stripe()
+    area.zoom_to_x_range(0.0, 1.0)
+    area.pan_to_center(5.0)
+    expected = area._stripes[0].plot_item.vb.viewRange()[0]
+    assert s2.plot_item.vb.viewRange()[0] == pytest.approx(expected, abs=1e-6)
+
+
 def test_panning_one_stripe_propagates_to_others(area: PlotStripesArea) -> None:
     s2 = area.create_stripe()
     area._stripes[0].sync_x_range(0.15, 0.85)  # simulate an interior-drag pan on stripe 0

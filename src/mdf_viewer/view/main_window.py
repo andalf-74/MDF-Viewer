@@ -93,6 +93,7 @@ from mdf_viewer.view.label_import_result_dialog import LabelImportResultDialog
 from mdf_viewer.view.license_dialog import LicenseDialog
 from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
 from mdf_viewer.view.plot_stripes_area import PlotStripesArea
+from mdf_viewer.view.search_dialog import SearchDialog
 from mdf_viewer.view.signal_browser import SignalBrowser
 from mdf_viewer.view.keymap_presets import ACTION_IDS, DEFAULT_PRESET, keymap_from_dict
 from mdf_viewer.view.signal_info_box import SignalInfoBox
@@ -313,6 +314,11 @@ class MainWindow(QMainWindow):
         # Built lazily on first click (REQ-STATUS-020), reused/raised on
         # every later click while still open (REQ-STATUS-022).
         self._status_history_dialog: StatusHistoryDialog | None = None
+        # Built lazily on first trigger, reused/raised on every later one
+        # while still open, but its rows are always rebuilt fresh (#110,
+        # REQ-SEARCH-010/013/014) — unlike _status_history_dialog above,
+        # which never rebuilds content on re-trigger.
+        self._search_dialog: SearchDialog | None = None
         self.setWindowTitle("MDF-Viewer — unregistered")
         self.setWindowIcon(QIcon(str(_ICONS_DIR / "app_icon.ico")))
         self.resize(1280, 800)
@@ -778,6 +784,7 @@ class MainWindow(QMainWindow):
         active_signals_table.y_autozoom_requested.connect(
             controller.on_y_autozoom_requested
         )
+        active_signals_table.search_requested.connect(self._on_ast_search_requested)
         active_signals_table.names_copied.connect(self._on_names_copied)
         active_signals_table.move_to_stripe_requested.connect(
             controller.move_signals_to_stripe
@@ -877,6 +884,98 @@ class MainWindow(QMainWindow):
         else:
             dialog.show()
 
+    def _ensure_search_dialog(self) -> SearchDialog:
+        if self._search_dialog is None:
+            self._search_dialog = SearchDialog(parent=self)
+            self._search_dialog.search_clicked.connect(self._on_search_dialog_search_clicked)
+        return self._search_dialog
+
+    def _open_search_dialog(self, prefill: dict | None = None) -> None:
+        """Open the Search dialog, or raise it if already open — but always
+        rebuild its rows fresh (#110, REQ-SEARCH-010/013/014), unlike
+        _on_show_status_history's raise-only shortcut above."""
+        if self._controller is None:
+            return
+        dialog = self._ensure_search_dialog()
+        self._controller.search_reset()
+        dialog.set_rows(
+            self._controller.active_signals,
+            prefill,
+            tab_name=self._current_tab_name(),
+            name_for=self._controller.format_display_name,
+        )
+        if dialog.isVisible():
+            dialog.raise_()
+            dialog.activateWindow()
+        else:
+            dialog.show()
+
+    def _current_tab_name(self) -> str:
+        return self._tab_widget.tabText(self._tab_widget.currentIndex())
+
+    def _refresh_search_dialog_for_tab_switch(self) -> None:
+        """When the active tab changes while the Search dialog is open,
+        rebuild its rows for the newly active tab (#110, REQ-SEARCH-017/018)
+        — by manual switch, Ctrl+Tab, Qt's own reindexing after the tab it
+        was searching in gets closed, or a tab-creation action (New Tab /
+        Duplicate Tab / Copy Signals to New Tab) auto-focusing its new tab,
+        all arrive here via _on_tab_changed. An earlier version excluded
+        tab-creation's auto-focus specifically because Duplicate Tab copies
+        the exact same signal names, silently retargeting an in-progress
+        search onto the duplicate — but direct user feedback after
+        live-testing that exclusion found the resulting silence itself
+        confusing (the label not matching what's now on screen), and
+        reversed the decision: every tab-focus change refreshes uniformly,
+        with no special-casing by cause.
+
+        Old rows are matched to the new tab's signals by raw channel name,
+        carrying forward a match's operator/value; an unmatched old row is
+        dropped, and each of the new tab's signals with no match gets a
+        blank row — direct user feedback after live-testing found the
+        original "stays pinned to the tab it was opened on" design
+        confusing (a Search click would silently succeed off-screen)."""
+        if self._controller is None or self._search_dialog is None:
+            return
+        if not self._search_dialog.isVisible():
+            return
+        old_by_name = self._search_dialog.current_criteria_by_name()
+        new_signals = self._controller.active_signals
+        prefill = {
+            signal: old_by_name[signal.metadata.name]
+            for signal in new_signals
+            if signal.metadata.name in old_by_name
+        }
+        self._controller.search_reset()
+        self._search_dialog.set_rows(
+            new_signals,
+            prefill,
+            tab_name=self._current_tab_name(),
+            name_for=self._controller.format_display_name,
+        )
+
+    def _on_show_search(self) -> None:
+        """Edit → Search… (Ctrl+F): opens the Search dialog blank (REQ-SEARCH-010)."""
+        self._open_search_dialog()
+
+    def _on_ast_search_requested(self, selected: list) -> None:
+        """AST context-menu "Search…": opens the Search dialog pre-filled
+        with the selected signal(s)' current Cursor 1 value (REQ-SEARCH-013)."""
+        if self._controller is None:
+            return
+        prefill = {
+            signal: value
+            for signal in selected
+            if (value := self._controller.cursor1_value_for(signal)) is not None
+        }
+        self._open_search_dialog(prefill)
+
+    def _on_search_dialog_search_clicked(self, rows: list) -> None:
+        if self._controller is None:
+            return
+        match = self._controller.search_execute(rows)
+        if match is None:
+            self._search_dialog.show_no_match()
+
     def set_plugin_loader_hooks(
         self,
         rescan: Callable[[], "PluginLoadResult"],
@@ -933,6 +1032,7 @@ class MainWindow(QMainWindow):
         set_keymap() calls, wired alongside this one from app.py."""
         return {
             "open_file": self._load_action,
+            "search": self._search_action,
             "zoom_to_fit": self._zoom_fit_action,
             "zoom_y_to_view": self._zoom_y_action,
             "swimlanes": self._swimlanes_action,
@@ -1068,6 +1168,10 @@ class MainWindow(QMainWindow):
         self._redo_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["redo"]))
         self._redo_action.triggered.connect(self._on_redo)
 
+        self._search_action = QAction("Search…", self)
+        self._search_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["search"]))
+        self._search_action.triggered.connect(self._on_show_search)
+
         self._sync_measurements_action = QAction("Sync Measurements", self)
         self._sync_measurements_action.setCheckable(True)
         self._sync_measurements_action.setEnabled(False)
@@ -1130,6 +1234,8 @@ class MainWindow(QMainWindow):
         self._edit_menu.addSeparator()
         self._edit_menu.addAction(self._undo_action)
         self._edit_menu.addAction(self._redo_action)
+        self._edit_menu.addSeparator()
+        self._edit_menu.addAction(self._search_action)
         self._edit_menu.addSeparator()
         self._edit_menu.addAction(self._sync_measurements_action)
 
@@ -1467,6 +1573,12 @@ class MainWindow(QMainWindow):
             dest_wi = self._controller.tab_index_for_plot(dest_page.plot_area)
             if source_wi is not None and dest_wi is not None:
                 self._controller.copy_signals_to_new_tab(source_wi, dest_wi)
+        # _on_new_tab()'s own setCurrentIndex() already fired one refresh
+        # (#110) — but at that point the new tab was still nameless
+        # ("Tab N", not yet renamed) and empty (signals not yet copied), so
+        # that refresh showed the wrong label and zero rows. Refresh again
+        # now that both are finalized.
+        self._refresh_search_dialog_for_tab_switch()
 
     def _on_duplicate_tab(self, source_index: int) -> None:
         """Full copy of the tab at *source_index*: stripe layout, signals,
@@ -1509,6 +1621,10 @@ class MainWindow(QMainWindow):
             dest_wi = self._controller.tab_index_for_plot(dest_page.plot_area)
             if source_wi is not None and dest_wi is not None:
                 self._controller.duplicate_tab_signals(source_wi, dest_wi)
+        # See the identical comment in _on_copy_signals_to_new_tab() (#110):
+        # the refresh _on_new_tab() already fired was against a nameless,
+        # still-empty tab.
+        self._refresh_search_dialog_for_tab_switch()
 
     def _on_tab_changed(self, index: int) -> None:
         if self._controller is None or index < 0 or self._is_placeholder(index):
@@ -1521,6 +1637,7 @@ class MainWindow(QMainWindow):
         wi = self._controller.tab_index_for_plot(page.plot_area)
         if wi is not None:
             self._controller.switch_tab(wi)
+            self._refresh_search_dialog_for_tab_switch()
 
     def _on_tab_bar_clicked(self, index: int) -> None:
         """Clicking the "+" tab creates a new tab instead of selecting it.
@@ -1626,6 +1743,14 @@ class MainWindow(QMainWindow):
 
         if self._real_tab_count() == 0:
             self._content_stack.setCurrentWidget(self._empty_tabs_placeholder)
+            # No tab left to search in (REQ-SEARCH-060) — closing the last
+            # tab lands _tab_widget's currentIndex on the "+" placeholder,
+            # which _on_tab_changed() ignores outright (_is_placeholder()
+            # early return), so the refresh path above never runs and the
+            # dialog would otherwise sit open showing the closed tab's
+            # stale name/rows forever.
+            if self._search_dialog is not None and self._search_dialog.isVisible():
+                self._search_dialog.close()
         else:
             self._tab_widget.setCurrentIndex(new_index)
 
@@ -2461,6 +2586,8 @@ class MainWindow(QMainWindow):
         # app from exiting once this window closes.
         if self._status_history_dialog is not None:
             self._status_history_dialog.close()
+        if self._search_dialog is not None:
+            self._search_dialog.close()
         event.accept()
 
     def _should_prompt_save_on_close(self) -> bool:

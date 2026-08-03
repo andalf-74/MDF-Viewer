@@ -514,6 +514,23 @@ class PlotStripesArea(QWidget):
         # (here, the anchor) propagates to every other stripe.
         self._stripes[0].zoom_to_x_range(x_min, x_max)
 
+    def get_x_range(self) -> tuple[float, float]:
+        """Return the current shared X-axis range (any stripe's is representative)."""
+        return tuple(self.plot_item.vb.viewRange()[0])
+
+    def pan_to_center(self, x: float) -> None:
+        """Recenter the shared X range on *x*, keeping its current width (#110).
+
+        Uses the anchor stripe's padding-free sync_x_range (not
+        zoom_to_x_range's 2%-padded setXRange) so repeated calls don't
+        creep the visible width wider each time (REQ-SEARCH-053); the
+        existing cross-stripe X-range broadcast (_on_stripe_x_changed)
+        propagates it to every other stripe automatically.
+        """
+        x_min, x_max = self.get_x_range()
+        half = (x_max - x_min) / 2
+        self._stripes[0].sync_x_range(x - half, x + half)
+
     def merge_signals(self, signals: list[ActiveSignal]) -> None:
         stripe = self._same_stripe_or_none(signals)
         if stripe is not None:

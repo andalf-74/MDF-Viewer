@@ -1048,7 +1048,7 @@ def test_display_name_no_prefix_with_one_measurement(deps: dict) -> None:
     ctrl2.replace_measurements(["a.mf4"])
     ctrl2.add_signal(0, 1)
     (sig,) = ctrl2.active_signals
-    assert ctrl2._format_display_name(sig) == sig.metadata.name
+    assert ctrl2.format_display_name(sig) == sig.metadata.name
 
 
 @pytest.mark.requirement("REQ-PLOT-306")
@@ -1060,15 +1060,15 @@ def test_display_name_prefixed_with_multiple_measurements(deps: dict) -> None:
     ctrl2.add_signal(0, 1, measurement=m1)
     ctrl2.add_signal(0, 1, measurement=m2)
     sig1, sig2 = ctrl2.active_signals
-    assert ctrl2._format_display_name(sig1) == f"[{m1.label}] {sig1.metadata.name}"
-    assert ctrl2._format_display_name(sig2) == f"[{m2.label}] {sig2.metadata.name}"
+    assert ctrl2.format_display_name(sig1) == f"[{m1.label}] {sig1.metadata.name}"
+    assert ctrl2.format_display_name(sig2) == f"[{m2.label}] {sig2.metadata.name}"
 
 
 @pytest.mark.requirement("REQ-PLOT-340")
 def test_ast_delegate_elides_real_two_measurement_display_name(
     deps: dict, qtbot: QtBot
 ) -> None:
-    """End-to-end regression for #164: a real AppController._format_display_name
+    """End-to-end regression for #164: a real AppController.format_display_name
     "[label] name" string, fed through a real ActiveSignalsTable and its
     _ElidedNameDelegate in a narrow column, must still surface a fragment
     of the actual signal name — not just the measurement prefix. The other
@@ -1100,7 +1100,7 @@ def test_ast_delegate_elides_real_two_measurement_display_name(
     ctrl2.add_signal(0, 1, measurement=m1)
     (sig,) = ctrl2.active_signals
 
-    real_table.set_name_formatter(ctrl2._format_display_name)
+    real_table.set_name_formatter(ctrl2.format_display_name)
     real_table.add_row(sig)
 
     seg = real_table._segments[0]
@@ -1157,7 +1157,7 @@ def test_display_name_prefix_wraps_already_shortened_name(tmp_path, deps: dict) 
     ctrl2.add_signal(0, 1, measurement=m1)
     (sig,) = ctrl2.active_signals
 
-    assert ctrl2._format_display_name(sig) == f"[{m1.label}] PosADP"
+    assert ctrl2.format_display_name(sig) == f"[{m1.label}] PosADP"
 
 
 @pytest.mark.requirement("REQ-PLOT-306")
@@ -1170,7 +1170,7 @@ def test_display_name_unaffected_by_own_measurement_prefix_when_multi_but_no_mea
     ctrl2.replace_measurements(["a.mf4"])
     ctrl2.add_measurements(["b.mf4"])
     stub = SimpleNamespace(metadata=SimpleNamespace(name="sig"), measurement=None)
-    assert ctrl2._format_display_name(stub) == "sig"
+    assert ctrl2.format_display_name(stub) == "sig"
 
 
 # ---------------------------------------------------------------------------
@@ -5670,3 +5670,162 @@ def test_redo_returns_zoom_controllers_result(ctrl: AppController) -> None:
     zoom_ctrl.redo.return_value = False
     ctrl.set_zoom_controller(zoom_ctrl)
     assert ctrl.redo() is False
+
+
+# ---------------------------------------------------------------------------
+# Signal Value Search (#110)
+# ---------------------------------------------------------------------------
+
+def _make_search_signal(timestamps: list[float], samples: list[float]) -> ActiveSignal:
+    data = SignalData(timestamps=np.array(timestamps), samples=np.array(samples))
+    return ActiveSignal(data=data, metadata=_make_metadata(), color=QColor(0, 0, 0))
+
+
+def test_workspace_owning_signal_finds_current_tab(ctrl: AppController) -> None:
+    signal = _make_search_signal([0.0, 1.0], [1.0, 1.0])
+    ctrl.current_workspace.active.append(signal)
+    assert ctrl._workspace_owning_signal(signal) is ctrl.current_workspace
+
+
+def test_workspace_owning_signal_finds_other_tab(deps: dict) -> None:
+    ctrl2 = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+    )
+    tab_a = ctrl2.current_workspace
+    signal = _make_search_signal([0.0, 1.0], [1.0, 1.0])
+    tab_a.active.append(signal)
+    plot2, table2 = MagicMock(), MagicMock()
+    ctrl2.create_tab(plot2, table2)  # tab B now current
+    assert ctrl2.current_workspace is not tab_a
+
+    assert ctrl2._workspace_owning_signal(signal) is tab_a
+
+
+def test_workspace_owning_signal_returns_none_when_removed(ctrl: AppController) -> None:
+    signal = _make_search_signal([0.0, 1.0], [1.0, 1.0])
+    assert ctrl._workspace_owning_signal(signal) is None
+
+
+def test_search_reset_delegates_to_search_controller(ctrl: AppController) -> None:
+    ctrl._search_controller = MagicMock()
+    ctrl.search_reset()
+    ctrl._search_controller.reset.assert_called_once()
+
+
+def test_cursor1_value_for_returns_none_without_owning_workspace(ctrl: AppController) -> None:
+    signal = _make_search_signal([0.0, 1.0], [1.0, 1.0])
+    assert ctrl.cursor1_value_for(signal) is None
+
+
+def test_cursor1_value_for_delegates_to_owning_workspace_cursor_ctrl(ctrl: AppController) -> None:
+    signal = _make_search_signal([0.0, 1.0], [1.0, 1.0])
+    ctrl.current_workspace.active.append(signal)
+    cursor_ctrl = MagicMock()
+    cursor_ctrl.cursor1_value_for.return_value = 3.5
+    ctrl.set_cursor_controller(cursor_ctrl)
+    assert ctrl.cursor1_value_for(signal) == 3.5
+    cursor_ctrl.cursor1_value_for.assert_called_once_with(signal)
+
+
+@pytest.mark.requirement("REQ-SEARCH-040")
+def test_search_execute_moves_cursor_and_pans_current_tab(ctrl: AppController) -> None:
+    from mdf_viewer.model.signal_search import SearchOperator, SearchRow
+
+    signal = _make_search_signal([0.0, 1.0, 2.0], [5.0, 5.0, 5.0])
+    ctrl.current_workspace.active.append(signal)
+    cursor_ctrl, zoom_ctrl = MagicMock(), MagicMock()
+    ctrl.set_cursor_controller(cursor_ctrl)
+    ctrl.set_zoom_controller(zoom_ctrl)
+
+    rows = [SearchRow(signal=signal, operator=SearchOperator.EQ, value=5.0)]
+    match = ctrl.search_execute(rows)
+
+    assert match == 0.0
+    cursor_ctrl.jump_cursor1_to.assert_called_once_with(0.0)
+    ctrl.current_workspace.plot.pan_to_center.assert_called_once_with(0.0)
+    zoom_ctrl.before_discrete_action.assert_called_once()
+    zoom_ctrl.after_discrete_action.assert_called_once()
+
+
+def test_search_execute_returns_none_when_no_match(ctrl: AppController) -> None:
+    from mdf_viewer.model.signal_search import SearchOperator, SearchRow
+
+    signal = _make_search_signal([0.0, 1.0, 2.0], [1.0, 1.0, 1.0])
+    ctrl.current_workspace.active.append(signal)
+    ctrl.set_cursor_controller(MagicMock())
+
+    rows = [SearchRow(signal=signal, operator=SearchOperator.EQ, value=99.0)]
+    assert ctrl.search_execute(rows) is None
+
+
+@pytest.mark.requirement("REQ-SEARCH-041")
+def test_search_execute_finds_next_on_repeated_call(ctrl: AppController) -> None:
+    from mdf_viewer.model.signal_search import SearchOperator, SearchRow
+
+    signal = _make_search_signal([0.0, 1.0, 2.0], [5.0, 5.0, 5.0])
+    ctrl.current_workspace.active.append(signal)
+    ctrl.set_cursor_controller(MagicMock())
+    ctrl.set_zoom_controller(MagicMock())
+
+    rows = [SearchRow(signal=signal, operator=SearchOperator.EQ, value=5.0)]
+    assert ctrl.search_execute(rows) == 0.0
+    assert ctrl.search_execute(rows) == 1.0
+    assert ctrl.search_execute(rows) == 2.0
+    assert ctrl.search_execute(rows) is None
+
+
+def test_search_execute_targets_tab_owning_signals_not_current_tab(deps: dict) -> None:
+    """Regression for the cross-tab bug caught in architecture review (#110):
+    search must resolve the tab owning the searched signals, never
+    current_workspace, since the non-modal dialog can outlive a tab switch.
+    """
+    ctrl2 = AppController(
+        loader=deps["loader"],
+        signal_browser=deps["browser"],
+        plot_area=deps["plot"],
+        active_signals_table=deps["table"],
+        measurement_info_box=deps["info_box"],
+        signal_info_box=deps["signal_info"],
+    )
+    tab_a = ctrl2.current_workspace
+    cursor_ctrl_a, zoom_ctrl_a = MagicMock(), MagicMock()
+    ctrl2.set_cursor_controller(cursor_ctrl_a)
+    ctrl2.set_zoom_controller(zoom_ctrl_a)
+
+    signal = _make_search_signal([0.0, 1.0, 2.0], [5.0, 5.0, 5.0])
+    tab_a.active.append(signal)
+
+    plot_b, table_b = MagicMock(), MagicMock()
+    ctrl2.create_tab(plot_b, table_b)  # tab B now current
+    cursor_ctrl_b, zoom_ctrl_b = MagicMock(), MagicMock()
+    ctrl2.set_cursor_controller(cursor_ctrl_b)
+    ctrl2.set_zoom_controller(zoom_ctrl_b)
+    assert ctrl2.current_workspace is not tab_a
+
+    from mdf_viewer.model.signal_search import SearchOperator, SearchRow
+
+    rows = [SearchRow(signal=signal, operator=SearchOperator.EQ, value=5.0)]
+    match = ctrl2.search_execute(rows)
+
+    assert match == 0.0
+    cursor_ctrl_a.jump_cursor1_to.assert_called_once_with(0.0)
+    deps["plot"].pan_to_center.assert_called_once_with(0.0)
+    cursor_ctrl_b.jump_cursor1_to.assert_not_called()
+    plot_b.pan_to_center.assert_not_called()
+
+
+def test_search_execute_noops_when_signal_removed_from_workspace(ctrl: AppController) -> None:
+    from mdf_viewer.model.signal_search import SearchOperator, SearchRow
+
+    signal = _make_search_signal([0.0, 1.0, 2.0], [5.0, 5.0, 5.0])
+    # Never added to any workspace's active list — simulates a signal
+    # removed after the dialog captured its rows.
+    ctrl.set_cursor_controller(MagicMock())
+
+    rows = [SearchRow(signal=signal, operator=SearchOperator.EQ, value=5.0)]
+    assert ctrl.search_execute(rows) is None

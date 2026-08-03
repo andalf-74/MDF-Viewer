@@ -26,13 +26,14 @@ inline so it can be cited from an issue or a test via
 
 ## Rebindable Actions
 
-Twenty actions are rebindable: the 9 existing toolbar/menu `QAction`
+Twenty-one actions are rebindable: the 9 existing toolbar/menu `QAction`
 shortcuts (Open, Zoom to Fit, Zoom Y to View, Swimlanes, Zoom to Cursors,
 Undo, Redo, Save Workspace, Exit), the 6 existing global shortcuts (Cursor 1
 toggle, Cursor 2 toggle, cursor step left, cursor step right, next tab,
 previous tab), 3 existing Active Signals Table shortcuts (remove signal,
 toggle visibility, Y autozoom), the Cursors toolbar button's cycle action
-(hidden → 1 → 2 → hidden), and Move to new Stripe [REQ-KEYS-010]. Each
+(hidden → 1 → 2 → hidden), Move to new Stripe, and Search (added by #110)
+[REQ-KEYS-010]. Each
 rebindable action has a primary key binding and an optional secondary key
 binding [REQ-KEYS-011]. Zoom to Fit's shipped default keeps both of its
 existing bindings (Ctrl+0 as primary, F as secondary) [REQ-KEYS-012].

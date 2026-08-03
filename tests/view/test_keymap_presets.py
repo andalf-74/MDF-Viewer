@@ -23,6 +23,13 @@ def test_default_cursor_toggle_and_move_to_new_stripe_start_unbound() -> None:
     assert kp.DEFAULT_PRESET["ast_move_to_new_stripe"][0].isEmpty()
 
 
+@pytest.mark.requirement("REQ-SEARCH-011")
+def test_default_search_binding_is_ctrl_f() -> None:
+    primary, secondary = kp.DEFAULT_PRESET["search"]
+    assert primary.toString() == "Ctrl+F"
+    assert secondary is None
+
+
 @pytest.mark.requirement("REQ-KEYS-022")
 def test_mda_preset_overrides_only_its_five_actions() -> None:
     overridden = {
