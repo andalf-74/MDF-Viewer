@@ -75,7 +75,7 @@ from mdf_viewer.view._mime import (
     encode_row_payload,
 )
 from mdf_viewer.view import theme
-from mdf_viewer.view.keymap_presets import DEFAULT_PRESET, keymap_from_dict
+from mdf_viewer.view.keymap_presets import DEFAULT_PRESET, resolve_keymap
 from mdf_viewer.view.widgets import ColorSwatch, VisibilityToggleButton, make_splitter
 from mdf_viewer.view_model.active_signal import ActiveSignal
 
@@ -983,11 +983,14 @@ class ActiveSignalsTable(QWidget):
         targets = selected if len(selected) > 1 and active in selected else [active]
         self.visibility_toggle_requested.emit(targets)
 
-    def set_keymap(self, mapping: dict) -> None:
+    def set_keymap(self, mapping: dict, preset_label: str = "Custom") -> None:
         """Resolve *mapping* (the plain JSON-native shape `Settings.keymap`
         uses) against `keymap_presets.DEFAULT_PRESET` and store it for
-        `_handle_key_press()` to read (#111)."""
-        self._keymap = keymap_from_dict(mapping)
+        `_handle_key_press()` to read (#111). *preset_label* is
+        `Settings.keymap_preset_label`; when it names a built-in preset,
+        the live preset wins over *mapping* (#167 —
+        `keymap_presets.resolve_keymap()`)."""
+        self._keymap = resolve_keymap(mapping, preset_label)
 
     def _binding_for(self, action_id: str) -> tuple:
         return self._keymap.get(action_id, DEFAULT_PRESET[action_id])

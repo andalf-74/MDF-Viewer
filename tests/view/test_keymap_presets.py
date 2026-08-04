@@ -18,9 +18,35 @@ def test_default_zoom_to_fit_keeps_both_bindings() -> None:
     assert secondary.toString() == "F"
 
 
-def test_default_cursor_toggle_and_move_to_new_stripe_start_unbound() -> None:
-    assert kp.DEFAULT_PRESET["cursor_toggle"][0].isEmpty()
+def test_default_move_to_new_stripe_starts_unbound() -> None:
     assert kp.DEFAULT_PRESET["ast_move_to_new_stripe"][0].isEmpty()
+
+
+@pytest.mark.requirement("REQ-KEYS-015")
+def test_default_cursor_toggle_is_ctrl_r_in_all_presets() -> None:
+    for preset in (kp.DEFAULT_PRESET, kp.MDA_PRESET, kp.CANAPE_PRESET):
+        assert preset["cursor_toggle"][0].toString() == "Ctrl+R"
+
+
+@pytest.mark.requirement("REQ-KEYS-013")
+def test_167_actions_share_one_default_across_all_presets() -> None:
+    shared = {
+        "save_workspace_as": "Ctrl+Shift+S",
+        "new_stripe": "Ctrl+Shift+N",
+        "sync_measurements": "Ctrl+M",
+        "preferences": "Ctrl+,",
+        "zoom_all_stripes": "A",
+    }
+    for action_id, expected in shared.items():
+        for preset in (kp.DEFAULT_PRESET, kp.MDA_PRESET, kp.CANAPE_PRESET):
+            assert preset[action_id][0].toString() == expected
+
+
+@pytest.mark.requirement("REQ-KEYS-014")
+def test_new_tab_differs_only_in_mda_preset() -> None:
+    assert kp.DEFAULT_PRESET["new_tab"][0].toString() == "Ctrl+T"
+    assert kp.CANAPE_PRESET["new_tab"][0].toString() == "Ctrl+T"
+    assert kp.MDA_PRESET["new_tab"][0].toString() == "Ctrl+N"
 
 
 @pytest.mark.requirement("REQ-SEARCH-011")
@@ -35,9 +61,9 @@ def test_mda_preset_overrides_only_its_five_actions() -> None:
     overridden = {
         "zoom_to_fit": "Ctrl+F12",
         "ast_y_autozoom": "Ctrl+D",
-        "cursor_toggle": "Ctrl+R",
         "ast_toggle_visibility": "Ctrl+W",
         "ast_move_to_new_stripe": "Ctrl+T",
+        "new_tab": "Ctrl+N",
     }
     for action_id in kp.ACTION_IDS:
         primary, secondary = kp.MDA_PRESET[action_id]
@@ -70,6 +96,42 @@ def test_canape_preset_overrides_only_its_eight_actions() -> None:
 
 def test_builtin_presets_dict_has_all_three() -> None:
     assert set(kp.BUILTIN_PRESETS) == {"Default", "MDA", "CANape"}
+
+
+# ---------------------------------------------------------------------------
+# resolve_keymap() (#167 postmortem — stale built-in-preset snapshots)
+# ---------------------------------------------------------------------------
+
+def test_resolve_keymap_ignores_stale_value_under_a_builtin_preset_label() -> None:
+    """A stored dict claiming a stale (pre-change) value for an action
+    under a still-"Default"-labelled settings file must be overridden by
+    the live DEFAULT_PRESET, not honoured."""
+    stale = kp.keymap_to_dict(kp.DEFAULT_PRESET)
+    stale["cursor_toggle"] = {"primary": "", "secondary": None}
+    resolved = kp.resolve_keymap(stale, "Default")
+    assert resolved["cursor_toggle"][0].toString() == "Ctrl+R"
+
+
+def test_resolve_keymap_uses_live_mda_preset() -> None:
+    resolved = kp.resolve_keymap({}, "MDA")
+    assert resolved["new_tab"][0].toString() == "Ctrl+N"
+
+
+def test_resolve_keymap_honours_a_real_customization() -> None:
+    custom = kp.keymap_to_dict(kp.DEFAULT_PRESET)
+    custom["undo"] = {"primary": "Ctrl+9", "secondary": None}
+    resolved = kp.resolve_keymap(custom, "Custom")
+    assert resolved["undo"][0].toString() == "Ctrl+9"
+
+
+def test_resolve_keymap_honours_a_loaded_mvck_labels_own_values() -> None:
+    """A loaded .mvck file's label (e.g. "My CANape Copy") is never a
+    built-in preset name, so its own stored values stay frozen even if
+    they happen to equal an outdated built-in preset's old values."""
+    custom = kp.keymap_to_dict(kp.DEFAULT_PRESET)
+    custom["cursor_toggle"] = {"primary": "", "secondary": None}
+    resolved = kp.resolve_keymap(custom, "My CANape Copy")
+    assert resolved["cursor_toggle"][0].isEmpty()
 
 
 # ---------------------------------------------------------------------------

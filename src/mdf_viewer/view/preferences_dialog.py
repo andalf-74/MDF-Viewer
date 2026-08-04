@@ -49,9 +49,9 @@ from mdf_viewer.view.keymap_presets import (
     BUILTIN_PRESETS,
     DEFAULT_PRESET,
     KeymapValidationError,
-    keymap_from_dict,
     keymap_to_dict,
     load_mvck,
+    resolve_keymap,
     save_mvck,
 )
 
@@ -479,7 +479,9 @@ class PreferencesDialog(QDialog):
         own state — nothing touches `self._settings` until `_apply()`
         (REQ-KEYS-050–055), matching every other tab's one-call-per-
         `_apply()` convention."""
-        self._keymap_working: dict = dict(keymap_from_dict(self._settings.keymap))
+        self._keymap_working: dict = dict(
+            resolve_keymap(self._settings.keymap, self._settings.keymap_preset_label)
+        )
         self._keymap_label_value: str = self._settings.keymap_preset_label
         self._keymap_row_widgets: dict = {}
         self._keymap_edits_in_progress: set = set()

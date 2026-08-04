@@ -42,12 +42,40 @@ def test_rows_initialised_from_default_preset(dlg: PreferencesDialog) -> None:
     assert secondary_edit.keySequence() == QKeySequence("F")
 
 
+@pytest.mark.requirement("REQ-KEYS-013")
+def test_167_rows_initialised_from_default_preset(dlg: PreferencesDialog) -> None:
+    primary_edit, _ = dlg._keymap_row_widgets["save_workspace_as"]
+    assert primary_edit.keySequence() == QKeySequence("Ctrl+Shift+S")
+    primary_edit, _ = dlg._keymap_row_widgets["preferences"]
+    assert primary_edit.keySequence() == QKeySequence("Ctrl+,")
+
+
 def test_rows_initialised_from_saved_settings(qtbot: QtBot, settings: Settings) -> None:
+    # A genuine customization is only distinguishable from a stale
+    # built-in-preset snapshot by its label (#167 postmortem) — a real
+    # customization always carries a non-built-in label too, since
+    # `_apply()` sets keymap and keymap_preset_label together.
     settings.keymap = {"undo": {"primary": "Ctrl+9", "secondary": None}}
+    settings.keymap_preset_label = "Custom"
     dlg = PreferencesDialog(settings)
     qtbot.addWidget(dlg)
     primary_edit, _ = dlg._keymap_row_widgets["undo"]
     assert primary_edit.keySequence() == QKeySequence("Ctrl+9")
+
+
+@pytest.mark.requirement("REQ-KEYS-015")
+def test_167_stale_default_labelled_entry_is_ignored_in_favour_of_live_default(
+    qtbot: QtBot, settings: Settings
+) -> None:
+    """Regression for the #167 postmortem: a settings.json saved before
+    cursor_toggle had a default (still labelled "Default") must not keep
+    a stale empty binding forever — the live DEFAULT_PRESET wins."""
+    settings.keymap = {"cursor_toggle": {"primary": "", "secondary": None}}
+    assert settings.keymap_preset_label == "Default"
+    dlg = PreferencesDialog(settings)
+    qtbot.addWidget(dlg)
+    primary_edit, _ = dlg._keymap_row_widgets["cursor_toggle"]
+    assert primary_edit.keySequence() == QKeySequence("Ctrl+R")
 
 
 @pytest.mark.requirement("REQ-KEYS-061")
@@ -208,6 +236,13 @@ def test_selecting_mda_preset_updates_rows(dlg: PreferencesDialog) -> None:
     primary_edit, _ = dlg._keymap_row_widgets["zoom_to_fit"]
     assert primary_edit.keySequence() == QKeySequence("Ctrl+F12")
     assert dlg._keymap_status_label.text() == "Current: MDA"
+
+
+@pytest.mark.requirement("REQ-KEYS-014")
+def test_selecting_mda_preset_updates_new_tab_row(dlg: PreferencesDialog) -> None:
+    dlg._on_keymap_preset_selected("MDA")
+    primary_edit, _ = dlg._keymap_row_widgets["new_tab"]
+    assert primary_edit.keySequence() == QKeySequence("Ctrl+N")
 
 
 @pytest.mark.requirement("REQ-KEYS-053")

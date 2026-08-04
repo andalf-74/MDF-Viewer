@@ -24,6 +24,7 @@ from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
 from mdf_viewer.view.plot_stripes_area import PlotStripesArea
 from mdf_viewer.view.signal_browser import SignalBrowser
 from mdf_viewer.view.signal_info_box import SignalInfoBox
+from mdf_viewer.view.keymap_presets import ACTION_IDS
 
 
 # ---------------------------------------------------------------------------
@@ -2837,13 +2838,42 @@ def test_apply_keymap_empty_primary_clears_the_action(window: MainWindow) -> Non
     assert window._zoom_y_action.shortcuts() == []
 
 
+def test_rebindable_objects_plus_ast_actions_cover_every_action_id(
+    window: MainWindow,
+) -> None:
+    """Guards against a repeat of the #167 risk: an action_id added to
+    ACTION_LABELS/the presets but never wired into
+    _rebindable_qt_objects() would silently keep its DEFAULT_PRESET
+    shortcut forever, un-rebindable, with apply_keymap() never raising."""
+    ast_only = {
+        "ast_remove_signal",
+        "ast_toggle_visibility",
+        "ast_y_autozoom",
+        "ast_move_to_new_stripe",
+    }
+    assert set(window._rebindable_qt_objects()) | ast_only == set(ACTION_IDS)
+
+
 def test_apply_keymap_covers_the_cursor_toggle_action(window: MainWindow) -> None:
-    """#111 promotes the Cursors toggle into rebindable scope even though
-    it has no default shortcut at all (main_window.py never called
-    setShortcut on it before #111)."""
+    """#111 promotes the Cursors toggle into rebindable scope (#167 later
+    gave it a non-empty default, Ctrl+R, but it stays independently
+    rebindable to anything else)."""
     from PyQt6.QtGui import QKeySequence
 
-    window.apply_keymap({"cursor_toggle": {"primary": "Ctrl+R", "secondary": None}})
+    window.apply_keymap({"cursor_toggle": {"primary": "Ctrl+9", "secondary": None}})
+    assert window._cursor_action.shortcut() == QKeySequence("Ctrl+9")
+
+
+@pytest.mark.requirement("REQ-KEYS-015")
+def test_apply_keymap_stale_builtin_preset_snapshot_uses_live_default(
+    window: MainWindow,
+) -> None:
+    """Regression for the #167 postmortem: a settings.json still labelled
+    "Default" but saved before cursor_toggle had a real binding must not
+    keep it permanently empty."""
+    from PyQt6.QtGui import QKeySequence
+
+    window.apply_keymap({"cursor_toggle": {"primary": "", "secondary": None}}, "Default")
     assert window._cursor_action.shortcut() == QKeySequence("Ctrl+R")
 
 

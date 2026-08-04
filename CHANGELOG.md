@@ -59,6 +59,13 @@ All notable changes to MDF-Viewer are documented in this file.
   General gained an "Enable logging" checkbox, a log level dropdown
   (DEBUG/INFO/WARNING/ERROR), and an "Open log folder" button. Enabled by
   default at the INFO level; changes apply immediately without restarting.
+- Default keyboard shortcuts for previously-unbound actions (#167): Save
+  Workspace As (Ctrl+Shift+S), New Tab (Ctrl+T, Ctrl+N on the MDA preset),
+  New Stripe (Ctrl+Shift+N), Sync Measurements (Ctrl+M), Preferences
+  (Ctrl+,), the "All Stripes" zoom-scope toggle (A), and the Cursors
+  toolbar button's cycle action (Ctrl+R, previously unbound by default
+  outside the MDA preset) — all rebindable via Preferences ▸ Shortcuts,
+  like every other shortcut in the app.
 
 ## [2.3.1] - 2026-07-29
 

@@ -95,7 +95,7 @@ from mdf_viewer.view.measurement_info_box import MeasurementInfoBox
 from mdf_viewer.view.plot_stripes_area import PlotStripesArea
 from mdf_viewer.view.search_dialog import SearchDialog
 from mdf_viewer.view.signal_browser import SignalBrowser
-from mdf_viewer.view.keymap_presets import ACTION_IDS, DEFAULT_PRESET, keymap_from_dict
+from mdf_viewer.view.keymap_presets import ACTION_IDS, DEFAULT_PRESET, resolve_keymap
 from mdf_viewer.view.signal_info_box import SignalInfoBox
 from mdf_viewer.view.status_history_dialog import StatusHistoryDialog
 from mdf_viewer.view.status_message_history import StatusMessageHistory
@@ -734,7 +734,10 @@ class MainWindow(QMainWindow):
         # created one needs the current keymap pushed in explicitly (#111)
         # rather than inheriting whatever the last apply_keymap() call set —
         # there's no shared state between per-tab AST instances.
-        active_signals_table.set_keymap(self._settings.keymap if self._settings else {})
+        active_signals_table.set_keymap(
+            self._settings.keymap if self._settings else {},
+            self._settings.keymap_preset_label if self._settings else "Custom",
+        )
         plot_area.signals_dropped_on_stripe.connect(self._on_add_signals_to_stripe)
         plot_area.active_signals_dropped_on_stripe.connect(
             self._on_active_signals_dropped_to_stripe
@@ -1033,6 +1036,7 @@ class MainWindow(QMainWindow):
         return {
             "open_file": self._load_action,
             "search": self._search_action,
+            "zoom_all_stripes": self._zoom_all_stripes_action,
             "zoom_to_fit": self._zoom_fit_action,
             "zoom_y_to_view": self._zoom_y_action,
             "swimlanes": self._swimlanes_action,
@@ -1041,25 +1045,35 @@ class MainWindow(QMainWindow):
             "undo": self._undo_action,
             "redo": self._redo_action,
             "save_workspace": self._save_config_action,
+            "save_workspace_as": self._save_config_as_action,
+            "sync_measurements": self._sync_measurements_action,
             "exit": self._exit_action,
+            "preferences": self._preferences_action,
             "cursor1_toggle": self._cursor1_shortcut,
             "cursor2_toggle": self._cursor2_shortcut,
             "cursor_step_left": self._cursor_left_shortcut,
             "cursor_step_right": self._cursor_right_shortcut,
+            "new_tab": self._new_tab_action,
+            "new_stripe": self._new_stripe_action,
             "next_tab": self._next_tab_shortcut,
             "prev_tab": self._prev_tab_shortcut,
         }
 
-    def apply_keymap(self, mapping: dict) -> None:
+    def apply_keymap(self, mapping: dict, preset_label: str = "Custom") -> None:
         """Push a keymap (#111, REQ-KEYS-062) onto every QAction/QShortcut
         this window owns directly, and every tab's Active Signals Table's
         keyPressEvent-based bindings. *mapping* is the same plain
         `{action_id: {"primary": str, "secondary": str | None}}` shape
         `Settings.keymap` stores — need not cover every action id, a
-        missing one falls back to `DEFAULT_PRESET`'s value. The Signal
-        Browser's Ctrl+C (like the AST's) is deliberately not rebindable —
-        see `keymap_presets.py`'s module docstring."""
-        resolved = keymap_from_dict(mapping)
+        missing one falls back to `DEFAULT_PRESET`'s value. *preset_label*
+        is `Settings.keymap_preset_label`; when it names a built-in preset,
+        the live preset always wins over *mapping* (#167 —
+        `keymap_presets.resolve_keymap()`), so a shipped default change
+        reaches a user who never customized anything without requiring a
+        manual Reset. The Signal Browser's Ctrl+C (like the AST's) is
+        deliberately not rebindable — see `keymap_presets.py`'s module
+        docstring."""
+        resolved = resolve_keymap(mapping, preset_label)
         for action_id, obj in self._rebindable_qt_objects().items():
             seqs = _keybinding_to_list(resolved[action_id])
             if isinstance(obj, QShortcut):
@@ -1067,7 +1081,7 @@ class MainWindow(QMainWindow):
             else:
                 obj.setShortcuts(seqs)
         for table in self._all_active_signals_tables():
-            table.set_keymap(mapping)
+            table.set_keymap(mapping, preset_label)
 
     # ------------------------------------------------------------------
     # UI construction
@@ -1087,9 +1101,11 @@ class MainWindow(QMainWindow):
         self._apply_config_action.triggered.connect(self._on_apply_config)
 
         self._new_tab_action = QAction("New Tab", self)
+        self._new_tab_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["new_tab"]))
         self._new_tab_action.triggered.connect(self._on_new_tab_requested)
 
         self._new_stripe_action = QAction("New Stripe", self)
+        self._new_stripe_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["new_stripe"]))
         self._new_stripe_action.triggered.connect(self._on_new_stripe)
 
         self._zoom_fit_action = QAction(
@@ -1116,6 +1132,9 @@ class MainWindow(QMainWindow):
         self._zoom_all_stripes_action = QAction("All Stripes", self)
         self._zoom_all_stripes_action.setCheckable(True)
         self._zoom_all_stripes_action.setChecked(True)
+        self._zoom_all_stripes_action.setShortcuts(
+            _keybinding_to_list(DEFAULT_PRESET["zoom_all_stripes"])
+        )
         self._zoom_all_stripes_action.setToolTip(
             "Whether Zoom to Fit / Zoom Y to View apply to every stripe "
             "or only the active one"
@@ -1175,6 +1194,9 @@ class MainWindow(QMainWindow):
         self._sync_measurements_action = QAction("Sync Measurements", self)
         self._sync_measurements_action.setCheckable(True)
         self._sync_measurements_action.setEnabled(False)
+        self._sync_measurements_action.setShortcuts(
+            _keybinding_to_list(DEFAULT_PRESET["sync_measurements"])
+        )
         self._sync_measurements_action.setToolTip(
             "Collapse every loaded measurement's own time axis into one shared ruler"
         )
@@ -1185,6 +1207,9 @@ class MainWindow(QMainWindow):
         self._save_config_action.triggered.connect(self._on_save_config)
 
         self._save_config_as_action = QAction("Save Workspace As…", self)
+        self._save_config_as_action.setShortcuts(
+            _keybinding_to_list(DEFAULT_PRESET["save_workspace_as"])
+        )
         self._save_config_as_action.triggered.connect(self._on_save_config_as)
 
         self._import_labels_action = QAction("Import Labels…", self)
@@ -1194,6 +1219,7 @@ class MainWindow(QMainWindow):
         self._export_labels_action.triggered.connect(self._on_export_labels)
 
         self._preferences_action = QAction("Preferences…", self)
+        self._preferences_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["preferences"]))
         self._preferences_action.triggered.connect(self._on_preferences)
 
         self._about_action = QAction("About MDF-Viewer", self)
@@ -2469,7 +2495,7 @@ class MainWindow(QMainWindow):
                 self._controller.refresh_signal_browser_view_mode()
                 for table in self._all_active_signals_tables():
                     table.set_shorten_names_enabled(self._settings.display_name_rule_enabled)
-            self.apply_keymap(self._settings.keymap)
+            self.apply_keymap(self._settings.keymap, self._settings.keymap_preset_label)
 
     def _on_configure_display_names(self, preview_name: str) -> None:
         if self._settings is None or self._controller is None:

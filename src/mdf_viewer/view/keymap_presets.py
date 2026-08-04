@@ -1,5 +1,5 @@
-"""keymap_presets.py — the 20 rebindable actions and the three built-in
-keyboard-shortcut presets (Default, MDA, CANape) for #111.
+"""keymap_presets.py — the 27 rebindable actions and the three built-in
+keyboard-shortcut presets (Default, MDA, CANape) for #111/#167.
 
 Pure data: `DEFAULT_PRESET`/`MDA_PRESET`/`CANAPE_PRESET` are transcribed
 from what `main_window.py`/`active_signals_table.py` hardcoded before
@@ -35,6 +35,7 @@ Keybinding = tuple[QKeySequence, "QKeySequence | None"]
 ACTION_LABELS: dict[str, str] = {
     "open_file": "Open…",
     "search": "Search…",
+    "zoom_all_stripes": "All Stripes",
     "zoom_to_fit": "Zoom to Fit",
     "zoom_y_to_view": "Zoom Y to View",
     "swimlanes": "Swimlanes",
@@ -43,11 +44,16 @@ ACTION_LABELS: dict[str, str] = {
     "undo": "Undo",
     "redo": "Redo",
     "save_workspace": "Save Workspace",
+    "save_workspace_as": "Save Workspace As",
+    "sync_measurements": "Sync Measurements",
     "exit": "Exit",
+    "preferences": "Preferences",
     "cursor1_toggle": "Toggle one Cursor",
     "cursor2_toggle": "Toggle both Cursors",
     "cursor_step_left": "Step Active Cursor Left",
     "cursor_step_right": "Step Active Cursor Right",
+    "new_tab": "New Tab",
+    "new_stripe": "New Stripe",
     "next_tab": "Next Tab",
     "prev_tab": "Previous Tab",
     "ast_remove_signal": "Remove Signal",
@@ -74,19 +80,25 @@ def _preset(pairs: dict[str, tuple[str, "str | None"]]) -> dict[str, Keybinding]
 DEFAULT_PRESET: dict[str, Keybinding] = _preset({
     "open_file": ("Ctrl+O", None),
     "search": ("Ctrl+F", None),
+    "zoom_all_stripes": ("A", None),
     "zoom_to_fit": ("Ctrl+0", "F"),
     "zoom_y_to_view": ("Y", None),
     "swimlanes": ("B", None),
     "zoom_to_cursors": ("C", None),
-    "cursor_toggle": ("", None),
+    "cursor_toggle": ("Ctrl+R", None),
     "undo": ("Ctrl+Z", None),
     "redo": ("Ctrl+Shift+Z", None),
     "save_workspace": ("Ctrl+S", None),
+    "save_workspace_as": ("Ctrl+Shift+S", None),
+    "sync_measurements": ("Ctrl+M", None),
     "exit": ("Ctrl+Q", None),
+    "preferences": ("Ctrl+,", None),
     "cursor1_toggle": (".", None),
     "cursor2_toggle": (",", None),
     "cursor_step_left": ("Left", None),
     "cursor_step_right": ("Right", None),
+    "new_tab": ("Ctrl+T", None),
+    "new_stripe": ("Ctrl+Shift+N", None),
     "next_tab": ("Ctrl+Tab", None),
     "prev_tab": ("Ctrl+Shift+Tab", None),
     "ast_remove_signal": ("Del", "Backspace"),
@@ -101,9 +113,12 @@ MDA_PRESET: dict[str, Keybinding] = {
     **_preset({
         "zoom_to_fit": ("Ctrl+F12", None),
         "ast_y_autozoom": ("Ctrl+D", None),
-        "cursor_toggle": ("Ctrl+R", None),
         "ast_toggle_visibility": ("Ctrl+W", None),
         "ast_move_to_new_stripe": ("Ctrl+T", None),
+        # MDA's own Ctrl+T is already Move to new Stripe (above), so New
+        # Tab needs a different binding here than Default/CANape's Ctrl+T
+        # (REQ-KEYS-014).
+        "new_tab": ("Ctrl+N", None),
     }),
 }
 
@@ -157,6 +172,26 @@ def keymap_from_dict(data: dict[str, dict[str, "str | None"]]) -> dict[str, Keyb
         secondary = QKeySequence(secondary_str) if secondary_str else None
         keymap[action_id] = (primary, secondary)
     return keymap
+
+
+def resolve_keymap(stored: dict[str, dict[str, "str | None"]], preset_label: str) -> dict[str, Keybinding]:
+    """The keymap that should actually be applied. When *preset_label*
+    names one of the three built-in presets, the live current definition
+    of that preset always wins over *stored* — a `settings.json` still
+    labelled "Default" means "track whatever ships as Default," not "a
+    frozen snapshot of what Default happened to be when this was last
+    saved." Without this, a shipped default change (e.g. #167 giving
+    Cycle Cursors a real binding) would never reach a user whose
+    `settings.json` already had an explicit (now-stale) entry for that
+    action from before the change — `keymap_from_dict()`'s missing-key
+    fallback only helps for a genuinely new action id, not one whose
+    value changed. Anything else (a real customization, or a loaded
+    `.mvck` file's own label) uses *stored* as-is via `keymap_from_dict()`,
+    since those are meant to stay frozen regardless of future preset
+    changes."""
+    if preset_label in BUILTIN_PRESETS:
+        return dict(BUILTIN_PRESETS[preset_label])
+    return keymap_from_dict(stored)
 
 
 def save_mvck(path: "Path | str", keymap: dict[str, Keybinding], label: str) -> None:
