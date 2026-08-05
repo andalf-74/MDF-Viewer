@@ -62,10 +62,18 @@ All notable changes to MDF-Viewer are documented in this file.
 - Default keyboard shortcuts for previously-unbound actions (#167): Save
   Workspace As (Ctrl+Shift+S), New Tab (Ctrl+T, Ctrl+N on the MDA preset),
   New Stripe (Ctrl+Shift+N), Sync Measurements (Ctrl+M), Preferences
-  (Ctrl+,), the "All Stripes" zoom-scope toggle (A), and the Cursors
-  toolbar button's cycle action (Ctrl+R, previously unbound by default
-  outside the MDA preset) — all rebindable via Preferences ▸ Shortcuts,
-  like every other shortcut in the app.
+  (Ctrl+,), and the Cursors toolbar button's cycle action (Ctrl+R,
+  previously unbound by default outside the MDA preset) — all rebindable
+  via Preferences ▸ Shortcuts, like every other shortcut in the app.
+
+### Changed
+- Zoom to Fit / Zoom Y to View scope (#170): removed the "All Stripes"
+  toolbar toggle — its checked/unchecked states were hard to tell apart,
+  and it turned out to be unnecessary since Zoom to Fit's X-axis reset was
+  already global regardless of it. "Zoom to Fit" now always rescales Y for
+  every stripe (not just the active one); "Zoom Y to View" always scopes
+  to only the active stripe. Both toolbar tooltips updated to reflect
+  their fixed scope.
 
 ## [2.3.1] - 2026-07-29
 

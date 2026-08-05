@@ -659,7 +659,7 @@ class AppController:
         current = self.current_workspace
         if current.zoom_ctrl is not None:
             current.zoom_ctrl.before_discrete_action()
-        current.plot.zoom_to_fit(all_stripes=self._zoom_all_stripes)
+        current.plot.zoom_to_fit()
         if current.zoom_ctrl is not None:
             current.zoom_ctrl.after_discrete_action()
 
@@ -667,7 +667,7 @@ class AppController:
         current = self.current_workspace
         if current.zoom_ctrl is not None:
             current.zoom_ctrl.before_discrete_action()
-        result = current.plot.zoom_y_to_view(all_stripes=self._zoom_all_stripes)
+        result = current.plot.zoom_y_to_view()
         if current.zoom_ctrl is not None:
             current.zoom_ctrl.after_discrete_action()
         return result
@@ -1702,12 +1702,6 @@ class AppController:
         if self._settings is None:
             return False
         return self._settings.show_only_selected_y_axis
-
-    @property
-    def _zoom_all_stripes(self) -> bool:
-        if self._settings is None:
-            return True
-        return self._settings.zoom_scope == "all_stripes"
 
     @property
     def _plot_background_color(self) -> tuple[int, int, int]:

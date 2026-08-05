@@ -26,24 +26,24 @@ inline so it can be cited from an issue or a test via
 
 ## Rebindable Actions
 
-Twenty-seven actions are rebindable: the 9 existing toolbar/menu `QAction`
+Twenty-six actions are rebindable: the 9 existing toolbar/menu `QAction`
 shortcuts (Open, Zoom to Fit, Zoom Y to View, Swimlanes, Zoom to Cursors,
 Undo, Redo, Save Workspace, Exit), the 6 existing global shortcuts (Cursor 1
 toggle, Cursor 2 toggle, cursor step left, cursor step right, next tab,
 previous tab), 3 existing Active Signals Table shortcuts (remove signal,
 toggle visibility, Y autozoom), the Cursors toolbar button's cycle action
 (hidden → 1 → 2 → hidden), Move to new Stripe, Search (added by #110), and
-the 6 actions added by #167 (Save Workspace As, New Tab, New Stripe, Sync
-Measurements, Preferences, and the "All Stripes" zoom-scope toggle)
+the 5 actions added by #167 (Save Workspace As, New Tab, New Stripe, Sync
+Measurements, Preferences)
 [REQ-KEYS-010]. Each
 rebindable action has a primary key binding and an optional secondary key
 binding [REQ-KEYS-011]. Zoom to Fit's shipped default keeps both of its
 existing bindings (Ctrl+0 as primary, F as secondary) [REQ-KEYS-012].
 
-The 6 actions added by #167 ship with one default binding shared across all
+The 5 actions added by #167 ship with one default binding shared across all
 three built-in presets: Ctrl+Shift+S for Save Workspace As, Ctrl+Shift+N for
-New Stripe, Ctrl+M for Sync Measurements, Ctrl+, for Preferences, and A for
-the "All Stripes" zoom-scope toggle [REQ-KEYS-013]. New Tab defaults to
+New Stripe, Ctrl+M for Sync Measurements, and Ctrl+, for Preferences
+[REQ-KEYS-013]. New Tab defaults to
 Ctrl+T in the Default and CANape presets, and to Ctrl+N in the MDA preset,
 since MDA's own Ctrl+T is already assigned to Move to new Stripe
 [REQ-KEYS-014]. The Cursors toolbar button's cycle action defaults to Ctrl+R

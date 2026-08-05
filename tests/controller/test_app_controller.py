@@ -4273,56 +4273,24 @@ def test_refresh_signal_browser_view_mode_pushes_and_repopulates(
 
 
 # ---------------------------------------------------------------------------
-# Zoom scope (All Stripes / Active Stripe toggle)
+# Zoom scope (fixed: Zoom to Fit always all stripes, Zoom Y to View always
+# the active stripe only — #170)
 # ---------------------------------------------------------------------------
 
-def _ctrl_with_zoom_scope(tmp_path, deps: dict, scope: str) -> AppController:
-    from mdf_viewer.settings import Settings
-    s = Settings(path=tmp_path / "s.json")
-    s.zoom_scope = scope
-    return AppController(
-        loader=deps["loader"],
-        signal_browser=deps["browser"],
-        plot_area=deps["plot"],
-        active_signals_table=deps["table"],
-        measurement_info_box=deps["info_box"],
-        signal_info_box=deps["signal_info"],
-        settings=s,
-    )
-
-
-@pytest.mark.requirement("REQ-PLOT-057")
-def test_zoom_to_fit_passes_all_stripes_true_by_default(
+@pytest.mark.requirement("REQ-PLOT-053")
+def test_zoom_to_fit_takes_no_scope_argument(
     ctrl: AppController, deps: dict
 ) -> None:
     ctrl.zoom_to_fit()
-    deps["plot"].zoom_to_fit.assert_called_once_with(all_stripes=True)
+    deps["plot"].zoom_to_fit.assert_called_once_with()
 
 
-@pytest.mark.requirement("REQ-PLOT-057")
-def test_zoom_to_fit_passes_all_stripes_false_when_scope_is_active_stripe(
-    tmp_path, deps: dict
-) -> None:
-    ctrl = _ctrl_with_zoom_scope(tmp_path, deps, "active_stripe")
-    ctrl.zoom_to_fit()
-    deps["plot"].zoom_to_fit.assert_called_once_with(all_stripes=False)
-
-
-@pytest.mark.requirement("REQ-PLOT-057")
-def test_zoom_y_to_view_passes_all_stripes_true_by_default(
+@pytest.mark.requirement("REQ-PLOT-054")
+def test_zoom_y_to_view_takes_no_scope_argument(
     ctrl: AppController, deps: dict
 ) -> None:
     ctrl.zoom_y_to_view()
-    deps["plot"].zoom_y_to_view.assert_called_once_with(all_stripes=True)
-
-
-@pytest.mark.requirement("REQ-PLOT-057")
-def test_zoom_y_to_view_passes_all_stripes_false_when_scope_is_active_stripe(
-    tmp_path, deps: dict
-) -> None:
-    ctrl = _ctrl_with_zoom_scope(tmp_path, deps, "active_stripe")
-    ctrl.zoom_y_to_view()
-    deps["plot"].zoom_y_to_view.assert_called_once_with(all_stripes=False)
+    deps["plot"].zoom_y_to_view.assert_called_once_with()
 
 
 @pytest.mark.requirement("REQ-PLOT-059")
@@ -4359,17 +4327,6 @@ def test_on_y_autozoom_requested_noop_with_no_valid_signals(
     deps["plot"].autozoom_to_signal.assert_not_called()
 
 
-def test_zoom_to_fit_defaults_all_stripes_without_settings(deps: dict) -> None:
-    ctrl_no_settings = AppController(
-        loader=deps["loader"],
-        signal_browser=deps["browser"],
-        plot_area=deps["plot"],
-        active_signals_table=deps["table"],
-        measurement_info_box=deps["info_box"],
-        signal_info_box=deps["signal_info"],
-    )
-    ctrl_no_settings.zoom_to_fit()
-    deps["plot"].zoom_to_fit.assert_called_once_with(all_stripes=True)
 
 
 # ---------------------------------------------------------------------------

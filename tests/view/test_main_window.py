@@ -855,17 +855,6 @@ def test_toolbar_has_cursor_action(window: MainWindow) -> None:
     assert window._cursor_action in toolbar_actions
 
 
-def test_toolbar_all_stripes_action_before_zoom_actions(window: MainWindow) -> None:
-    """#114: "All Stripes" moved next to Load, ahead of the two zoom actions
-    it governs, rather than sitting between Zoom Y and Swimlanes where its
-    scope was ambiguous."""
-    toolbars = window.findChildren(type(window.addToolBar("_t")))
-    toolbar_actions = [a for tb in toolbars for a in tb.actions()]
-    all_stripes_idx = toolbar_actions.index(window._zoom_all_stripes_action)
-    assert all_stripes_idx < toolbar_actions.index(window._zoom_fit_action)
-    assert all_stripes_idx < toolbar_actions.index(window._zoom_y_action)
-
-
 def test_toolbar_separator_after_zoom_y_action(window: MainWindow) -> None:
     """#114: a new separator after "Zoom Y to View" visually brackets the
     two actions "All Stripes" affects, rather than leaving that ambiguous."""
@@ -887,62 +876,6 @@ def test_new_stripe_action_in_edit_menu_not_file_menu(window: MainWindow) -> Non
     """#115: "New Stripe" moved from the File menu to the Edit menu."""
     assert window._new_stripe_action in window._edit_menu.actions()
     assert window._new_stripe_action not in window._file_menu.actions()
-
-
-# ---------------------------------------------------------------------------
-# Zoom-scope toggle
-# ---------------------------------------------------------------------------
-
-@pytest.mark.requirement("REQ-PLOT-057")
-def test_toolbar_has_zoom_all_stripes_action(window: MainWindow) -> None:
-    toolbars = window.findChildren(type(window.addToolBar("_t")))
-    toolbar_actions = [a for tb in toolbars for a in tb.actions()]
-    assert window._zoom_all_stripes_action in toolbar_actions
-
-
-@pytest.mark.requirement("REQ-PLOT-057")
-def test_zoom_all_stripes_action_checkable_and_checked_by_default(
-    window: MainWindow,
-) -> None:
-    assert window._zoom_all_stripes_action.isCheckable()
-    assert window._zoom_all_stripes_action.isChecked()
-
-
-@pytest.mark.requirement("REQ-PLOT-057")
-def test_zoom_scope_toggled_writes_active_stripe_to_settings(
-    window: MainWindow,
-) -> None:
-    from mdf_viewer.settings import Settings
-    settings = MagicMock(spec=Settings)
-    window.set_settings(settings)
-    window._zoom_all_stripes_action.setChecked(False)
-    assert settings.zoom_scope == "active_stripe"
-
-
-@pytest.mark.requirement("REQ-PLOT-057")
-def test_zoom_scope_toggled_writes_all_stripes_to_settings(
-    window: MainWindow,
-) -> None:
-    from mdf_viewer.settings import Settings
-    settings = MagicMock(spec=Settings)
-    window.set_settings(settings)
-    window._zoom_all_stripes_action.setChecked(False)
-    window._zoom_all_stripes_action.setChecked(True)
-    assert settings.zoom_scope == "all_stripes"
-
-
-def test_zoom_scope_toggled_without_settings_does_not_crash(
-    window: MainWindow,
-) -> None:
-    window._zoom_all_stripes_action.setChecked(False)  # must not raise
-
-
-@pytest.mark.requirement("REQ-PLOT-057")
-def test_set_zoom_all_stripes_updates_checked_state(window: MainWindow) -> None:
-    window.set_zoom_all_stripes(False)
-    assert not window._zoom_all_stripes_action.isChecked()
-    window.set_zoom_all_stripes(True)
-    assert window._zoom_all_stripes_action.isChecked()
 
 
 # ---------------------------------------------------------------------------

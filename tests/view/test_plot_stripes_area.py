@@ -678,43 +678,8 @@ def _make_flat(name: str, y: float) -> ActiveSignal:
     )
 
 
-@pytest.mark.requirement("REQ-PLOT-057")
-def test_zoom_to_fit_x_always_spans_all_stripes_regardless_of_scope(
-    area: PlotStripesArea,
-) -> None:
-    s2 = area.create_stripe()
-    area.add_signal(_make_flat("a", 0.0))
-    long = ActiveSignal(
-        data=SignalData(timestamps=np.linspace(0.0, 100.0, 10), samples=np.zeros(10)),
-        metadata=SignalMetadata(name="long", unit="V", group_index=0, channel_index=1),
-        color=QColor(4, 5, 6),
-    )
-    area.add_signal(long, stripe=s2)
-    area.zoom_to_fit(all_stripes=False)  # active stripe is stripe 0
-    x_min, x_max = area.plot_item.vb.viewRange()[0]
-    assert x_max > 99.0  # X still spans "long" in the other, inactive stripe
-
-
-@pytest.mark.requirement("REQ-PLOT-057")
-def test_zoom_to_fit_active_stripe_only_leaves_other_stripes_y_untouched(
-    area: PlotStripesArea,
-) -> None:
-    s2 = area.create_stripe()
-    a = _make_flat("a", 0.0)
-    b = _make_flat("b", 500.0)
-    area.add_signal(a)          # active stripe (stripe 0)
-    area.add_signal(b, stripe=s2)
-    s2._data[b].view_box.setYRange(-1.0, 1.0, padding=0)  # known, deliberately-wrong baseline
-    before = s2._data[b].view_box.viewRange()[1]
-
-    area.zoom_to_fit(all_stripes=False)
-
-    after = s2._data[b].view_box.viewRange()[1]
-    assert after == pytest.approx(before)
-
-
-@pytest.mark.requirement("REQ-PLOT-057")
-def test_zoom_to_fit_all_stripes_autoranges_every_stripe(area: PlotStripesArea) -> None:
+@pytest.mark.requirement("REQ-PLOT-053")
+def test_zoom_to_fit_autoranges_every_stripe_y(area: PlotStripesArea) -> None:
     s2 = area.create_stripe()
     a = _make_flat("a", 0.0)
     b = _make_flat("b", 500.0)
@@ -722,7 +687,7 @@ def test_zoom_to_fit_all_stripes_autoranges_every_stripe(area: PlotStripesArea) 
     area.add_signal(b, stripe=s2)
     s2._data[b].view_box.setYRange(-1.0, 1.0, padding=0)
 
-    area.zoom_to_fit(all_stripes=True)
+    area.zoom_to_fit()
 
     y_min, y_max = s2._data[b].view_box.viewRange()[1]
     assert y_min < 500.0 < y_max
@@ -783,7 +748,7 @@ def test_zoom_to_fit_excludes_hidden_signal_range(area: PlotStripesArea) -> None
     assert x_max < 2.0
 
 
-@pytest.mark.requirement("REQ-PLOT-057")
+@pytest.mark.requirement("REQ-PLOT-054")
 def test_zoom_y_to_view_active_stripe_only_leaves_others_untouched(
     area: PlotStripesArea,
 ) -> None:
@@ -795,25 +760,10 @@ def test_zoom_y_to_view_active_stripe_only_leaves_others_untouched(
     s2._data[b].view_box.setYRange(-1.0, 1.0, padding=0)
     before = s2._data[b].view_box.viewRange()[1]
 
-    area.zoom_y_to_view(all_stripes=False)
+    area.zoom_y_to_view()
 
     after = s2._data[b].view_box.viewRange()[1]
     assert after == pytest.approx(before)
-
-
-@pytest.mark.requirement("REQ-PLOT-057")
-def test_zoom_y_to_view_all_stripes_affects_every_stripe(area: PlotStripesArea) -> None:
-    s2 = area.create_stripe()
-    a = _make_flat("a", 0.0)
-    b = _make_flat("b", 500.0)
-    area.add_signal(a)
-    area.add_signal(b, stripe=s2)
-    s2._data[b].view_box.setYRange(-1.0, 1.0, padding=0)
-
-    area.zoom_y_to_view(all_stripes=True)
-
-    y_min, y_max = s2._data[b].view_box.viewRange()[1]
-    assert y_min < 500.0 < y_max
 
 
 def test_get_zoom_state_and_set_zoom_state_roundtrip(area: PlotStripesArea) -> None:

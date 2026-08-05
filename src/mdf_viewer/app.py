@@ -264,7 +264,6 @@ def run(argv: list[str]) -> int:
     # set_controller() only store references, they don't sync it in (#89).
     controller.refresh_display_names()
     window.active_signals_table.set_shorten_names_enabled(settings.display_name_rule_enabled)
-    window.set_zoom_all_stripes(settings.zoom_scope == "all_stripes")
     window.apply_keymap(settings.keymap, settings.keymap_preset_label)
 
     window.show()

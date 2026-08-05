@@ -483,13 +483,13 @@ class PlotStripesArea(QWidget):
         own = [s for s in signals if self._signal_stripe.get(s) is active_stripe]
         return active_stripe.swimlanes(own)
 
-    def zoom_to_fit(self, all_stripes: bool = True) -> None:
-        """Reset X to the full data range across every stripe (always global).
+    def zoom_to_fit(self) -> None:
+        """Reset X to the full data range and Y-autorange every stripe (REQ-PLOT-053).
 
-        Y-autorange is scoped by *all_stripes* — every stripe, or only the
-        active one — per the "All Stripes / Active Stripe" toggle
-        (REQ-PLOT-057); Swimlanes and box-zoom are unaffected by it. A
-        hidden signal's data range is excluded (#133, REQ-PLOT-337).
+        Both axes are always global — X is inherently shared across stripes,
+        and Y-autorange always covers every stripe, not just the active one.
+        Swimlanes and box-zoom are unaffected. A hidden signal's data range
+        is excluded (#133, REQ-PLOT-337).
         """
         signals = [a for a in self._signal_stripe if a.visible]
         if not signals:
@@ -497,16 +497,15 @@ class PlotStripesArea(QWidget):
         t_min = min(float(a.display_timestamps[0]) for a in signals if len(a.data.timestamps))
         t_max = max(float(a.display_timestamps[-1]) for a in signals if len(a.data.timestamps))
         self.zoom_to_x_range(t_min, t_max)
-        for stripe in (self._stripes if all_stripes else [self._active_stripe]):
+        for stripe in self._stripes:
             stripe.autorange_y()
 
-    def zoom_y_to_view(self, all_stripes: bool = True) -> bool:
-        """Rescale Y to the currently visible X range, scoped by *all_stripes*
-        the same way as zoom_to_fit() (REQ-PLOT-057)."""
+    def zoom_y_to_view(self) -> bool:
+        """Rescale Y to the currently visible X range, always scoped to only
+        the active stripe (REQ-PLOT-054)."""
         if not self._signal_stripe:
             return False
-        for stripe in (self._stripes if all_stripes else [self._active_stripe]):
-            stripe.zoom_y_to_view()
+        self._active_stripe.zoom_y_to_view()
         return True
 
     def zoom_to_x_range(self, x_min: float, x_max: float) -> None:

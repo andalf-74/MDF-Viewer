@@ -35,7 +35,6 @@ def test_167_actions_share_one_default_across_all_presets() -> None:
         "new_stripe": "Ctrl+Shift+N",
         "sync_measurements": "Ctrl+M",
         "preferences": "Ctrl+,",
-        "zoom_all_stripes": "A",
     }
     for action_id, expected in shared.items():
         for preset in (kp.DEFAULT_PRESET, kp.MDA_PRESET, kp.CANAPE_PRESET):

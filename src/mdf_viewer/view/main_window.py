@@ -1036,7 +1036,6 @@ class MainWindow(QMainWindow):
         return {
             "open_file": self._load_action,
             "search": self._search_action,
-            "zoom_all_stripes": self._zoom_all_stripes_action,
             "zoom_to_fit": self._zoom_fit_action,
             "zoom_y_to_view": self._zoom_y_action,
             "swimlanes": self._swimlanes_action,
@@ -1112,14 +1111,18 @@ class MainWindow(QMainWindow):
             _load_icon("zoom_to_fit"), "Zoom to Fit", self
         )
         self._zoom_fit_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["zoom_to_fit"]))
-        self._zoom_fit_action.setToolTip("Zoom to fit all active signals (Ctrl+0 / F)")
+        self._zoom_fit_action.setToolTip(
+            "Zoom to fit all active signals, every stripe (Ctrl+0 / F)"
+        )
         self._zoom_fit_action.triggered.connect(self._on_zoom_to_fit)
 
         self._zoom_y_action = QAction(
             _load_icon("zoom_y_to_fit"), "Zoom Y to View", self
         )
         self._zoom_y_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["zoom_y_to_view"]))
-        self._zoom_y_action.setToolTip("Zoom Y axes to current X span (Y)")
+        self._zoom_y_action.setToolTip(
+            "Zoom Y axes to current X span, selected stripe only (Y)"
+        )
         self._zoom_y_action.triggered.connect(self._on_zoom_y_to_view)
 
         self._swimlanes_action = QAction(
@@ -1128,18 +1131,6 @@ class MainWindow(QMainWindow):
         self._swimlanes_action.setShortcuts(_keybinding_to_list(DEFAULT_PRESET["swimlanes"]))
         self._swimlanes_action.setToolTip("Arrange signals in swimlanes (B)")
         self._swimlanes_action.triggered.connect(self._on_swimlanes)
-
-        self._zoom_all_stripes_action = QAction("All Stripes", self)
-        self._zoom_all_stripes_action.setCheckable(True)
-        self._zoom_all_stripes_action.setChecked(True)
-        self._zoom_all_stripes_action.setShortcuts(
-            _keybinding_to_list(DEFAULT_PRESET["zoom_all_stripes"])
-        )
-        self._zoom_all_stripes_action.setToolTip(
-            "Whether Zoom to Fit / Zoom Y to View apply to every stripe "
-            "or only the active one"
-        )
-        self._zoom_all_stripes_action.toggled.connect(self._on_zoom_scope_toggled)
 
         self._zoom_cursors_action = QAction(
             _load_icon("zoom_to_cursors"), "Zoom to Cursors", self
@@ -1275,7 +1266,6 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         toolbar.addAction(self._load_action)
         toolbar.addSeparator()
-        toolbar.addAction(self._zoom_all_stripes_action)
         toolbar.addAction(self._zoom_fit_action)
         toolbar.addAction(self._zoom_y_action)
         toolbar.addSeparator()
@@ -2514,15 +2504,6 @@ class MainWindow(QMainWindow):
         self._controller.refresh_display_names()
         for table in self._all_active_signals_tables():
             table.set_shorten_names_enabled(enabled)
-
-    def _on_zoom_scope_toggled(self, checked: bool) -> None:
-        if self._settings is None:
-            return
-        self._settings.zoom_scope = "all_stripes" if checked else "active_stripe"
-
-    def set_zoom_all_stripes(self, enabled: bool) -> None:
-        """Set the toolbar toggle's initial state from a persisted setting."""
-        self._zoom_all_stripes_action.setChecked(enabled)
 
     def _on_merge_y_axis_requested(self, signals: list) -> None:
         if self._controller is None:

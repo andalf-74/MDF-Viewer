@@ -1,4 +1,4 @@
-"""keymap_presets.py — the 27 rebindable actions and the three built-in
+"""keymap_presets.py — the 26 rebindable actions and the three built-in
 keyboard-shortcut presets (Default, MDA, CANape) for #111/#167.
 
 Pure data: `DEFAULT_PRESET`/`MDA_PRESET`/`CANAPE_PRESET` are transcribed
@@ -35,7 +35,6 @@ Keybinding = tuple[QKeySequence, "QKeySequence | None"]
 ACTION_LABELS: dict[str, str] = {
     "open_file": "Open…",
     "search": "Search…",
-    "zoom_all_stripes": "All Stripes",
     "zoom_to_fit": "Zoom to Fit",
     "zoom_y_to_view": "Zoom Y to View",
     "swimlanes": "Swimlanes",
@@ -80,7 +79,6 @@ def _preset(pairs: dict[str, tuple[str, "str | None"]]) -> dict[str, Keybinding]
 DEFAULT_PRESET: dict[str, Keybinding] = _preset({
     "open_file": ("Ctrl+O", None),
     "search": ("Ctrl+F", None),
-    "zoom_all_stripes": ("A", None),
     "zoom_to_fit": ("Ctrl+0", "F"),
     "zoom_y_to_view": ("Y", None),
     "swimlanes": ("B", None),

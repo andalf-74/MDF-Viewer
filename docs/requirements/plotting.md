@@ -118,29 +118,29 @@ zooms the shared X-axis to the rectangle's X extent across every stripe,
 and applies the rectangle's Y extent only to the signals in the stripe
 the rectangle was drawn in [REQ-PLOT-052]. "Zoom to Fit" rescales the
 shared X-axis to the full time span of all active signals across every
-stripe (with a small padding margin); its Y-axis rescaling follows the
-All Stripes/Active Stripe scope described in REQ-PLOT-057, and it is a
-no-op with no active signals [REQ-PLOT-053]. "Zoom Y to View" rescales Y
-to fit only the data currently visible within the current X range, rather
-than each signal's full data range, following the same All
-Stripes/Active Stripe scope as REQ-PLOT-057; a signal with no data points
-inside the current X range is left unchanged [REQ-PLOT-054]. "Swimlanes"
-arranges every signal in the active stripe (a Merged group counting as
-one) into an equal-height horizontal band spanning that stripe's full Y
-extent, sized to that signal's visible data range [REQ-PLOT-055]. A
-signal whose visible Y data has no range (a flat line) is given a small
-fixed span rather than a degenerate zero-height view in any of the above
-zoom actions [REQ-PLOT-056]. A single "All Stripes / Active Stripe only"
-toggle governs whether "Zoom to Fit" (REQ-PLOT-053) and "Zoom Y to View"
-(REQ-PLOT-054) rescale Y for every stripe or only the currently active
-stripe; it does not affect Swimlanes, which always scopes to the active
-stripe, or box zoom, which always scopes to the stripe the rectangle was
-drawn in [REQ-PLOT-057]. "Y Autozoom" rescales Y to fit only the data
-currently visible within the current X range — the same computation as
-"Zoom Y to View" (REQ-PLOT-054) — but scoped to one specific signal (and,
-when that signal belongs to a Merged or Synced Y-axis group, every other
-member of that group) rather than every signal in the stripe; it is
-unaffected by the All Stripes/Active Stripe toggle (REQ-PLOT-057), since
+stripe (with a small padding margin) and always rescales Y for every
+stripe too, not just the active one; it is a no-op with no active
+signals [REQ-PLOT-053]. "Zoom Y to View" rescales Y to fit only the data
+currently visible within the current X range, rather than each signal's
+full data range, always scoped to only the currently active stripe; a
+signal with no data points inside the current X range is left unchanged
+[REQ-PLOT-054]. "Swimlanes" arranges every signal in the active stripe (a
+Merged group counting as one) into an equal-height horizontal band
+spanning that stripe's full Y extent, sized to that signal's visible data
+range [REQ-PLOT-055]. A signal whose visible Y data has no range (a flat
+line) is given a small fixed span rather than a degenerate zero-height
+view in any of the above zoom actions [REQ-PLOT-056]. "Zoom to Fit" and
+"Zoom Y to View" have different, fixed Y-rescaling scopes rather than a
+shared user-configurable toggle — Zoom to Fit always covers every stripe,
+Zoom Y to View always covers only the currently active stripe; neither
+affects Swimlanes, which always scopes to the active stripe, or box
+zoom, which always scopes to the stripe the rectangle was drawn in
+[REQ-PLOT-057]. "Y Autozoom" rescales Y to fit only the data currently
+visible within the current X range — the same computation as "Zoom Y to
+View" (REQ-PLOT-054) — but scoped to one specific signal (and, when that
+signal belongs to a Merged or Synced Y-axis group, every other member of
+that group) rather than every signal in the stripe; it is unaffected by
+the fixed Zoom-to-Fit/Zoom-Y-to-View stripe scopes (REQ-PLOT-057), since
 its scope is always the target signal's own group, and it is a no-op for
 a signal that is currently hidden or has no data points inside the
 current X range [REQ-PLOT-058]. Y Autozoom is available, for each signal
@@ -484,8 +484,7 @@ different signal selections and stripe layouts side by side
 [REQ-PLOT-230]. Everything scoped to the plot area is independent per
 tab: signal selection and the active-signal set, stripe layout and
 sizes, the active stripe, cursor state and positions, the current
-zoom/pan view, the zoom undo/redo history (REQ-PLOT-060–066), and the
-All Stripes/Active Stripe zoom-scope toggle (REQ-PLOT-057)
+zoom/pan view, and the zoom undo/redo history (REQ-PLOT-060–066)
 [REQ-PLOT-231]. The Signal Browser, Measurement Info Box, and the
 Info/Properties drawer (REQ-PLOT-220) remain single shared instances
 outside the plot area, identical regardless of which tab is active
