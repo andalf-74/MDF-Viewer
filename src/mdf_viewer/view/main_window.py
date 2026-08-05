@@ -272,6 +272,10 @@ class MainWindow(QMainWindow):
         self._license_info: LicenseInfo | None = None
         self._license_manager: LicenseManager | None = None
         self._settings: Settings | None = None
+        # Preferences dialog tab-position memory (#169): session-only, not
+        # persisted to Settings — a fresh dialog is built every open, so
+        # this is what makes it reopen on the last-viewed tab.
+        self._preferences_last_tab_index: int = 0
         self._plugins_menu: QMenu | None = None
         self._plugin_dialogs: dict["DockWidgetRegistration", QDialog] = {}
         # Shared "Plugin Preferences…" dialog (#159): one QTabWidget with
@@ -2473,8 +2477,15 @@ class MainWindow(QMainWindow):
         preview = None
         if self._controller is not None and self._controller.selected_signal is not None:
             preview = self._controller.selected_signal.metadata.name
-        dlg = PreferencesDialog(self._settings, self, preview_name=preview)
-        if dlg.exec():
+        dlg = PreferencesDialog(
+            self._settings,
+            self,
+            preview_name=preview,
+            initial_tab_index=self._preferences_last_tab_index,
+        )
+        accepted = dlg.exec()
+        self._preferences_last_tab_index = dlg.current_tab_index
+        if accepted:
             from mdf_viewer.logging_config import configure_logging
             configure_logging(self._settings)
             if self._controller is not None:

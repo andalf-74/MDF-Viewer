@@ -77,6 +77,7 @@ class PreferencesDialog(QDialog):
         settings: Settings,
         parent: QWidget | None = None,
         preview_name: str | None = None,
+        initial_tab_index: int = 0,
     ) -> None:
         super().__init__(parent)
         self._settings = settings
@@ -84,6 +85,13 @@ class PreferencesDialog(QDialog):
         self.setWindowTitle("Preferences")
         self.setMinimumWidth(380)
         self._build_ui()
+        self._tabs.setCurrentIndex(initial_tab_index)
+
+    @property
+    def current_tab_index(self) -> int:
+        """The tab showing right now — read after `exec()` to remember it
+        for the next open (#169), regardless of OK vs Cancel."""
+        return self._tabs.currentIndex()
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -391,6 +399,7 @@ class PreferencesDialog(QDialog):
 
         self._build_shortcuts_tab(tabs)
 
+        self._tabs = tabs
         layout.addWidget(tabs)
 
         buttons = QDialogButtonBox(

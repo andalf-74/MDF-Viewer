@@ -5,6 +5,9 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- Preferences dialog remembers its last-viewed tab (#169): reopens on
+  whichever tab was showing when it was last closed, for the rest of the
+  current session (resets to the first tab after an app restart).
 - Signal Value Search (#110): Edit → Search… (Ctrl+F, rebindable) or the
   Active Signals Table's new "Search…" context-menu entry (which pre-fills
   the selected signal(s) with their current Cursor 1 value) open a

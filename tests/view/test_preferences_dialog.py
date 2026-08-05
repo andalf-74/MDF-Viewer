@@ -54,6 +54,28 @@ def test_swatches_show_saved_colors(qtbot: QtBot, settings: Settings) -> None:
     assert dlg._swatch_cr.rgb() == (10, 11, 12)
 
 
+# ---------------------------------------------------------------------------
+# Tab-position memory (#169)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PREFS-010")
+def test_defaults_to_first_tab(dlg: PreferencesDialog) -> None:
+    assert dlg.current_tab_index == 0
+
+
+@pytest.mark.requirement("REQ-PREFS-010")
+def test_opens_on_given_initial_tab_index(qtbot: QtBot, settings: Settings) -> None:
+    dlg = PreferencesDialog(settings, initial_tab_index=2)
+    qtbot.addWidget(dlg)
+    assert dlg._tabs.currentIndex() == 2
+
+
+@pytest.mark.requirement("REQ-PREFS-012")
+def test_current_tab_index_reflects_manual_switch(dlg: PreferencesDialog) -> None:
+    dlg._tabs.setCurrentIndex(3)
+    assert dlg.current_tab_index == 3
+
+
 def test_swatches_each_have_a_distinct_tooltip(dlg: PreferencesDialog) -> None:
     """#129: icon-only color chips, no other text cue at all."""
     tooltips = {

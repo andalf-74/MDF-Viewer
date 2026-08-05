@@ -5564,3 +5564,78 @@ def test_on_preferences_does_not_configure_logging_when_cancelled(
     ), patch("mdf_viewer.logging_config.configure_logging", side_effect=lambda s: calls.append(s)):
         window._on_preferences()
     assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# _on_preferences — tab-position memory (#169)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PREFS-011")
+def test_preferences_last_tab_index_starts_at_zero_each_session(window: MainWindow) -> None:
+    """Session-only memory: a freshly constructed MainWindow (i.e. a new
+    app launch) always starts remembering tab 0, never anything persisted
+    from a prior run."""
+    assert window._preferences_last_tab_index == 0
+
+
+@pytest.mark.requirement("REQ-PREFS-010")
+def test_on_preferences_defaults_to_first_tab(window: MainWindow, tmp_path) -> None:
+    from mdf_viewer.settings import Settings
+
+    settings = Settings(path=tmp_path / "settings.json")
+    window.set_settings(settings)
+    mock_dlg = MagicMock()
+    mock_dlg.exec.return_value = False
+    mock_dlg.current_tab_index = 0
+    with patch(
+        "mdf_viewer.view.preferences_dialog.PreferencesDialog", return_value=mock_dlg
+    ) as mock_cls:
+        window._on_preferences()
+    assert mock_cls.call_args.kwargs["initial_tab_index"] == 0
+
+
+@pytest.mark.requirement("REQ-PREFS-010")
+def test_on_preferences_passes_last_remembered_tab_index(window: MainWindow, tmp_path) -> None:
+    from mdf_viewer.settings import Settings
+
+    settings = Settings(path=tmp_path / "settings.json")
+    window.set_settings(settings)
+    window._preferences_last_tab_index = 3
+    mock_dlg = MagicMock()
+    mock_dlg.exec.return_value = False
+    mock_dlg.current_tab_index = 3
+    with patch(
+        "mdf_viewer.view.preferences_dialog.PreferencesDialog", return_value=mock_dlg
+    ) as mock_cls:
+        window._on_preferences()
+    assert mock_cls.call_args.kwargs["initial_tab_index"] == 3
+
+
+@pytest.mark.requirement("REQ-PREFS-012")
+def test_on_preferences_remembers_tab_index_when_cancelled(window: MainWindow, tmp_path) -> None:
+    from mdf_viewer.settings import Settings
+
+    settings = Settings(path=tmp_path / "settings.json")
+    window.set_settings(settings)
+    mock_dlg = MagicMock()
+    mock_dlg.exec.return_value = False
+    mock_dlg.current_tab_index = 2
+    with patch("mdf_viewer.view.preferences_dialog.PreferencesDialog", return_value=mock_dlg):
+        window._on_preferences()
+    assert window._preferences_last_tab_index == 2
+
+
+@pytest.mark.requirement("REQ-PREFS-012")
+def test_on_preferences_remembers_tab_index_when_accepted(window: MainWindow, tmp_path) -> None:
+    from mdf_viewer.settings import Settings
+
+    settings = Settings(path=tmp_path / "settings.json")
+    window.set_settings(settings)
+    mock_dlg = MagicMock()
+    mock_dlg.exec.return_value = True
+    mock_dlg.current_tab_index = 1
+    with patch(
+        "mdf_viewer.view.preferences_dialog.PreferencesDialog", return_value=mock_dlg
+    ), patch("mdf_viewer.logging_config.configure_logging"):
+        window._on_preferences()
+    assert window._preferences_last_tab_index == 1
