@@ -32,7 +32,6 @@ from PyQt6.QtCore import (
     QMimeData,
     QSortFilterProxyModel,
     Qt,
-    QTimer,
     pyqtSignal,
 )
 from PyQt6.QtGui import QDrag, QGuiApplication, QKeySequence, QStandardItem, QStandardItemModel
@@ -49,6 +48,7 @@ from PyQt6.QtWidgets import (
 from mdf_viewer.model.mdf_loader import ChannelGroupInfo
 from mdf_viewer.view import theme
 from mdf_viewer.view._mime import SIGNAL_MIME_TYPE, encode_signal_payload
+from mdf_viewer.view.widgets import apply_text_filter, wire_debounced_filter
 
 # Stores (measurement_index, group_index, channel_index) on every row.
 _LOCATION_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -194,11 +194,9 @@ class SignalBrowser(QWidget):
         self._proxy.setSortRole(_SORT_ROLE)
         self._tree.setModel(self._proxy)
 
-        self._filter_timer = QTimer(self)
-        self._filter_timer.setSingleShot(True)
-        self._filter_timer.setInterval(_FILTER_DELAY_MS)
-        self._filter_timer.timeout.connect(self._apply_filter)
-        self._filter_edit.textChanged.connect(lambda: self._filter_timer.start())
+        self._filter_timer = wire_debounced_filter(
+            self._filter_edit, self._apply_filter, delay_ms=_FILTER_DELAY_MS, parent=self,
+        )
         self._tree.doubleClicked.connect(self._on_double_click)
         self._tree.selectionModel().selectionChanged.connect(self._on_selection_changed)
         self._add_btn.clicked.connect(self._on_add_clicked)
@@ -295,10 +293,7 @@ class SignalBrowser(QWidget):
 
     def _apply_filter(self) -> None:
         text = self._filter_edit.text()
-        if '*' in text or '?' in text:
-            self._proxy.setFilterWildcard(text)
-        else:
-            self._proxy.setFilterFixedString(text)
+        apply_text_filter(self._proxy, text)
         if self._view_mode == "tree":
             # Recursive filtering (set on the proxy) only controls which
             # rows are *accepted* — it doesn't expand collapsed ancestors,

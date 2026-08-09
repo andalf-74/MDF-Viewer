@@ -2808,3 +2808,224 @@ def test_zoom_to_fit_synced_group_uses_combined_data_extent(plot: PlotStripe) ->
     assert y_a == pytest.approx(y_b)
     assert y_a[0] < 10.0
     assert y_a[1] > 100.0
+
+
+# ---------------------------------------------------------------------------
+# monotonic_x=False (#86 — X-Axis Signal tabs)
+# ---------------------------------------------------------------------------
+
+def _make_active_values(name: str, values: list[float]) -> ActiveSignal:
+    t = np.arange(len(values), dtype=float)
+    data = SignalData(timestamps=t, samples=np.array(values))
+    meta = SignalMetadata(name=name, group_index=0, channel_index=0)
+    return ActiveSignal(data=data, metadata=meta, color=QColor(200, 100, 50))
+
+
+@pytest.fixture()
+def non_monotonic_plot(qtbot: QtBot) -> PlotStripe:
+    w = PlotStripe(monotonic_x=False)
+    qtbot.addWidget(w)
+    return w
+
+
+def test_monotonic_x_default_true_unaffected(plot: PlotStripe) -> None:
+    """Default construction must behave exactly as before this option existed."""
+    active = _make_active()
+    plot.add_signal(active)
+    assert active.curve.opts.get("clipToView") is True
+    assert active.curve.opts.get("autoDownsample") is True
+
+
+def test_monotonic_x_false_disables_clip_and_downsample(non_monotonic_plot: PlotStripe) -> None:
+    active = _make_active_values("a", [0.0, 5.0, 5.0, 2.0])
+    non_monotonic_plot.add_signal(active)
+    assert active.curve.opts.get("clipToView") is False
+    assert active.curve.opts.get("autoDownsample") is False
+
+
+@pytest.mark.requirement("REQ-XAXIS-021")
+def test_zoom_to_fit_uses_real_min_max_when_non_monotonic(non_monotonic_plot: PlotStripe) -> None:
+    # zoom_to_fit() reads display_timestamps as the X data (M3 substitutes
+    # resampled axis-signal values there) — so the non-monotonic array under
+    # test here must be the *timestamps*, not the samples, to exercise the
+    # min()/max() branch rather than the [0]/[-1] endpoint branch.
+    data = SignalData(timestamps=np.array([3.0, 10.0, -5.0, 4.0]), samples=np.zeros(4))
+    meta = SignalMetadata(name="a", group_index=0, channel_index=0)
+    active = ActiveSignal(data=data, metadata=meta, color=QColor(200, 100, 50))
+    non_monotonic_plot.add_signal(active)
+    non_monotonic_plot.zoom_to_fit()
+    x_range = non_monotonic_plot._pi.vb.viewRange()[0]
+    assert x_range[0] <= -5.0
+    assert x_range[1] >= 10.0
+
+
+def test_zoom_to_fit_endpoint_based_when_monotonic(plot: PlotStripe) -> None:
+    # Regression: a monotonic signal whose endpoints are NOT the extremes
+    # (rare for real time data, but proves the monotonic branch still uses
+    # endpoints rather than accidentally always computing min/max).
+    t = np.array([0.0, 1.0, 2.0])
+    data = SignalData(timestamps=t, samples=np.array([5.0, 100.0, 6.0]))
+    meta = SignalMetadata(name="a", group_index=0, channel_index=0)
+    active = ActiveSignal(data=data, metadata=meta, color=QColor(200, 100, 50))
+    plot.add_signal(active)
+    plot.zoom_to_fit()
+    x_range = plot._pi.vb.viewRange()[0]
+    assert x_range[0] <= 0.0
+    assert x_range[1] >= 2.0
+
+
+# ---------------------------------------------------------------------------
+# set_axis_signal / axis-signal resampling (#86 — X-Axis Signal tabs)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def axis_plot(qtbot: QtBot) -> PlotStripe:
+    w = PlotStripe(monotonic_x=False)
+    qtbot.addWidget(w)
+    return w
+
+
+def _axis_and_other() -> tuple[ActiveSignal, ActiveSignal]:
+    axis = ActiveSignal(
+        data=SignalData(timestamps=np.array([0.0, 1.0, 2.0]), samples=np.array([10.0, 20.0, 30.0])),
+        metadata=SignalMetadata(name="axis", group_index=0, channel_index=0),
+        color=QColor(1, 2, 3),
+    )
+    other = ActiveSignal(
+        data=SignalData(timestamps=np.array([0.0, 1.0, 2.0]), samples=np.array([100.0, 200.0, 300.0])),
+        metadata=SignalMetadata(name="other", group_index=0, channel_index=1),
+        color=QColor(4, 5, 6),
+    )
+    return axis, other
+
+
+@pytest.mark.requirement("REQ-XAXIS-023")
+def test_add_signal_noop_for_axis_signal_itself(axis_plot: PlotStripe) -> None:
+    axis, _ = _axis_and_other()
+    axis_plot.set_axis_signal(axis)
+    axis_plot.add_signal(axis)
+    assert axis not in axis_plot._data
+
+
+@pytest.mark.requirement("REQ-XAXIS-020")
+def test_add_signal_resamples_against_axis_signal(axis_plot: PlotStripe) -> None:
+    axis, other = _axis_and_other()
+    axis_plot.set_axis_signal(axis)
+    axis_plot.add_signal(other)
+    x, y = other.curve.getData()
+    np.testing.assert_array_equal(x, [10.0, 20.0, 30.0])
+    np.testing.assert_array_equal(y, [100.0, 200.0, 300.0])
+
+
+def test_set_axis_signal_recomputes_already_added_curves(axis_plot: PlotStripe) -> None:
+    axis, other = _axis_and_other()
+    axis_plot.add_signal(other)
+    np.testing.assert_array_equal(other.curve.xData, np.array([0.0, 1.0, 2.0]))  # plain time, no axis yet
+
+    axis_plot.set_axis_signal(axis)
+    x, y = other.curve.getData()
+    np.testing.assert_array_equal(x, [10.0, 20.0, 30.0])
+    np.testing.assert_array_equal(y, [100.0, 200.0, 300.0])
+
+    axis_plot.set_axis_signal(None)
+    np.testing.assert_array_equal(other.curve.xData, np.array([0.0, 1.0, 2.0]))  # restored
+
+
+@pytest.mark.requirement("REQ-XAXIS-022")
+def test_autorange_y_uses_resampled_subset_not_raw_samples(axis_plot: PlotStripe) -> None:
+    # The axis signal's own recorded instants only reach t=3 — other's real
+    # data extends further (a huge value at t=4) but is never actually
+    # queried/plotted, since resample_to_axis only samples at the axis
+    # signal's own instants. Reading raw data.samples (the pre-fix bug)
+    # would over-range toward that unreachable value; reading the resampled
+    # cache must not.
+    axis = ActiveSignal(
+        data=SignalData(timestamps=np.array([0.0, 1.0, 2.0, 3.0]), samples=np.array([0.0, 1.0, 2.0, 3.0])),
+        metadata=SignalMetadata(name="axis", group_index=0, channel_index=0),
+        color=QColor(1, 2, 3),
+    )
+    other = ActiveSignal(
+        data=SignalData(
+            timestamps=np.array([0.0, 1.0, 2.0, 3.0, 4.0]),
+            samples=np.array([5.0, 6.0, 7.0, 8.0, 99999.0]),
+        ),
+        metadata=SignalMetadata(name="other", group_index=0, channel_index=1),
+        color=QColor(4, 5, 6),
+    )
+    axis_plot.set_axis_signal(axis)
+    axis_plot.add_signal(other)
+    axis_plot.autorange_y()
+    y_min, y_max = other.view_box.viewRange()[1]
+    assert y_max < 1000.0  # nowhere near 99999 — never resampled, so never plotted
+
+
+@pytest.mark.requirement("REQ-XAXIS-021")
+def test_zoom_to_fit_uses_resampled_x_range(axis_plot: PlotStripe) -> None:
+    # A non-monotonic axis signal — its own values, not time, define X.
+    axis = ActiveSignal(
+        data=SignalData(timestamps=np.array([0.0, 1.0, 2.0]), samples=np.array([3.0, -5.0, 10.0])),
+        metadata=SignalMetadata(name="axis", group_index=0, channel_index=0),
+        color=QColor(1, 2, 3),
+    )
+    other = ActiveSignal(
+        data=SignalData(timestamps=np.array([0.0, 1.0, 2.0]), samples=np.array([1.0, 2.0, 3.0])),
+        metadata=SignalMetadata(name="other", group_index=0, channel_index=1),
+        color=QColor(4, 5, 6),
+    )
+    axis_plot.set_axis_signal(axis)
+    axis_plot.add_signal(other)
+    axis_plot.zoom_to_fit()
+    x_range = axis_plot._pi.vb.viewRange()[0]
+    assert x_range[0] <= -5.0
+    assert x_range[1] >= 10.0
+
+
+def test_refresh_signal_data_recomputes_resampled_data(axis_plot: PlotStripe) -> None:
+    axis, other = _axis_and_other()
+    axis_plot.set_axis_signal(axis)
+    axis_plot.add_signal(other)
+    other.data.samples[:] = [111.0, 222.0, 333.0]  # simulate an offset-driven change
+    axis_plot.refresh_signal_data(other)
+    x, y = other.curve.getData()
+    np.testing.assert_array_equal(x, [10.0, 20.0, 30.0])
+    np.testing.assert_array_equal(y, [111.0, 222.0, 333.0])
+
+
+@pytest.mark.requirement("REQ-XAXIS-060")
+def test_zoom_y_to_view_masks_by_resampled_axis_value_not_time(axis_plot: PlotStripe) -> None:
+    # other's real values run 100/200/300 at axis values 10/20/30. Setting the
+    # view's X range to axis-value space [15, 25] must pick out only the
+    # middle point (200) — masking by raw time (the pre-fix bug) would
+    # compare 15/25 against timestamps 0/1/2 and match nothing, silently
+    # no-opping instead.
+    axis, other = _axis_and_other()
+    axis_plot.set_axis_signal(axis)
+    axis_plot.add_signal(other)
+    axis_plot._pi.vb.setXRange(15.0, 25.0, padding=0)
+    assert axis_plot.zoom_y_to_view() is True
+    y_min, y_max = other.view_box.viewRange()[1]
+    assert y_min <= 200.0 <= y_max
+    assert y_max < 300.0  # 300 (axis value 30) is outside the view range
+
+
+@pytest.mark.requirement("REQ-XAXIS-060")
+def test_swimlanes_masks_by_resampled_axis_value_not_time(axis_plot: PlotStripe) -> None:
+    axis, other = _axis_and_other()
+    axis_plot.set_axis_signal(axis)
+    axis_plot.add_signal(other)
+    axis_plot._pi.vb.setXRange(15.0, 25.0, padding=0)
+    assert axis_plot.swimlanes([other]) is True
+    y_min, y_max = other.view_box.viewRange()[1]
+    assert y_min <= 200.0 <= y_max
+
+
+@pytest.mark.requirement("REQ-XAXIS-060")
+def test_autozoom_to_signal_masks_by_resampled_axis_value_not_time(axis_plot: PlotStripe) -> None:
+    axis, other = _axis_and_other()
+    axis_plot.set_axis_signal(axis)
+    axis_plot.add_signal(other)
+    axis_plot._pi.vb.setXRange(15.0, 25.0, padding=0)
+    assert axis_plot.autozoom_to_signal(other) is True
+    y_min, y_max = other.view_box.viewRange()[1]
+    assert y_min <= 200.0 <= y_max
+    assert y_max < 300.0

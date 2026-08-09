@@ -22,7 +22,7 @@ TWO cursors, only the cursor nearest the mouse pointer shows its labels.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 import pyqtgraph as pg
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -98,10 +98,41 @@ class CursorView(QObject):
     cursor_fetch_requested = pyqtSignal(int, float)  # (cursor_index, x_data) — chevron clicked
     delta_fetch_requested = pyqtSignal(float)        # (y_data) — delta-time chevron clicked
 
-    def __init__(self, plot_item: pg.PlotItem, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        plot_item: pg.PlotItem,
+        parent: QObject | None = None,
+        *,
+        to_render_x: "Callable[[float], float] | None" = None,
+        resolve_time_at_render_x: "Callable[[float, float | None], float] | None" = None,
+    ) -> None:
+        """
+        *to_render_x*/*resolve_time_at_render_x* are the X-Axis Signal tab
+        (#86) coordinate-space translation seam: a cursor's position is
+        always stored/communicated as a genuine time (REQ-XAXIS-040), but
+        this class renders it at ``to_render_x(time)`` — identity for an
+        ordinary time-based tab, or the axis signal's own interpolated
+        value at that time for an X-Axis Signal tab.
+        *resolve_time_at_render_x(render_x, current_time)* is the reverse
+        resolution used when the user interacts directly in render space
+        (drag, chevron click) — not a pure inverse of *to_render_x* (a
+        render-space value doesn't map back to a unique time when the axis
+        signal is non-monotonic, REQ-XAXIS-021), so it also takes the
+        cursor's current time to resolve the ambiguity (REQ-XAXIS-041).
+        Both default to identity/passthrough, exactly matching this
+        class's behavior before this seam existed.
+        """
         super().__init__(parent)
         self._pi = plot_item
         self._mode = CursorMode.HIDDEN
+        self._to_render_x: "Callable[[float], float]" = to_render_x or (lambda t: t)
+        self._resolve_time_at_render_x: "Callable[[float, float | None], float]" = (
+            resolve_time_at_render_x or (lambda render_x, current_time: render_x)
+        )
+        # Authoritative cursor times (REQ-XAXIS-040) — updated by _set_cursor_time()
+        # immediately before every setValue(), so sigPositionChanged's handler
+        # never has to invert a render-space position back into a time itself.
+        self._current_times: list[float] = [0.0, 0.0]
 
         # DragClaimant state (see PlotStripe.register_drag_claimant).
         self._drag_line: pg.InfiniteLine | None = None
@@ -114,7 +145,9 @@ class CursorView(QObject):
             line.setVisible(False)
             self._pi.addItem(line, ignoreBounds=True)
             line.sigPositionChanged.connect(
-                lambda ln, idx=i: self.cursor_moved.emit(idx, ln.value())
+                lambda ln, idx=i: self.cursor_moved.emit(
+                    idx, self._sync_cursor_time_from_line(idx)
+                )
             )
             line.sigClicked.connect(
                 lambda ln, ev, idx=i: self.cursor_clicked.emit(idx)
@@ -142,7 +175,7 @@ class CursorView(QObject):
             self._pi.vb.addItem(chev, ignoreBounds=True)
             chev.set_clicked_callback(
                 lambda scene_pos, idx=i: self.cursor_fetch_requested.emit(
-                    idx, self._pi.vb.mapSceneToView(scene_pos).x()
+                    idx, self._resolve_scene_x(scene_pos, self._current_times[idx])
                 )
             )
             self._c_chevrons.append(chev)
@@ -194,7 +227,13 @@ class CursorView(QObject):
     def on_move(self, line: pg.InfiniteLine, scene_pos) -> None:
         self._dragged = True
         v = self._pi.vb.mapSceneToView(scene_pos)
-        line.setValue(v.x() if line.angle == 90 else v.y())
+        if line.angle != 90:
+            # Delta-time line: a Y-space drag, no time/render-X translation involved.
+            line.setValue(v.y())
+            return
+        idx = self._lines.index(line)
+        new_time = self._resolve_time_at_render_x(v.x(), self._current_times[idx])
+        self._set_cursor_time(idx, new_time)
 
     def on_release(self, line: pg.InfiniteLine, scene_pos) -> None:
         if not self._dragged and line in self._lines:
@@ -206,14 +245,18 @@ class CursorView(QObject):
     # ------------------------------------------------------------------
 
     def apply_mode(self, mode: CursorMode, positions: list[float]) -> None:
-        """Show/hide lines and set their positions."""
+        """Show/hide lines and set their positions.
+
+        *positions* are always times (REQ-XAXIS-040); _set_cursor_time()
+        renders each at to_render_x(time).
+        """
         self._mode = mode
         self._lines[0].setVisible(mode in (CursorMode.ONE, CursorMode.TWO))
         self._lines[1].setVisible(mode == CursorMode.TWO)
         if mode != CursorMode.HIDDEN:
-            self._lines[0].setValue(positions[0])
+            self._set_cursor_time(0, positions[0])
         if mode == CursorMode.TWO:
-            self._lines[1].setValue(positions[1])
+            self._set_cursor_time(1, positions[1])
         if mode != CursorMode.TWO:
             self._delta_line.setVisible(False)
             self._delta_label.setVisible(False)
@@ -253,7 +296,9 @@ class CursorView(QObject):
                 y_min, y_max = 0.0, 1.0
             y_pos = y_max - 0.1 * (y_max - y_min)
 
-        mid_x = (x1 + x2) / 2.0
+        # x1/x2 are times (REQ-XAXIS-040); the midpoint is computed in time
+        # space, then translated once to a render position for the label.
+        mid_x = self._to_render_x((x1 + x2) / 2.0)
         self._delta_label_x = mid_x  # must be set before setValue fires sigPositionChanged
         self._delta_line.setValue(y_pos)  # fires _on_delta_line_pos_changed → updates label
         self._delta_line.setVisible(True)
@@ -282,6 +327,42 @@ class CursorView(QObject):
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
+
+    def _resolve_scene_x(self, scene_pos, current_time: float) -> float:
+        """Resolve a scene click position to a time (see __init__ docstring)."""
+        render_x = self._pi.vb.mapSceneToView(scene_pos).x()
+        return self._resolve_time_at_render_x(render_x, current_time)
+
+    def _set_cursor_time(self, idx: int, time_value: float) -> None:
+        """Record *time_value* as cursor *idx*'s authoritative time and render it."""
+        self._current_times[idx] = time_value
+        self._lines[idx].setValue(self._to_render_x(time_value))
+
+    def _sync_cursor_time_from_line(self, idx: int) -> float:
+        """Return cursor *idx*'s authoritative time, resyncing it first if the
+        line's actual rendered position no longer matches it.
+
+        Every drag routed through the DragClaimant protocol (on_press/
+        on_move/on_release, registered with PlotStripe) updates
+        ``_current_times`` via ``_set_cursor_time()`` before moving the line,
+        so the two normally never drift apart. But ``InfiniteLine`` is still
+        ``movable=True``, and pyqtgraph's own native ``mouseDragEvent`` moves
+        the line directly via ``setPos()`` — bypassing ``_set_cursor_time()``
+        entirely — whenever ``hit_test()``'s ``sceneBoundingRect()`` check
+        misses the press (observed right after a tab switch, before the
+        scene's geometry has settled; see #78's Z-order/hit-testing
+        postmortem for this same class of stale-geometry issue). Without
+        this resync, every subsequent ``cursor_moved`` emission for that
+        cursor would keep reporting the stale cached time even though the
+        line itself visibly moved, leaving the Active Signals Table frozen.
+        """
+        line = self._lines[idx]
+        rendered_x = line.value()
+        if rendered_x != self._to_render_x(self._current_times[idx]):
+            self._current_times[idx] = self._resolve_time_at_render_x(
+                rendered_x, self._current_times[idx]
+            )
+        return self._current_times[idx]
 
     def _on_delta_line_pos_changed(self, line: pg.InfiniteLine) -> None:
         y = line.value()
@@ -394,8 +475,21 @@ class CursorStripesView(QObject):
     cursor_fetch_requested = pyqtSignal(int, float)
     delta_fetch_requested = pyqtSignal(float)
 
-    def __init__(self, parent: QObject | None = None) -> None:
+    def __init__(
+        self,
+        parent: QObject | None = None,
+        *,
+        to_render_x: "Callable[[float], float] | None" = None,
+        resolve_time_at_render_x: "Callable[[float, float | None], float] | None" = None,
+    ) -> None:
+        """*to_render_x*/*resolve_time_at_render_x*: see CursorView.__init__ —
+        the same translation seam, propagated to every per-stripe CursorView
+        this class creates (one axis signal per tab, shared across stripes)."""
         super().__init__(parent)
+        self._to_render_x: "Callable[[float], float]" = to_render_x or (lambda t: t)
+        self._resolve_time_at_render_x: "Callable[[float, float | None], float]" = (
+            resolve_time_at_render_x or (lambda render_x, current_time: render_x)
+        )
         self._per_stripe: dict[object, CursorView] = {}
         self._mouse_proxies: dict[object, pg.SignalProxy] = {}
         self._active_stripe: object | None = None
@@ -420,7 +514,11 @@ class CursorStripesView(QObject):
     # ------------------------------------------------------------------
 
     def add_stripe(self, stripe) -> None:
-        view = CursorView(stripe.plot_item)
+        view = CursorView(
+            stripe.plot_item,
+            to_render_x=self._to_render_x,
+            resolve_time_at_render_x=self._resolve_time_at_render_x,
+        )
         stripe.register_drag_claimant(view)
         view.cursor_moved.connect(lambda idx, x, v=view: self._on_cursor_moved(v, idx, x))
         view.cursor_clicked.connect(self.cursor_clicked)
@@ -540,7 +638,7 @@ class CursorStripesView(QObject):
                 else:
                     text = f"{y:.4g}"
                 lbl.setText(text)
-                lbl.setPos(x, y)
+                lbl.setPos(self._to_render_x(x), y)
 
         # Remove labels for keys no longer needed
         stale = set(self._labels) - current_keys
@@ -614,8 +712,8 @@ class CursorStripesView(QObject):
         if not vb.sceneBoundingRect().contains(pos):
             return
         mouse_x = vb.mapSceneToView(pos).x()
-        d0 = abs(mouse_x - self._positions[0])
-        d1 = abs(mouse_x - self._positions[1])
+        d0 = abs(mouse_x - self._to_render_x(self._positions[0]))
+        d1 = abs(mouse_x - self._to_render_x(self._positions[1]))
         nearest = 0 if d0 <= d1 else 1
         if nearest != self._nearest_cursor:
             self._nearest_cursor = nearest

@@ -155,3 +155,83 @@ def test_run_wires_plugin_loader_hooks_to_the_real_loader(app_mocks) -> None:
 
     kwargs["active_plugin_names_for"]("some_folder")
     app_mocks["plugin_loader"].active_plugin_names_for.assert_called_once_with("some_folder")
+
+
+# ---------------------------------------------------------------------------
+# _xaxis_cursor_kwargs (#86 — X-Axis Signal tabs)
+# ---------------------------------------------------------------------------
+
+def _make_workspace(view_type: str = "plot", axis_signal=None):
+    from mdf_viewer.controller.app_controller import TabWorkspace
+
+    return TabWorkspace(plot=object(), table=object(), view_type=view_type, axis_signal=axis_signal)
+
+
+def _make_axis_signal():
+    import numpy as np
+    from PyQt6.QtGui import QColor
+
+    from mdf_viewer.model.signal_data import SignalData
+    from mdf_viewer.model.signal_metadata import SignalMetadata
+    from mdf_viewer.view_model.active_signal import ActiveSignal
+
+    data = SignalData(timestamps=np.array([0.0, 1.0, 2.0]), samples=np.array([10.0, 20.0, 30.0]))
+    meta = SignalMetadata(name="axis")
+    return ActiveSignal(data=data, metadata=meta, color=QColor(1, 2, 3))
+
+
+def test_xaxis_cursor_kwargs_empty_for_plot_workspace() -> None:
+    from mdf_viewer.app import _xaxis_cursor_kwargs
+
+    assert _xaxis_cursor_kwargs(_make_workspace(view_type="plot")) == {}
+
+
+def test_xaxis_cursor_kwargs_empty_when_axis_signal_unset() -> None:
+    from mdf_viewer.app import _xaxis_cursor_kwargs
+
+    assert _xaxis_cursor_kwargs(_make_workspace(view_type="xaxis", axis_signal=None)) == {}
+
+
+@pytest.mark.requirement("REQ-XAXIS-052")
+def test_xaxis_cursor_kwargs_pin_reference_signal_returns_axis_signal() -> None:
+    from mdf_viewer.app import _xaxis_cursor_kwargs
+
+    axis = _make_axis_signal()
+    kwargs = _xaxis_cursor_kwargs(_make_workspace(view_type="xaxis", axis_signal=axis))
+    assert kwargs["pin_reference_signal"]() is axis
+
+
+def test_xaxis_cursor_kwargs_to_render_x_interpolates_axis_value() -> None:
+    from mdf_viewer.app import _xaxis_cursor_kwargs
+
+    axis = _make_axis_signal()
+    kwargs = _xaxis_cursor_kwargs(_make_workspace(view_type="xaxis", axis_signal=axis))
+    assert kwargs["to_render_x"](0.5) == pytest.approx(15.0)  # halfway between 10 and 20
+
+
+def test_xaxis_cursor_kwargs_to_render_x_clamps_out_of_range_time() -> None:
+    from mdf_viewer.app import _xaxis_cursor_kwargs
+
+    axis = _make_axis_signal()
+    kwargs = _xaxis_cursor_kwargs(_make_workspace(view_type="xaxis", axis_signal=axis))
+    assert kwargs["to_render_x"](-5.0) == pytest.approx(10.0)   # clamped to first instant
+    assert kwargs["to_render_x"](100.0) == pytest.approx(30.0)  # clamped to last instant
+
+
+@pytest.mark.requirement("REQ-XAXIS-041")
+def test_xaxis_cursor_kwargs_resolve_time_at_render_x_finds_nearest_instant() -> None:
+    from mdf_viewer.app import _xaxis_cursor_kwargs
+
+    axis = _make_axis_signal()
+    kwargs = _xaxis_cursor_kwargs(_make_workspace(view_type="xaxis", axis_signal=axis))
+    assert kwargs["resolve_time_at_render_x"](21.0, current_time=0.0) == pytest.approx(1.0)
+
+
+@pytest.mark.requirement("REQ-XAXIS-050")
+def test_xaxis_cursor_kwargs_step_value_steps_by_axis_value() -> None:
+    from mdf_viewer.app import _xaxis_cursor_kwargs
+
+    axis = _make_axis_signal()
+    kwargs = _xaxis_cursor_kwargs(_make_workspace(view_type="xaxis", axis_signal=axis))
+    # From t=0 (value 10), stepping forward by >=15 lands on t=2 (value 30).
+    assert kwargs["step_value"](0.0, 1, 15.0) == pytest.approx(2.0)

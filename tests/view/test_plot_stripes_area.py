@@ -999,3 +999,90 @@ def test_single_stripe_has_no_padding(area: PlotStripesArea, qtbot: QtBot) -> No
     area.add_signal(_make_active())
     qtbot.wait(20)
     assert area._stripes[0]._axis_spacer is None
+
+
+# ---------------------------------------------------------------------------
+# monotonic_x=False (#86 — X-Axis Signal tabs)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def non_monotonic_area(qtbot: QtBot) -> PlotStripesArea:
+    w = PlotStripesArea(monotonic_x=False)
+    qtbot.addWidget(w)
+    return w
+
+
+def test_monotonic_x_propagated_to_stripes(non_monotonic_area: PlotStripesArea) -> None:
+    assert non_monotonic_area._stripes[0]._monotonic_x is False
+    s2 = non_monotonic_area.create_stripe()
+    assert s2._monotonic_x is False
+
+
+def test_monotonic_x_default_true_propagated(area: PlotStripesArea) -> None:
+    assert area._stripes[0]._monotonic_x is True
+    s2 = area.create_stripe()
+    assert s2._monotonic_x is True
+
+
+@pytest.mark.requirement("REQ-XAXIS-021")
+def test_zoom_to_fit_uses_real_min_max_when_non_monotonic(non_monotonic_area: PlotStripesArea) -> None:
+    # zoom_to_fit() reads display_timestamps as the X data (M3 substitutes
+    # resampled axis-signal values there) — so the non-monotonic array under
+    # test here must be the *timestamps*, not the samples.
+    active = ActiveSignal(
+        data=SignalData(
+            timestamps=np.array([3.0, 10.0, -5.0, 4.0]),
+            samples=np.zeros(4),
+        ),
+        metadata=SignalMetadata(name="a", group_index=0, channel_index=0),
+        color=QColor(1, 2, 3),
+    )
+    non_monotonic_area.add_signal(active)
+    non_monotonic_area.zoom_to_fit()
+    x_min, x_max = non_monotonic_area.plot_item.vb.viewRange()[0]
+    assert x_min <= -5.0
+    assert x_max >= 10.0
+
+
+# ---------------------------------------------------------------------------
+# set_axis_signal (#86 — X-Axis Signal tabs)
+# ---------------------------------------------------------------------------
+
+def _axis_and_other() -> tuple[ActiveSignal, ActiveSignal]:
+    axis = ActiveSignal(
+        data=SignalData(timestamps=np.array([0.0, 1.0, 2.0]), samples=np.array([3.0, -5.0, 10.0])),
+        metadata=SignalMetadata(name="axis", group_index=0, channel_index=0),
+        color=QColor(1, 2, 3),
+    )
+    other = ActiveSignal(
+        data=SignalData(timestamps=np.array([0.0, 1.0, 2.0]), samples=np.array([1.0, 2.0, 3.0])),
+        metadata=SignalMetadata(name="other", group_index=0, channel_index=1),
+        color=QColor(4, 5, 6),
+    )
+    return axis, other
+
+
+def test_set_axis_signal_propagates_to_current_stripes(non_monotonic_area: PlotStripesArea) -> None:
+    axis, _ = _axis_and_other()
+    non_monotonic_area.set_axis_signal(axis)
+    assert non_monotonic_area._stripes[0]._axis_signal is axis
+
+
+def test_set_axis_signal_propagates_to_future_stripes(non_monotonic_area: PlotStripesArea) -> None:
+    axis, _ = _axis_and_other()
+    non_monotonic_area.set_axis_signal(axis)
+    s2 = non_monotonic_area.create_stripe()
+    assert s2._axis_signal is axis
+
+
+@pytest.mark.requirement("REQ-XAXIS-021")
+def test_zoom_to_fit_uses_resampled_x_range_with_axis_signal(
+    non_monotonic_area: PlotStripesArea,
+) -> None:
+    axis, other = _axis_and_other()
+    non_monotonic_area.set_axis_signal(axis)
+    non_monotonic_area.add_signal(other)
+    non_monotonic_area.zoom_to_fit()
+    x_min, x_max = non_monotonic_area.plot_item.vb.viewRange()[0]
+    assert x_min <= -5.0
+    assert x_max >= 10.0

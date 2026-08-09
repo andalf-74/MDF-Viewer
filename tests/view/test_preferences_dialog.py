@@ -457,3 +457,9 @@ def test_open_log_folder_button_calls_open_log_folder(
     )
     dlg._open_log_folder_btn.click()
     assert calls == [settings]
+
+
+def test_step_unit_tooltip_explains_xaxis_meaning(dlg: PreferencesDialog) -> None:
+    tooltip = dlg._step_unit.toolTip()
+    assert tooltip != ""
+    assert "X-Axis" in tooltip

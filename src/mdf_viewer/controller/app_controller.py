@@ -137,6 +137,16 @@ class TabWorkspace:
     zoom_ctrl: object = None    # set by set_zoom_controller()
     cursor_stripes_view: object = None  # set directly by app.py's _wire_tab
     y_grid_enabled: bool = False
+    # "plot" (ordinary time-based tab) or "xaxis" (#86) — an explicit tag,
+    # not inferred from whether axis_signal happens to be set, so the tab's
+    # type is unambiguous even before an axis signal exists. Read by
+    # app.py's _wire_tab() (whether to pin the cursor reference signal /
+    # translation seam) and MainWindow (which page bookkeeping applies).
+    view_type: str = "plot"
+    # Set only for a "xaxis" workspace (#86) — the signal every other
+    # active signal in this tab is resampled against. Never appears in
+    # `active` itself (REQ-XAXIS-023).
+    axis_signal: ActiveSignal | None = None
 
 
 class AppController:
@@ -332,6 +342,32 @@ class AppController:
         its Active Signals Table's own raw-name default.
         """
         workspace = TabWorkspace(plot=plot_area, table=active_signals_table)
+        self._workspaces.append(workspace)
+        self._active_tab_index = len(self._workspaces) - 1
+        self._refresh_measurement_axes()
+        self.refresh_display_names()
+        return workspace
+
+    def create_xaxis_tab(
+        self,
+        plot_area: PlotAreaProtocol,
+        active_signals_table: SignalTableProtocol,
+        axis_signal: ActiveSignal,
+    ) -> TabWorkspace:
+        """Register a new X-Axis Signal tab (#86) and make it the active tab.
+
+        Like create_tab(), but tags the workspace view_type="xaxis" and
+        records axis_signal — the signal every other active signal added to
+        this tab is resampled against (REQ-XAXIS-020). Pushes axis_signal to
+        the plot area and Active Signals Table before returning, so both are
+        already in effect for the very first add_signal() call afterward
+        and the pinned axis row (REQ-XAXIS-030) is shown immediately.
+        """
+        workspace = TabWorkspace(
+            plot=plot_area, table=active_signals_table, view_type="xaxis", axis_signal=axis_signal,
+        )
+        plot_area.set_axis_signal(axis_signal)
+        active_signals_table.set_axis_signal(axis_signal)
         self._workspaces.append(workspace)
         self._active_tab_index = len(self._workspaces) - 1
         self._refresh_measurement_axes()
@@ -1255,8 +1291,26 @@ class AppController:
         tab (#101) — the offset changed via dragging that measurement's own
         axis row (PlotStripesArea.measurement_offset_changed), so every
         curve using it must be redrawn at its new display_timestamps.
+
+        An X-Axis Signal tab (#86) whose *axis signal* belongs to
+        *measurement* is a special case (REQ-XAXIS-072): the axis signal's
+        own X positions are unaffected (its plotted X is data.samples,
+        which doesn't shift with a time offset), but every *other* active
+        signal's resampled Y value does, since the instant each one is
+        queried at moved with the offset — so every signal in that
+        workspace refreshes, not just ones directly matching *measurement*
+        (REQ-XAXIS-071 remains just the plain per-signal case below).
         """
         for workspace in self._workspaces:
+            axis_measurement_changed = (
+                workspace.view_type == "xaxis"
+                and workspace.axis_signal is not None
+                and workspace.axis_signal.measurement is measurement
+            )
+            if axis_measurement_changed:
+                for active in workspace.active:
+                    workspace.plot.refresh_signal_data(active)
+                continue
             for active in workspace.active:
                 if active.measurement is measurement:
                     workspace.plot.refresh_signal_data(active)
@@ -1732,6 +1786,25 @@ class AppController:
             self.set_selected_signal(None)
         self._refresh_table_group_state()
 
+    def promote_signal_to_xaxis_tab(self, active_signal: ActiveSignal) -> ActiveSignal:
+        """Build a copy of *active_signal* to become a new X-Axis Signal
+        tab's axis signal (#86, REQ-XAXIS-013/017) — a copy, not a move.
+
+        Corrected after M6 live-testing: the original design followed the
+        "Move to new Stripe" analogy (REQ-PLOT-191), but that only holds
+        within the same plot view, where having a signal twice would be
+        redundant. Promotion sends the signal into a completely different
+        plot context (a new tab), so the original stays exactly where it
+        was, still plotted and untouched, and the new tab gets an
+        independent copy — reuses _clone_active_signal(), the same
+        clone-based precedent copy_signals_to_new_tab()/
+        duplicate_tab_signals() already use, so the clone's `.curve`/
+        `.view_box` start `None` and it is never wired into two plots at
+        once (the #120/#148 class of Qt-teardown bug). The caller passes
+        the returned signal into create_xaxis_tab().
+        """
+        return self._clone_active_signal(active_signal)
+
     def remove_all(self) -> None:
         """Remove all active signals from the plot and the table."""
         current = self.current_workspace
@@ -1933,6 +2006,44 @@ class AppController:
             for meta in measurement.loader.find_similar_signal_by_name(name):
                 result.append((measurement, meta))
         return result
+
+    def candidate_axis_signals(self) -> list[tuple[LoadedMeasurement, "object"]]:
+        """Return every (measurement, SignalMetadata) candidate for an
+        X-Axis Signal tab's axis signal (#86, REQ-XAXIS-012), across every
+        loaded measurement, real or virtual (REQ-XAXIS-070).
+
+        No numeric/sample-count pre-filter is applied here (REQ-XAXIS-014's
+        literal text calls for one, but `channel_tree()` doesn't populate
+        `sample_count`/`is_integer` for *any* signal, real or virtual — only
+        `load_signal()` does, once actually read — so there is nothing
+        reliable to filter on without eagerly loading every candidate
+        channel across every measurement, which this app avoids elsewhere
+        too). A signal that turns out non-numeric or otherwise unsuitable
+        fails at `load_axis_signal()` instead, with a clear error — the
+        same graceful-degradation path REQ-XAXIS-016 already established
+        for virtual signals specifically, just the actual mechanism for
+        every candidate in practice, not only virtual ones.
+        """
+        result: list[tuple[LoadedMeasurement, object]] = []
+        for measurement in self._measurements:
+            for group in measurement.loader.channel_tree():
+                for meta in group.channels:
+                    result.append((measurement, meta))
+        return result
+
+    def load_axis_signal(self, measurement: LoadedMeasurement, meta: "object") -> ActiveSignal:
+        """Load *meta* from *measurement* as a not-yet-plotted axis signal
+        (#86) — used by the X-Axis Signal tab picker (REQ-XAXIS-012) and
+        promotion path. Raises MdfLoadError if the channel can't be read or
+        its samples aren't numeric, exactly like add_signal()'s own load
+        step — the caller shows this as a clear error (REQ-XAXIS-016).
+        """
+        from PyQt6.QtGui import QColor
+
+        data, real_meta = measurement.loader.load_signal(meta.group_index, meta.channel_index)
+        return ActiveSignal(
+            data=data, metadata=real_meta, color=QColor(150, 150, 150), measurement=measurement,
+        )
 
     def restore_signals(
         self,
@@ -2270,6 +2381,19 @@ class AppController:
             if selected_midx is not None else None
         )
 
+        # The axis signal (#86, REQ-XAXIS-080) — same virtual-measurement
+        # exclusion as every other saved signal reference above; REQ-XAXIS-070
+        # allowing a virtual signal as an in-session axis signal is
+        # unrelated to this pre-existing persistence rule.
+        axis_midx = (
+            self._measurement_index(workspace.axis_signal.measurement, real_measurements)
+            if workspace.axis_signal is not None else None
+        )
+        axis_signal_ref = (
+            SignalRef(name=workspace.axis_signal.metadata.name, measurement_index=axis_midx)
+            if axis_midx is not None else None
+        )
+
         kwargs = dict(
             name=name,
             stripes=stripe_configs,
@@ -2283,6 +2407,11 @@ class AppController:
             cursor_positions=cursor_positions,
             selected_signal=selected_ref,
             ast_column_widths=tuple(workspace.table.column_widths()),
+            # Previously always defaulted to "plot" here — capture_config()'s
+            # own tab_specs loop read a real view_type but never threaded it
+            # this far in (the dormant bug #86's architecture review found).
+            view_type=workspace.view_type,
+            axis_signal=axis_signal_ref,
         )
         if page_splitter_sizes is not None:
             kwargs["page_splitter_sizes"] = page_splitter_sizes
@@ -2511,7 +2640,15 @@ class AppController:
         if ws.zoom_ctrl is not None:
             ws.zoom_ctrl.before_discrete_action()
         ws.cursor_ctrl.jump_cursor1_to(match)
-        ws.plot.pan_to_center(match)
+        # pan_to_center() operates in render-space X, not time — identical
+        # to time for an ordinary Plot tab, but not for an X-Axis Signal
+        # tab (#86), where render-space X is the axis signal's own value.
+        render_x = match
+        if ws.view_type == "xaxis" and ws.axis_signal is not None:
+            from mdf_viewer.model.axis_cursor import time_to_axis_render_x
+
+            render_x = time_to_axis_render_x(ws.axis_signal, match)
+        ws.plot.pan_to_center(render_x)
         if ws.zoom_ctrl is not None:
             ws.zoom_ctrl.after_discrete_action()
         return match

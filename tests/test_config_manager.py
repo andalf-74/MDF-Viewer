@@ -127,6 +127,55 @@ def test_load_tab_with_no_view_type_key_defaults_to_plot(tmp_path: Path) -> None
     assert loaded.tabs[0].view_type == "plot"
 
 
+@pytest.mark.requirement("REQ-XAXIS-080")
+def test_round_trip_axis_signal(tmp_path: Path) -> None:
+    config = _make_config(
+        tabs=(_make_tab(view_type="xaxis", axis_signal=_ref("Distance", measurement_index=1)),)
+    )
+    path = tmp_path / "session.mvc"
+    ConfigManager.save(config, path)
+    loaded = ConfigManager.load(path)
+
+    assert loaded.tabs[0].view_type == "xaxis"
+    assert loaded.tabs[0].axis_signal == _ref("Distance", measurement_index=1)
+
+
+@pytest.mark.requirement("REQ-XAXIS-080")
+def test_round_trip_no_axis_signal(tmp_path: Path) -> None:
+    config = _make_config(tabs=(_make_tab(),))  # ordinary plot tab, axis_signal defaults None
+    path = tmp_path / "session.mvc"
+    ConfigManager.save(config, path)
+    loaded = ConfigManager.load(path)
+
+    assert loaded.tabs[0].axis_signal is None
+
+
+def test_load_tab_with_no_axis_signal_key_defaults_to_none(tmp_path: Path) -> None:
+    """A .mvc saved before #86 has no "axis_signal" key at all."""
+    path = tmp_path / "old.mvc"
+    path.write_text(json.dumps({
+        "format_version": CONFIG_FORMAT_VERSION,
+        "measurements": [{"path": "/data/test.mf4", "label": "M1", "offset_s": 0.0}],
+        "primary_measurement_index": 0,
+        "measurements_synchronized": False,
+        "active_tab_index": 0,
+        "tabs": [{
+            "name": "Tab 1",
+            "stripes": [{"name": "Stripe 1", "size": 1}],
+            "active_stripe_index": 0,
+            "signals": [],
+            "zoom": {"x_range": [0.0, 1.0], "y_ranges": []},
+            "axes": {"merged": [], "synced": []},
+            "cursors": {"mode": "HIDDEN", "positions": [0.0, 0.0]},
+            "selection": None,
+        }],
+    }), encoding="utf-8")
+
+    loaded = ConfigManager.load(path)
+
+    assert loaded.tabs[0].axis_signal is None
+
+
 @pytest.mark.requirement("REQ-FILE-060")
 def test_save_creates_file(tmp_path: Path) -> None:
     config = _make_config()

@@ -263,12 +263,38 @@ def _make_registration(type_id: str = "fixture", display_name: str = "Fixture Ta
 
 
 @pytest.mark.requirement("REQ-PLUGIN-330")
-def test_new_tab_requested_behaves_like_new_tab_with_no_registered_types(
+def test_new_tab_requested_offers_plot_choice_with_no_registered_types(
     wired: MainWindow, mock_controller: MagicMock
 ) -> None:
-    wired._on_new_tab_requested()
+    patch_add, patch_exec = _select_menu_action_by_text("Plot")
+    with patch_add, patch_exec:
+        wired._on_new_tab_requested()
     assert wired._real_tab_count() == 2
     assert wired._is_plot_page(wired._tab_widget.widget(1))
+
+
+@pytest.mark.requirement("REQ-XAXIS-018")
+def test_new_tab_requested_xaxis_choice_opens_picker_with_no_registered_types(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    from mdf_viewer.model.signal_metadata import SignalMetadata
+
+    measurement = MagicMock(label="M1")
+    meta = SignalMetadata(name="axis")
+    axis_signal = MagicMock()
+    mock_controller.candidate_axis_signals.return_value = [(measurement, meta)]
+    mock_controller.load_axis_signal.return_value = axis_signal
+
+    patch_add, patch_exec = _select_menu_action_by_text("X-Axis Signal…")
+    with patch_add, patch_exec, patch(
+        "mdf_viewer.view.xaxis_signal_picker_dialog.XAxisSignalPickerDialog"
+    ) as mock_dialog_cls:
+        mock_dialog_cls.return_value.exec.return_value = True
+        mock_dialog_cls.return_value.selected.return_value = (measurement, meta)
+        wired._on_new_tab_requested()
+
+    mock_controller.load_axis_signal.assert_called_once_with(measurement, meta)
+    assert wired._real_tab_count() == 2
 
 
 def test_new_tab_requested_offers_a_choice_once_a_type_is_registered(
@@ -366,6 +392,47 @@ def test_closing_non_plot_tab_removes_it_from_tab_type_by_page(wired: MainWindow
     page = wired._tab_widget.widget(1)
     wired._on_tab_close_requested(1)
     assert page not in wired._tab_type_by_page
+
+
+# ---------------------------------------------------------------------------
+# X-Axis Signal tab bookkeeping (#86)
+# ---------------------------------------------------------------------------
+
+def test_register_xaxis_page_marks_page(wired: MainWindow) -> None:
+    page = wired._tab_widget.widget(0)
+    wired._register_xaxis_page(page)
+    assert page in wired._xaxis_pages
+
+
+@pytest.mark.requirement("REQ-XAXIS-080")
+def test_capture_tab_specs_reports_xaxis_view_type(wired: MainWindow) -> None:
+    page = wired._tab_widget.widget(0)
+    wired._register_xaxis_page(page)
+    specs = wired._capture_tab_specs()
+    assert specs[0][1] == "xaxis"
+
+
+def test_capture_tab_specs_reports_plot_view_type_by_default(wired: MainWindow) -> None:
+    specs = wired._capture_tab_specs()
+    assert specs[0][1] == "plot"
+
+
+def test_xaxis_page_still_counts_as_a_plot_page(wired: MainWindow) -> None:
+    """An X-Axis Signal tab reuses the ordinary plot-page shape (#86) — it
+    must NOT be treated like a #148 non-plot page anywhere else."""
+    page = wired._tab_widget.widget(0)
+    wired._register_xaxis_page(page)
+    assert wired._is_plot_page(page)
+
+
+def test_closing_xaxis_tab_forgets_the_tag_when_parked(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.tab_has_signals.return_value = False
+    page = wired._tab_widget.widget(0)
+    wired._register_xaxis_page(page)
+    wired._on_tab_close_requested(0)  # only plot tab open -> parked, not deleted
+    assert page not in wired._xaxis_pages
 
 
 def test_closing_last_plot_tab_still_parks_with_a_non_plot_tab_open(
@@ -667,7 +734,9 @@ def test_on_new_stripe_noop_without_controller(window: MainWindow) -> None:
 
 def test_clicking_plus_tab_creates_new_tab_instead_of_selecting_it(wired: MainWindow) -> None:
     placeholder_index = wired._placeholder_index()
-    wired._on_tab_bar_clicked(placeholder_index)
+    patch_add, patch_exec = _select_menu_action_by_text("Plot")
+    with patch_add, patch_exec:
+        wired._on_tab_bar_clicked(placeholder_index)
     assert wired._real_tab_count() == 2
     assert wired._tab_widget.tabText(wired._tab_widget.currentIndex()) == "Tab 2"
 
@@ -1935,7 +2004,7 @@ def test_apply_config_success_calls_restore_pipeline(
     ) as mock_save_as:
         wired._on_apply_config()
     mock_reset.assert_called_once()
-    mock_skeleton.assert_called_once_with(list(config.tabs))
+    mock_skeleton.assert_called_once_with(list(config.tabs), [None])
     mock_controller.restore_config.assert_called_once()
     mock_save_as.assert_called_once()
 
@@ -4377,6 +4446,215 @@ def test_build_tab_skeletons_with_zero_plot_entries_keeps_survivor_as_implicit_e
     assert wired._real_tab_count() == 3  # implicit survivor + 2 restored
     assert wired._tab_widget.widget(0) is survivor_page
     assert [wired._tab_widget.tabText(i) for i in range(1, 3)] == ["Fixture A", "Fixture B"]
+
+
+# ---------------------------------------------------------------------------
+# WorkspaceSessionController — X-Axis Signal tabs (#86)
+# ---------------------------------------------------------------------------
+
+def _make_xaxis_tab_config(name: str, axis_signal_ref):
+    from mdf_viewer.model.viewer_config import StripeConfig, TabConfig
+    return TabConfig(
+        name=name, stripes=(StripeConfig(name="Stripe 1", size=1),), active_stripe_index=0,
+        signals=(), x_range=(0.0, 1.0), y_ranges=(), merged_groups=(), synced_groups=(),
+        cursor_mode="HIDDEN", cursor_positions=(0.0, 0.0), selected_signal=None,
+        view_type="xaxis", axis_signal=axis_signal_ref,
+    )
+
+
+def _make_resolvable_measurement():
+    import numpy as np
+    from mdf_viewer.model.signal_data import SignalData
+    from mdf_viewer.model.signal_metadata import SignalMetadata
+
+    measurement = MagicMock()
+    meta = SignalMetadata(name="axis", group_index=0, channel_index=0)
+    measurement.loader.find_signal_by_name.return_value = [meta]
+    measurement.loader.load_signal.return_value = (
+        SignalData(timestamps=np.array([0.0, 1.0]), samples=np.array([10.0, 20.0])),
+        meta,
+    )
+    return measurement
+
+
+@pytest.mark.requirement("REQ-XAXIS-080")
+def test_build_tab_skeletons_creates_xaxis_tab(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    from mdf_viewer.model.viewer_config import SignalRef
+
+    # Two plot-shaped pages exist once built: the implicit survivor (index
+    # 0) plus the new xaxis page (index 1) — _plot_index() (the wired
+    # fixture's tab_index_for_plot stand-in) counts both, since an xaxis
+    # page is structurally a plot page (#86).
+    survivor_sentinel, xaxis_sentinel = object(), object()
+    mock_controller.all_workspaces.return_value = [survivor_sentinel, xaxis_sentinel]
+    measurement = _make_resolvable_measurement()
+    tab_configs = [_make_xaxis_tab_config("Axis Tab", SignalRef(name="axis", measurement_index=0))]
+
+    resolved = wired._session.build_tab_skeletons(tab_configs, [measurement])
+
+    # Zero "plot" entries -> the implicit survivor stays, xaxis tab appended.
+    assert wired._real_tab_count() == 2
+    assert wired._tab_widget.tabText(1) == "Axis Tab"
+    assert resolved == [xaxis_sentinel]
+
+
+def test_build_tab_skeletons_xaxis_page_registered_as_xaxis(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    from mdf_viewer.model.viewer_config import SignalRef
+
+    mock_controller.all_workspaces.return_value = [object(), object()]
+    measurement = _make_resolvable_measurement()
+    tab_configs = [_make_xaxis_tab_config("Axis Tab", SignalRef(name="axis", measurement_index=0))]
+
+    wired._session.build_tab_skeletons(tab_configs, [measurement])
+
+    page = wired._tab_widget.widget(1)
+    assert page in wired._xaxis_pages
+    assert page.plot_area._monotonic_x is False
+
+
+@pytest.mark.requirement("REQ-XAXIS-080")
+def test_build_tab_skeletons_skips_xaxis_tab_with_unresolvable_axis_signal(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    from mdf_viewer.model.viewer_config import SignalRef
+
+    measurement = MagicMock()
+    measurement.loader.find_signal_by_name.return_value = []  # channel gone
+    tab_configs = [_make_xaxis_tab_config("Axis Tab", SignalRef(name="axis", measurement_index=0))]
+
+    resolved = wired._session.build_tab_skeletons(tab_configs, [measurement])
+
+    assert resolved == [None]
+    assert wired._real_tab_count() == 1  # only the implicit survivor — nothing built
+
+
+def test_build_tab_skeletons_skips_xaxis_tab_when_measurement_missing(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    from mdf_viewer.model.viewer_config import SignalRef
+
+    tab_configs = [_make_xaxis_tab_config("Axis Tab", SignalRef(name="axis", measurement_index=0))]
+
+    resolved = wired._session.build_tab_skeletons(tab_configs, [None])  # measurement failed to load
+
+    assert resolved == [None]
+    assert wired._real_tab_count() == 1
+
+
+@pytest.mark.requirement("REQ-XAXIS-080")
+def test_resolve_axis_signal_returns_none_for_missing_ref(wired: MainWindow) -> None:
+    assert wired._session._resolve_axis_signal(None, []) is None
+
+
+def test_resolve_axis_signal_out_of_range_index_returns_none(wired: MainWindow) -> None:
+    from mdf_viewer.model.viewer_config import SignalRef
+
+    ref = SignalRef(name="axis", measurement_index=5)
+    assert wired._session._resolve_axis_signal(ref, [MagicMock()]) is None
+
+
+# ---------------------------------------------------------------------------
+# "New X-Axis Signal Tab…" menu action / promotion (#86)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-XAXIS-012")
+def test_new_xaxis_tab_requested_creates_tab_on_accept(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    from mdf_viewer.model.signal_metadata import SignalMetadata
+
+    measurement = MagicMock(label="M1")
+    meta = SignalMetadata(name="axis")
+    axis_signal = MagicMock()
+    mock_controller.candidate_axis_signals.return_value = [(measurement, meta)]
+    mock_controller.load_axis_signal.return_value = axis_signal
+
+    with patch(
+        "mdf_viewer.view.xaxis_signal_picker_dialog.XAxisSignalPickerDialog"
+    ) as mock_dialog_cls:
+        mock_dialog_cls.return_value.exec.return_value = True
+        mock_dialog_cls.return_value.selected.return_value = (measurement, meta)
+        wired._on_new_xaxis_tab_requested()
+
+    mock_controller.load_axis_signal.assert_called_once_with(measurement, meta)
+    assert wired._real_tab_count() == 2  # original tab + new xaxis tab
+
+
+def test_new_xaxis_tab_requested_cancelled_creates_nothing(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    mock_controller.candidate_axis_signals.return_value = []
+
+    with patch(
+        "mdf_viewer.view.xaxis_signal_picker_dialog.XAxisSignalPickerDialog"
+    ) as mock_dialog_cls:
+        mock_dialog_cls.return_value.exec.return_value = False
+        wired._on_new_xaxis_tab_requested()
+
+    mock_controller.load_axis_signal.assert_not_called()
+    assert wired._real_tab_count() == 1
+
+
+@pytest.mark.requirement("REQ-XAXIS-016")
+def test_new_xaxis_tab_requested_shows_error_on_load_failure(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    from mdf_viewer.model.signal_metadata import SignalMetadata
+
+    measurement = MagicMock(label="M1")
+    meta = SignalMetadata(name="bad_signal")
+    mock_controller.candidate_axis_signals.return_value = [(measurement, meta)]
+    mock_controller.load_axis_signal.side_effect = MdfLoadError("not numeric")
+
+    with patch(
+        "mdf_viewer.view.xaxis_signal_picker_dialog.XAxisSignalPickerDialog"
+    ) as mock_dialog_cls, patch(
+        "mdf_viewer.view.main_window.QMessageBox.critical"
+    ) as mock_critical:
+        mock_dialog_cls.return_value.exec.return_value = True
+        mock_dialog_cls.return_value.selected.return_value = (measurement, meta)
+        wired._on_new_xaxis_tab_requested()
+
+    mock_critical.assert_called_once()
+    assert wired._real_tab_count() == 1  # no tab created
+
+
+@pytest.mark.requirement("REQ-XAXIS-013")
+def test_promote_to_xaxis_tab_calls_controller_then_creates_tab(
+    wired: MainWindow, mock_controller: MagicMock
+) -> None:
+    active = MagicMock()
+    axis_signal = MagicMock()
+    mock_controller.promote_signal_to_xaxis_tab.return_value = axis_signal
+
+    wired._on_promote_to_xaxis_tab(active)
+
+    mock_controller.promote_signal_to_xaxis_tab.assert_called_once_with(active)
+    assert wired._real_tab_count() == 2
+
+
+@pytest.mark.requirement("REQ-XAXIS-011")
+def test_xaxis_signal_offered_in_new_tab_chooser_with_no_plugins(wired: MainWindow) -> None:
+    from PyQt6.QtWidgets import QMenu
+
+    added: dict[str, object] = {}
+    orig_add_action = QMenu.addAction
+
+    def _tracking_add_action(self, text):
+        action = orig_add_action(self, text)
+        added[text] = action
+        return action
+
+    with patch.object(QMenu, "addAction", _tracking_add_action), patch.object(
+        QMenu, "exec", lambda self, *a, **k: None
+    ):
+        wired._on_new_tab_requested()
+
+    assert "X-Axis Signal…" in added
 
 
 @pytest.mark.requirement("REQ-FILE-061")

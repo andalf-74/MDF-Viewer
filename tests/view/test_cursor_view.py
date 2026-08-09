@@ -106,10 +106,53 @@ def test_apply_mode_sets_line_positions(cv: CursorView) -> None:
 def test_cursor_moved_emitted_on_line_move(
     cv: CursorView, qtbot: QtBot
 ) -> None:
+    # _set_cursor_time() is what on_move() calls during a real drag (#86 —
+    # cursor_moved must report the authoritative time, not the InfiniteLine's
+    # raw render-space value, so a bare setValue() no longer suffices here).
     with qtbot.waitSignal(cv.cursor_moved, timeout=500) as blocker:
-        cv._lines[0].setValue(0.42)
+        cv._set_cursor_time(0, 0.42)
     assert blocker.args[0] == 0
     assert blocker.args[1] == pytest.approx(0.42)
+
+
+def test_cursor_moved_reports_current_position_when_line_moved_natively(
+    cv: CursorView, qtbot: QtBot
+) -> None:
+    # A cursor line stays movable=True, so pyqtgraph's own native
+    # mouseDragEvent can still move it directly via setPos() whenever
+    # PlotStripe's DragClaimant hit-test misses the press (observed right
+    # after a tab switch) — bypassing _set_cursor_time() entirely. Without
+    # resyncing from the line's own rendered position, cursor_moved would
+    # keep reporting the stale _current_times cache (0.0 here) forever,
+    # freezing the Active Signals Table for that cursor.
+    with qtbot.waitSignal(cv.cursor_moved, timeout=500) as blocker:
+        cv._lines[0].setValue(0.77)  # bypasses on_move()/_set_cursor_time()
+    assert blocker.args[0] == 0
+    assert blocker.args[1] == pytest.approx(0.77)
+    assert cv._current_times[0] == pytest.approx(0.77)
+
+
+def test_cursor_moved_resolves_through_translation_seam_when_moved_natively(
+    pw: pg.PlotWidget, qtbot: QtBot
+) -> None:
+    # Same scenario, but for an X-Axis Signal tab (#86) where render-space
+    # positions aren't times — the resync must go through
+    # resolve_time_at_render_x(), not treat the raw render-space value as
+    # the time directly.
+    calls = []
+
+    def resolve(render_x: float, current_time: float | None) -> float:
+        calls.append((render_x, current_time))
+        return render_x * 10.0
+
+    cv = CursorView(pw.getPlotItem(), resolve_time_at_render_x=resolve)
+    cv._set_cursor_time(0, 1.0)
+    calls.clear()
+    with qtbot.waitSignal(cv.cursor_moved, timeout=500) as blocker:
+        cv._lines[0].setValue(0.5)
+    assert calls == [(0.5, 1.0)]
+    assert blocker.args[1] == pytest.approx(5.0)
+    assert cv._current_times[0] == pytest.approx(5.0)
 
 
 # ---------------------------------------------------------------------------
@@ -359,3 +402,70 @@ def test_set_cursor_names_updates_tooltip(
     cv.set_cursor_names("Cursor L", "Cursor R")
     cv.apply_mode(CursorMode.ONE, [-5.0, 7.5])
     assert cv._c_chevrons[0].toolTip() == "Fetch Cursor L"
+
+
+# ---------------------------------------------------------------------------
+# Render-space translation seam (#86 — X-Axis Signal tabs)
+# ---------------------------------------------------------------------------
+
+def _doubling_view(pw: pg.PlotWidget) -> CursorView:
+    """A CursorView whose render position is always 2x the stored time,
+    and whose reverse resolution halves it back — a synthetic stand-in for
+    a real axis-signal translation, distinct enough from identity that any
+    site still using a raw value directly (not routed through the seam)
+    would fail these tests.
+    """
+    return CursorView(
+        pw.getPlotItem(),
+        to_render_x=lambda t: t * 2.0,
+        resolve_time_at_render_x=lambda render_x, current_time: render_x / 2.0,
+    )
+
+
+def test_apply_mode_renders_at_translated_position(pw: pg.PlotWidget) -> None:
+    cv = _doubling_view(pw)
+    cv.apply_mode(CursorMode.ONE, [5.0])
+    assert cv._lines[0].value() == pytest.approx(10.0)
+
+
+def test_cursor_moved_reports_time_not_render_position(
+    pw: pg.PlotWidget, qtbot: QtBot
+) -> None:
+    cv = _doubling_view(pw)
+    with qtbot.waitSignal(cv.cursor_moved, timeout=500) as blocker:
+        cv._set_cursor_time(0, 5.0)
+    assert cv._lines[0].value() == pytest.approx(10.0)  # rendered, doubled
+    assert blocker.args[1] == pytest.approx(5.0)         # reported, as time
+
+
+def test_on_move_routes_through_resolve_time_at_render_x(
+    pw: pg.PlotWidget, qtbot: QtBot
+) -> None:
+    cv = _doubling_view(pw)
+    _set_view_range(pw, (0.0, 20.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.ONE, [5.0])
+    line = cv._lines[0]
+    cv.on_press(line, line.mapToScene(line.boundingRect().center()))
+    scene_pos = cv._pi.vb.mapViewToScene(pg.Point(16.0, 0.0))  # render x=16
+    with qtbot.waitSignal(cv.cursor_moved, timeout=500) as blocker:
+        cv.on_move(line, scene_pos)
+    assert line.value() == pytest.approx(16.0)   # render position unchanged
+    assert blocker.args[1] == pytest.approx(8.0)  # resolved time (16 / 2)
+
+
+def test_delta_label_positioned_at_translated_midpoint(pw: pg.PlotWidget) -> None:
+    cv = _doubling_view(pw)
+    _set_view_range(pw, (0.0, 20.0), (-1.0, 1.0))
+    cv.apply_mode(CursorMode.TWO, [2.0, 4.0])
+    cv.update_delta_time(2.0, 4.0, "Δt = 2 s", y_pos=0.0, show=True, color=(200, 200, 200))
+    # Midpoint in time is 3.0; rendered position must be translated (6.0),
+    # not the raw time midpoint.
+    assert cv._delta_label.pos().x() == pytest.approx(6.0)
+
+
+def test_identity_default_matches_pre_seam_behavior(pw: pg.PlotWidget) -> None:
+    """A CursorView built with no translation args behaves exactly as
+    before this seam existed — the explicit non-regression check."""
+    cv = CursorView(pw.getPlotItem())
+    cv.apply_mode(CursorMode.ONE, [5.0])
+    assert cv._lines[0].value() == pytest.approx(5.0)

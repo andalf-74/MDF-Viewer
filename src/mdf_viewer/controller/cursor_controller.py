@@ -69,6 +69,11 @@ class CursorController:
         get_cursor_step_time_ms: Callable[[], float] | None = None,
         get_x_per_pixel: Callable[[], float] | None = None,
         get_active_stripe: Callable[[], Any] | None = None,
+        pin_reference_signal: Callable[[], Any] | None = None,
+        to_render_x: Callable[[float], float] | None = None,
+        resolve_time_at_render_x: Callable[[float, float | None], float] | None = None,
+        step_value: Callable[[float, int, float], float] | None = None,
+        get_axis_signal: Callable[[], Any] | None = None,
     ) -> None:
         """
         Parameters
@@ -110,6 +115,25 @@ class CursorController:
             vertical position independently per stripe (REQ-PLOT-105).
             Defaults to a single fixed sentinel, so single-stripe callers see
             no behavior change.
+        pin_reference_signal, to_render_x, resolve_time_at_render_x, step_value:
+            The X-Axis Signal tab (#86) coordinate-space translation seam —
+            all default to None/identity, so an ordinary time-based tab is
+            unaffected. ``pin_reference_signal``, when set, pins
+            ``_resolve_reference_signal()`` to always return this signal
+            (the tab's axis signal, REQ-XAXIS-052) instead of running the
+            selection-based highest-rate-signal logic (REQ-PLOT-091).
+            ``to_render_x``/``resolve_time_at_render_x`` mirror CursorView's
+            own seam (see its docstring) — used here for ``zoom_to_cursors()``
+            and viewport-relative cursor placement. ``step_value``, when set,
+            replaces the "time" step unit's plain time arithmetic with
+            REQ-XAXIS-050/051's "step until the axis signal's value changes
+            by at least this amount" algorithm.
+        get_axis_signal:
+            Callable returning the tab's axis signal (#86), or None outside
+            an X-Axis Signal tab. When set, its own interpolated value is
+            pushed to the Active Signals Table's pinned axis row on every
+            refresh, the same way an ordinary active signal's row is
+            (REQ-XAXIS-032).
         """
         self._view = cursor_view
         self._get_x_range = get_x_range
@@ -160,6 +184,13 @@ class CursorController:
         self._get_active_stripe: Callable[[], Any] = (
             get_active_stripe if get_active_stripe is not None else (lambda: _DEFAULT_STRIPE)
         )
+        self._pin_reference_signal: Callable[[], Any] | None = pin_reference_signal
+        self._to_render_x: Callable[[float], float] = to_render_x or (lambda t: t)
+        self._resolve_time_at_render_x: Callable[[float, float | None], float] = (
+            resolve_time_at_render_x or (lambda render_x, current_time: render_x)
+        )
+        self._step_value: Callable[[float, int, float], float] | None = step_value
+        self._get_axis_signal: Callable[[], Any] | None = get_axis_signal
 
         self._mode = CursorMode.HIDDEN
         self._positions: list[float] = [0.0, 0.0]
@@ -199,10 +230,15 @@ class CursorController:
         self._position_changed_cb = cb
 
     def zoom_to_cursors(self) -> tuple[float, float] | None:
-        """Return (x_min, x_max) spanning the two cursors, or None if not in TWO mode."""
+        """Return (x_min, x_max) spanning the two cursors, or None if not in TWO mode.
+
+        Returned in render space (identity for an ordinary tab; the axis
+        signal's own values for an X-Axis Signal tab, #86) since the caller
+        feeds this straight into zoom_to_x_range().
+        """
         if self._mode != CursorMode.TWO:
             return None
-        x1, x2 = self._positions
+        x1, x2 = (self._to_render_x(p) for p in self._positions)
         return (min(x1, x2), max(x1, x2))
 
     def press_left(self) -> None:
@@ -393,12 +429,21 @@ class CursorController:
             self._last_sample_reference = signal
         elif unit == "pixels":
             px = self._get_cursor_step_pixels()
-            new_x = x + direction * px * self._get_x_per_pixel()
+            # get_x_per_pixel() is in render-space units (axis-signal value
+            # per pixel for an X-Axis Signal tab, #86) — the delta is applied
+            # in render space, then resolved back to a time, rather than
+            # added directly to a stored time (which would silently mix units).
+            render_x = self._to_render_x(x) + direction * px * self._get_x_per_pixel()
+            new_x = self._resolve_time_at_render_x(render_x, x)
             new_x = self._clamp_to_signal(new_x, signal)
-        else:  # "time"
-            ms = self._get_cursor_step_time_ms()
-            new_x = x + direction * ms / 1000.0
-            new_x = self._clamp_to_signal(new_x, signal)
+        else:  # "time" (an axis-signal *value* amount for an X-Axis Signal tab)
+            if self._step_value is not None and signal is not None:
+                amount = self._get_cursor_step_time_ms()
+                new_x = self._step_value(x, direction, amount)
+            else:
+                ms = self._get_cursor_step_time_ms()
+                new_x = x + direction * ms / 1000.0
+                new_x = self._clamp_to_signal(new_x, signal)
 
         self._positions[idx] = new_x
         self._view.apply_mode(self._mode, self._positions)
@@ -409,8 +454,12 @@ class CursorController:
         """Return the reference signal for arrow-key stepping (REQ-PLOT-091).
 
         The highest-sample-rate signal among the current selection, or,
-        when nothing is selected, among all active signals.
+        when nothing is selected, among all active signals — unless
+        pin_reference_signal is set (#86, REQ-XAXIS-052), in which case the
+        tab's axis signal is always the reference regardless of selection.
         """
+        if self._pin_reference_signal is not None:
+            return self._pin_reference_signal()
         selected = self._get_selected_signals()
         candidates = selected if selected else self._get_active_signals()
         return _highest_rate_signal(candidates)
@@ -484,8 +533,11 @@ class CursorController:
         except Exception:
             x_min, x_max = 0.0, 1.0
         span = max(x_max - x_min, 0.0)
-        self._positions[0] = x_min + span * 0.25
-        self._positions[1] = x_min + span * 0.75
+        # get_x_range() is render-space (identity for an ordinary tab; the
+        # axis signal's own value range for an X-Axis Signal tab, #86) —
+        # resolved back to a time before storing.
+        self._positions[0] = self._resolve_time_at_render_x(x_min + span * 0.25, self._positions[0])
+        self._positions[1] = self._resolve_time_at_render_x(x_min + span * 0.75, self._positions[1])
 
     def _refresh(self, *, update_labels: bool) -> None:
         """Update table values, cursor colors, and (optionally) plot labels."""
@@ -528,6 +580,7 @@ class CursorController:
                         _fmt_value(cr_val, em, ed),
                         _fmt(delta),
                     )
+                self._push_axis_cursor_values(cl_x, cr_x)
             else:  # ONE — single cursor is always Cursor L by definition
                 self._view.set_line_colors(color_cl, color_cr)
                 c_x = self._positions[0]
@@ -537,6 +590,7 @@ class CursorController:
                     self._table.update_cursor_values(
                         active, _fmt_value(_interpolate(active, c_x), em, ed), "", ""
                     )
+                self._push_axis_cursor_values(c_x, None)
         else:  # "1/2" mode (default)
             self._table.set_cursor_column_headers("Cursor 1", "Cursor 2")
             self._view.set_line_colors(color_c1, color_c2)
@@ -558,6 +612,7 @@ class CursorController:
                     _fmt_value(c2_val, em, ed),
                     _fmt(delta2),
                 )
+            self._push_axis_cursor_values(c1_x, c2_x)
 
         if update_labels:
             if cursor_mode == "L/R":
@@ -570,11 +625,30 @@ class CursorController:
 
         self._refresh_delta_time()
 
+    def _push_axis_cursor_values(self, x1: float, x2: float | None) -> None:
+        """Push the axis signal's own interpolated value(s) to the Active
+        Signals Table's pinned axis row (#86, REQ-XAXIS-032) — a no-op
+        outside an X-Axis Signal tab. *x1*/*x2* are whatever cursor-column
+        positions the caller just used for every ordinary row, so the axis
+        row's columns show the same pair the rest of the table does,
+        respecting cursor_mode's "1/2" vs "L/R" left/right assignment.
+        """
+        axis_signal = self._get_axis_signal() if self._get_axis_signal is not None else None
+        if axis_signal is None:
+            return
+        val1 = _interpolate(axis_signal, x1)
+        val2 = _interpolate(axis_signal, x2) if x2 is not None else None
+        delta: float | None = val2 - val1 if val1 is not None and val2 is not None else None
+        em = axis_signal.metadata.enum_map
+        ed = axis_signal.enum_display_table
+        self._table.update_axis_cursor_values(
+            _fmt_value(val1, em, ed), _fmt_value(val2, em, ed), _fmt(delta)
+        )
+
     def _refresh_delta_time(self) -> None:
         """Update the delta-time line, label, and table column header."""
         if self._mode == CursorMode.TWO:
-            delta_t = abs(self._positions[1] - self._positions[0])
-            delta_t_str = f"Δt = {delta_t:.4g} s"
+            delta_t_str = self._format_delta_label()
             self._table.set_delta_column_header(delta_t_str)
             self._view.update_delta_time(
                 x1=self._positions[0],
@@ -589,6 +663,27 @@ class CursorController:
             self._view.update_delta_time(
                 x1=0.0, x2=0.0, delta_t_str="", y_pos=None, show=False, color=(0, 0, 0)
             )
+
+    def _format_delta_label(self) -> str:
+        """Format the TWO-cursor delta label.
+
+        In an X-Axis Signal tab (#86, REQ-XAXIS-060), the shared X-axis is
+        the axis signal's own value rather than time, so the delta shown
+        here is the axis signal's value delta/unit between the two cursors
+        (mirroring _push_axis_cursor_values' own delta) instead of a raw
+        time difference.
+        """
+        axis_signal = self._get_axis_signal() if self._get_axis_signal is not None else None
+        if axis_signal is not None:
+            val1 = _interpolate(axis_signal, self._positions[0])
+            val2 = _interpolate(axis_signal, self._positions[1])
+            if val1 is None or val2 is None:
+                return "Δ = —"
+            unit = axis_signal.metadata.unit
+            suffix = f" {unit}" if unit else ""
+            return f"Δ = {abs(val2 - val1):.4g}{suffix}"
+        delta_t = abs(self._positions[1] - self._positions[0])
+        return f"Δt = {delta_t:.4g} s"
 
 
 

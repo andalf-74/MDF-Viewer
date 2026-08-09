@@ -29,6 +29,7 @@ from PyQt6.QtCore import QEvent, QPointF, QRectF, Qt, pyqtSignal
 from PyQt6.QtGui import QPen
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QPushButton, QWidget
 
+from mdf_viewer.model.axis_resample import resample_to_axis
 from mdf_viewer.view import theme
 from mdf_viewer.view._mime import (
     ROW_MIME_TYPE,
@@ -284,6 +285,11 @@ class _SignalPlotData:
     view_box: object        # pg.ViewBox
     axis: object            # pg.AxisItem
     owns_axis: bool = True  # False for non-first members of a merged group
+    # Cached (x, y) resampled against this stripe's axis signal (#86) —
+    # None for ordinary time-based plotting. autorange_y() reads this
+    # instead of raw data.samples when set, since the no-extrapolation
+    # rule (REQ-XAXIS-022) can trim points, and raw samples would over-range.
+    resampled: "tuple | None" = None
 
 
 class PlotStripe(QWidget):
@@ -325,8 +331,21 @@ class PlotStripe(QWidget):
     # PlotStripesArea.delete_stripe).
     delete_stripe_requested = pyqtSignal(object)
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, monotonic_x: bool = True) -> None:
         super().__init__(parent)
+
+        # False for X-Axis Signal tabs (#86), where the shared X-axis is
+        # another signal's own recorded value and can move backward —
+        # PlotDataItem's clipToView/downsampling both require ascending X
+        # (see add_signal()), and zoom_to_fit() can't rely on array
+        # endpoints being the true min/max (see zoom_to_fit()).
+        self._monotonic_x = monotonic_x
+
+        # Set via set_axis_signal() (#86) — when not None, every other
+        # signal's curve is resampled against it (resample_to_axis)
+        # instead of plotted by time; that signal itself is never plotted
+        # as a normal curve (REQ-XAXIS-023).
+        self._axis_signal: ActiveSignal | None = None
 
         # Display name (REQ-PLOT-290/291); PlotStripesArea assigns the
         # default "Stripe N" right after construction, since a stripe has no
@@ -602,13 +621,44 @@ class PlotStripe(QWidget):
         """
         self._drag_claimants.append(claimant)
 
+    def _curve_xy(self, active: ActiveSignal):
+        """Return the (x, y) arrays to plot for *active* (#86).
+
+        Resampled against this stripe's axis signal (resample_to_axis) when
+        one is set; otherwise its own display-time timestamps, unchanged.
+        """
+        if self._axis_signal is not None:
+            return resample_to_axis(self._axis_signal, active)
+        return active.display_timestamps, active.data.samples
+
+    def _viewspace_xy(self, active: ActiveSignal):
+        """Return the (x, y) arrays in current shared-X-axis space for
+        *active* (#86, REQ-XAXIS-060): the cached resampled arrays (already
+        in axis-signal-value space) when this stripe has an axis signal,
+        otherwise its own time timestamps/samples. (None, None) if *active*
+        isn't plotted here or has no resampled data yet.
+
+        Masking a signal's visible Y-data against the ViewBox's current X
+        range (Zoom Y to View, Swimlanes, Y Autozoom) must use this instead
+        of raw display_timestamps once an axis signal is set — the ViewBox's
+        X range is in axis-signal-value space there, not time, so comparing
+        it against timestamps silently matches nothing.
+        """
+        if self._axis_signal is not None:
+            spd = self._data.get(active)
+            if spd is None or spd.resampled is None:
+                return None, None
+            return spd.resampled
+        return active.display_timestamps, active.data.samples
+
     def add_signal(self, active: ActiveSignal) -> None:
         """Add a signal curve with its own ViewBox and right Y-axis.
 
         Sets active.curve and active.view_box so callers can inspect them.
-        No-op if the signal is already displayed.
+        No-op if the signal is already displayed, or if it is this stripe's
+        own axis signal (#86, REQ-XAXIS-023 — never plotted against itself).
         """
-        if active in self._data:
+        if active in self._data or active is self._axis_signal:
             return
 
         color = active.color
@@ -651,14 +701,17 @@ class PlotStripe(QWidget):
             symbolBrush=sym_brush,
             symbolSize=sym_size,
         )
-        curve.setClipToView(True)
-        curve.setDownsampling(auto=True, method="peak")
+        if self._monotonic_x:
+            curve.setClipToView(True)
+            curve.setDownsampling(auto=True, method="peak")
         vb.addItem(curve)
-        curve.setData(active.display_timestamps, active.data.samples)
+        x, y = self._curve_xy(active)
+        curve.setData(x, y)
 
         active.curve = curve
         active.view_box = vb
-        self._data[active] = _SignalPlotData(curve=curve, view_box=vb, axis=axis)
+        resampled = (x, y) if self._axis_signal is not None else None
+        self._data[active] = _SignalPlotData(curve=curve, view_box=vb, axis=axis, resampled=resampled)
 
         self._update_axis_visibility()
         self._update_view_geometries()
@@ -857,7 +910,10 @@ class PlotStripe(QWidget):
             return
         spd = self._data[active]
         spd.curve.opts["stepMode"] = "right" if enabled else False
-        spd.curve.setData(active.display_timestamps, active.data.samples)
+        x, y = self._curve_xy(active)
+        spd.curve.setData(x, y)
+        if self._axis_signal is not None:
+            spd.resampled = (x, y)
 
     def set_signal_visible(self, active: ActiveSignal, visible: bool) -> None:
         """Hide or show a signal's curve and (via _update_axis_visibility)
@@ -884,15 +940,18 @@ class PlotStripe(QWidget):
         self._update_axis_visibility()
 
     def refresh_signal_data(self, active: ActiveSignal) -> None:
-        """Re-apply curve data after active.display_timestamps changes (#101).
-
-        Used when a measurement's X-axis offset is dragged — Y data and
-        every other display property (color, width, step mode, ...) are
-        untouched. No-op if not present.
+        """Re-apply curve data after active.display_timestamps changes (#101),
+        or after this stripe's axis signal's own measurement offset changes
+        (#86, REQ-XAXIS-072 — every point's Y value shifts even though X
+        doesn't). Every other display property (color, width, step mode,
+        ...) is untouched. No-op if not present.
         """
         if active not in self._data:
             return
-        self._data[active].curve.setData(active.display_timestamps, active.data.samples)
+        x, y = self._curve_xy(active)
+        self._data[active].curve.setData(x, y)
+        if self._axis_signal is not None:
+            self._data[active].resampled = (x, y)
 
     def zoom_to_fit(self) -> None:
         """Reset viewport: full X range across all visible signals, auto Y per signal.
@@ -903,9 +962,26 @@ class PlotStripe(QWidget):
         if not visible_signals:
             return
 
-        # Compute full X range from every visible signal's display timestamps.
-        t_min = min(float(a.display_timestamps[0]) for a in visible_signals if len(a.data.timestamps))
-        t_max = max(float(a.display_timestamps[-1]) for a in visible_signals if len(a.data.timestamps))
+        if self._axis_signal is not None:
+            # X is each signal's resampled position against the axis signal
+            # (#86) — a real min()/max(), since it's not guaranteed sorted.
+            x_arrays = [
+                self._data[a].resampled[0] for a in visible_signals
+                if self._data[a].resampled is not None and len(self._data[a].resampled[0])
+            ]
+            if not x_arrays:
+                return
+            t_min = min(float(arr.min()) for arr in x_arrays)
+            t_max = max(float(arr.max()) for arr in x_arrays)
+        elif self._monotonic_x:
+            # Compute full X range from every visible signal's display
+            # timestamps. Endpoints [0]/[-1] are only the true min/max
+            # when X is monotonic (ordinary time-based tabs).
+            t_min = min(float(a.display_timestamps[0]) for a in visible_signals if len(a.data.timestamps))
+            t_max = max(float(a.display_timestamps[-1]) for a in visible_signals if len(a.data.timestamps))
+        else:
+            t_min = min(float(a.display_timestamps.min()) for a in visible_signals if len(a.data.timestamps))
+            t_max = max(float(a.display_timestamps.max()) for a in visible_signals if len(a.data.timestamps))
         self._pi.vb.setXRange(t_min, t_max, padding=0.02)
         self.autorange_y()
 
@@ -922,7 +998,16 @@ class PlotStripe(QWidget):
         signal's autoRange() call happened to run last.
         """
         for vb, members, _is_synced in self._display_units():
-            all_ys = [y for a in members for y in a.data.samples.tolist()]
+            if self._axis_signal is not None:
+                # The resampled/no-extrapolation-trimmed subset (#86), not
+                # raw data.samples — a signal's real data can extend beyond
+                # the axis signal's own covered span (REQ-XAXIS-022).
+                all_ys = [
+                    y for a in members if a in self._data and self._data[a].resampled is not None
+                    for y in self._data[a].resampled[1].tolist()
+                ]
+            else:
+                all_ys = [y for a in members for y in a.data.samples.tolist()]
             if not all_ys:
                 continue
             y_min, y_max = min(all_ys), max(all_ys)
@@ -930,6 +1015,25 @@ class PlotStripe(QWidget):
                 y_min -= 1.0
                 y_max += 1.0
             vb.setYRange(y_min, y_max, padding=0.05)
+
+    def resampled_x(self, active: ActiveSignal):
+        """Return *active*'s cached resampled X array (#86), or None if this
+        stripe has no axis signal set or *active* isn't in it."""
+        spd = self._data.get(active)
+        return spd.resampled[0] if spd is not None and spd.resampled is not None else None
+
+    def set_axis_signal(self, axis: ActiveSignal | None) -> None:
+        """Set this stripe's axis signal (#86).
+
+        When not None, every other signal's curve is resampled against it
+        (resample_to_axis) instead of plotted by time; existing curves are
+        recomputed immediately. None restores ordinary time-based plotting.
+        """
+        self._axis_signal = axis
+        for active, spd in self._data.items():
+            x, y = self._curve_xy(active)
+            spd.curve.setData(x, y)
+            spd.resampled = (x, y) if axis is not None else None
 
     def set_background(self, color: tuple[int, int, int]) -> None:
         """Set the plot canvas's background color (REQ-PLOT-015/016)."""
@@ -967,15 +1071,20 @@ class PlotStripe(QWidget):
         for i, (vb, unit_signals, _is_synced) in enumerate(units):
             ys_all: list[float] = []
             for active in unit_signals:
-                ts = active.display_timestamps
-                ys = active.data.samples
-                mask = (ts >= x_min) & (ts <= x_max)
+                xs, ys = self._viewspace_xy(active)
+                if xs is None:
+                    continue
+                mask = (xs >= x_min) & (xs <= x_max)
                 visible = ys[mask]
                 if len(visible):
                     ys_all.extend(visible.tolist())
 
             if not ys_all:
-                all_ys = [y for a in unit_signals for y in a.data.samples.tolist()]
+                all_ys = [
+                    y for a in unit_signals
+                    if (full_ys := self._viewspace_xy(a)[1]) is not None
+                    for y in full_ys.tolist()
+                ]
                 y_min = min(all_ys) if all_ys else -1.0
                 y_max = max(all_ys) if all_ys else 1.0
             else:
@@ -1013,9 +1122,10 @@ class PlotStripe(QWidget):
         for vb, signals, _is_synced in self._display_units():
             ys_all: list[float] = []
             for active in signals:
-                ts = active.display_timestamps
-                ys = active.data.samples
-                mask = (ts >= x_min) & (ts <= x_max)
+                xs, ys = self._viewspace_xy(active)
+                if xs is None:
+                    continue
+                mask = (xs >= x_min) & (xs <= x_max)
                 visible = ys[mask]
                 if len(visible):
                     ys_all.extend(visible.tolist())
@@ -1048,9 +1158,10 @@ class PlotStripe(QWidget):
                 continue
             ys_all: list[float] = []
             for member in members:
-                ts = member.display_timestamps
-                ys = member.data.samples
-                mask = (ts >= x_min) & (ts <= x_max)
+                xs, ys = self._viewspace_xy(member)
+                if xs is None:
+                    continue
+                mask = (xs >= x_min) & (xs <= x_max)
                 visible = ys[mask]
                 if len(visible):
                     ys_all.extend(visible.tolist())

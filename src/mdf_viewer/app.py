@@ -14,6 +14,34 @@ if TYPE_CHECKING:
     from mdf_viewer.settings import Settings
 
 
+def _xaxis_cursor_kwargs(workspace: "TabWorkspace") -> dict:
+    """CursorController's coordinate-space translation seam kwargs for an
+    X-Axis Signal tab (#86) — empty (identity, matching an ordinary Plot
+    tab exactly) unless *workspace* is one and has its axis signal set.
+    """
+    if workspace.view_type != "xaxis" or workspace.axis_signal is None:
+        return {}
+
+    from mdf_viewer.model.axis_cursor import (
+        nearest_instant_by_value,
+        step_by_axis_value,
+        time_to_axis_render_x,
+    )
+
+    axis_signal = workspace.axis_signal
+
+    return {
+        "pin_reference_signal": lambda: axis_signal,
+        "to_render_x": lambda time: time_to_axis_render_x(axis_signal, time),
+        "resolve_time_at_render_x": lambda render_x, current_time: nearest_instant_by_value(
+            axis_signal, render_x, current_time
+        ),
+        "step_value": lambda current_time, direction, amount: step_by_axis_value(
+            axis_signal, current_time, direction, amount
+        ),
+    }
+
+
 def _wire_tab(
     controller: "AppController",
     workspace: "TabWorkspace",
@@ -51,7 +79,11 @@ def _wire_tab(
     # it until later).
     plot_area.set_background(settings.plot_background_color)
 
-    cursor_view = CursorStripesView()
+    xaxis_kwargs = _xaxis_cursor_kwargs(workspace)
+    cursor_view = CursorStripesView(
+        to_render_x=xaxis_kwargs.get("to_render_x"),
+        resolve_time_at_render_x=xaxis_kwargs.get("resolve_time_at_render_x"),
+    )
     for stripe in plot_area.get_stripes():
         cursor_view.add_stripe(stripe)
     plot_area.stripe_created.connect(cursor_view.add_stripe)
@@ -87,6 +119,8 @@ def _wire_tab(
         get_cursor_step_time_ms=lambda: settings.cursor_step_time_ms,
         get_x_per_pixel=lambda: plot_area.get_active_stripe().plot_item.vb.viewPixelSize()[0],
         get_active_stripe=lambda: plot_area.get_active_stripe(),
+        get_axis_signal=lambda: workspace.axis_signal,
+        **xaxis_kwargs,
     )
     controller.set_cursor_controller(cursor_ctrl)
     # Order matters: the view's own active-stripe bookkeeping must update
@@ -115,6 +149,22 @@ def _add_new_tab(
     controller-side half, mirroring _wire_tab's use for the first tab.
     """
     workspace = controller.create_tab(plot_area, active_signals_table)
+    _wire_tab(controller, workspace, settings)
+
+
+def _add_new_xaxis_tab(
+    controller: "AppController",
+    plot_area: "PlotAreaProtocol",
+    active_signals_table: "SignalTableProtocol",
+    axis_signal,
+    settings: "Settings",
+) -> None:
+    """Register and wire a new X-Axis Signal tab (#86) — mirrors
+    _add_new_tab(), injected as MainWindow's xaxis tab factory
+    (window.set_xaxis_tab_factory) for both runtime creation and
+    `.mvc` restore (WorkspaceSessionController.build_tab_skeletons()).
+    """
+    workspace = controller.create_xaxis_tab(plot_area, active_signals_table, axis_signal)
     _wire_tab(controller, workspace, settings)
 
 
@@ -228,6 +278,11 @@ def run(argv: list[str]) -> int:
     _wire_tab(controller, controller.current_workspace, settings)
     window.set_tab_factory(
         lambda plot_area, table: _add_new_tab(controller, plot_area, table, settings)
+    )
+    window.set_xaxis_tab_factory(
+        lambda plot_area, table, axis_signal: _add_new_xaxis_tab(
+            controller, plot_area, table, axis_signal, settings
+        )
     )
 
     plugin_loader = PluginLoader(

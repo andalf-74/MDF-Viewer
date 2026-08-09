@@ -113,6 +113,7 @@ if TYPE_CHECKING:
         PreferencesPageRegistration,
         TabTypeRegistration,
     )
+    from mdf_viewer.view_model.active_signal import ActiveSignal
 
 logger = logging.getLogger("mdf_viewer.view.main_window")
 
@@ -266,6 +267,11 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._controller: AppController | None = None
         self._tab_factory: Callable[[PlotStripesArea, ActiveSignalsTable], None] | None = None
+        # #86 — mirrors _tab_factory but for X-Axis Signal tabs; app.py
+        # injects both the same way.
+        self._xaxis_tab_factory: (
+            Callable[[PlotStripesArea, ActiveSignalsTable, "ActiveSignal"], None] | None
+        ) = None
         self._recent_provider: Callable[[], list[Path]] | None = None
         self._recent_actions: list[QAction] = []
         self._recent_sep: QAction | None = None
@@ -312,6 +318,13 @@ class MainWindow(QMainWindow):
         # _make_tab_page()) — AppController stays entirely unaware either
         # kind exists.
         self._tab_type_by_page: dict[QWidget, "TabTypeRegistration"] = {}
+        # A plot-shaped page (still passes _is_plot_page()) that's actually
+        # an X-Axis Signal tab (#86) — kept separate from _tab_type_by_page
+        # deliberately, since that dict is structurally plugin-attributed
+        # (see docs/architecture.md "X-Axis Signal Tabs (#86)"). Populated
+        # by whatever creates/restores an xaxis tab; cleared on close since
+        # a parked page (#130) is reused as an ordinary Plot tab next.
+        self._xaxis_pages: set[QWidget] = set()
         # In-session status bar message history (#125) — view-owned, no
         # AppController/PluginContext involvement (REQ-STATUS-010/011).
         self._status_history = StatusMessageHistory()
@@ -368,6 +381,8 @@ class MainWindow(QMainWindow):
                 registration, title
             ),
             tab_specs=lambda: self._capture_tab_specs(),
+            # #86 — X-Axis Signal tabs.
+            create_xaxis_tab=lambda axis_signal: self._on_new_xaxis_tab(axis_signal),
         )
 
     # ------------------------------------------------------------------
@@ -799,6 +814,9 @@ class MainWindow(QMainWindow):
         active_signals_table.move_to_new_stripe_requested.connect(
             controller.move_signals_to_new_stripe
         )
+        active_signals_table.promote_to_xaxis_tab_requested.connect(
+            self._on_promote_to_xaxis_tab
+        )
         active_signals_table.set_stripe_providers(
             controller.get_stripes, controller.get_stripe_for_signal
         )
@@ -836,6 +854,16 @@ class MainWindow(QMainWindow):
         happens once at startup for the first tab.
         """
         self._tab_factory = factory
+
+    def set_xaxis_tab_factory(
+        self,
+        factory: Callable[[PlotStripesArea, ActiveSignalsTable, "ActiveSignal"], None],
+    ) -> None:
+        """Supply the callback that builds a new X-Axis Signal tab's
+        controller-side stack (#86) — mirrors set_tab_factory(), calling
+        controller.create_xaxis_tab() instead of create_tab().
+        """
+        self._xaxis_tab_factory = factory
 
     def show_status(self, message: str, timeout_ms: int = 3000, *, log: bool = True) -> None:
         """Show a transient status bar message, recording it into history.
@@ -1447,11 +1475,17 @@ class MainWindow(QMainWindow):
     def _discard_non_plot_page(self, page: QWidget) -> None:
         self._tab_type_by_page.pop(page, None)
 
+    def _register_xaxis_page(self, page: QWidget) -> None:
+        """Tag *page* as an X-Axis Signal tab (#86) — called by whatever
+        creates or restores one, so _capture_tab_specs() reports it
+        correctly. *page* must already be a plot-shaped page."""
+        self._xaxis_pages.add(page)
+
     def _capture_tab_specs(self) -> list[tuple[str, str, object | None]]:
         """One (name, view_type, plot_area) triple per real tab, in
         tab-bar order — what `AppController.capture_config()`'s
         *tab_specs* needs to capture a session containing non-plot tabs
-        correctly (#148)."""
+        correctly (#148), and an X-Axis Signal tab (#86) correctly too."""
         placeholder_index = self._placeholder_index()
         specs: list[tuple[str, str, object | None]] = []
         for i in range(self._tab_widget.count()):
@@ -1460,7 +1494,8 @@ class MainWindow(QMainWindow):
             page = self._tab_widget.widget(i)
             name = self._tab_widget.tabText(i)
             if self._is_plot_page(page):
-                specs.append((name, "plot", page.plot_area))
+                view_type = "xaxis" if page in self._xaxis_pages else "plot"
+                specs.append((name, view_type, page.plot_area))
             else:
                 registration = self._tab_type_by_page[page]
                 specs.append((name, registration.type_id, None))
@@ -1482,23 +1517,28 @@ class MainWindow(QMainWindow):
     def _on_new_tab_requested(self) -> None:
         """Entry point for all three "New Tab" triggers — the Edit menu
         action, the empty-state placeholder button, and the pinned "+" tab
-        (#148). With no plugin-registered tab type available, behaves
-        exactly like `_on_new_tab()` always has (REQ-PLUGIN-330 — no UX
-        change). Otherwise offers a popup choice among Plot and every
-        registered type (REQ-PLUGIN-331); dismissing it creates nothing.
+        (#148, #86/REQ-XAXIS-018). Always offers a popup choice between the
+        two built-in types, Plot and X-Axis Signal, plus every
+        plugin-registered type when any exist (REQ-PLUGIN-330/331);
+        dismissing it creates nothing. X-Axis Signal routes through
+        `_on_new_xaxis_tab_requested()`'s own signal-picker dialog rather
+        than creating a tab directly — this chooser is the only entry
+        point for creating an X-Axis Signal tab; there is no separate
+        dedicated menu action for it.
         """
         types = self._available_tab_types()
-        if not types:
-            self._on_new_tab()
-            return
         menu = QMenu(self)
         plot_action = menu.addAction("Plot")
+        xaxis_action = menu.addAction("X-Axis Signal…")
         type_actions = {menu.addAction(reg.display_name): reg for reg in types}
         chosen = menu.exec(QCursor.pos())
         if chosen is None:
             return
         if chosen is plot_action:
             self._on_new_tab()
+            return
+        if chosen is xaxis_action:
+            self._on_new_xaxis_tab_requested()
             return
         registration = type_actions.get(chosen)
         if registration is not None:
@@ -1557,10 +1597,78 @@ class MainWindow(QMainWindow):
             self._content_stack.setCurrentWidget(self._tab_widget)
         return index
 
+    def _on_new_xaxis_tab(self, axis_signal: "ActiveSignal") -> int:
+        """Create a new X-Axis Signal tab (#86): a fresh plot area (with
+        a non-monotonic X, since the shared axis is axis_signal's own
+        recorded value, not time) + Active Signals Table pair.
+
+        Unlike _on_new_tab(), never reuses a parked page (#130) — a parked
+        page's PlotStripesArea was always built monotonic_x=True (the
+        ordinary default) and has no way to become non-monotonic after
+        construction, so reusing one here would silently produce a
+        structurally wrong (still-monotonic) plot area.
+
+        Returns the new tab's index in the tab bar.
+        """
+        plot_area = PlotStripesArea(monotonic_x=False)
+        active_signals_table = ActiveSignalsTable()
+        if self._xaxis_tab_factory is not None:
+            self._xaxis_tab_factory(plot_area, active_signals_table, axis_signal)
+        page = self._make_tab_page(plot_area, active_signals_table)
+        self._wire_tab_view(plot_area, active_signals_table)
+        self._register_xaxis_page(page)
+        self._tab_counter += 1
+        index = self._placeholder_index()  # insert right before the "+" tab
+        self._tab_widget.insertTab(index, page, f"Tab {self._tab_counter}")
+        self._tab_widget.setCurrentIndex(index)
+        if self._content_stack.currentWidget() is not self._tab_widget:
+            self._content_stack.setCurrentWidget(self._tab_widget)
+        return index
+
     def _on_new_stripe(self) -> None:
         """Create a new empty stripe in the currently active tab (REQ-PLOT-196, #112)."""
         if self._controller is not None:
             self._controller.create_stripe()
+
+    def _on_new_xaxis_tab_requested(self) -> None:
+        """New X-Axis Signal Tab (#86, REQ-XAXIS-012): pick a signal via
+        XAxisSignalPickerDialog, load it, then build the tab.
+
+        A candidate that fails to load (non-numeric, or — for a virtual
+        signal specifically, REQ-XAXIS-016 — any other resolution failure)
+        shows a clear error and leaves no tab created, rather than
+        creating one and failing partway through.
+        """
+        if self._controller is None:
+            return
+        from mdf_viewer.view.xaxis_signal_picker_dialog import XAxisSignalPickerDialog
+
+        candidates = self._controller.candidate_axis_signals()
+        dlg = XAxisSignalPickerDialog(candidates, self)
+        if not dlg.exec():
+            return
+        selection = dlg.selected()
+        if selection is None:
+            return
+        measurement, meta = selection
+        try:
+            axis_signal = self._controller.load_axis_signal(measurement, meta)
+        except MdfLoadError as exc:
+            QMessageBox.critical(self, "Cannot Use Signal", str(exc))
+            return
+        self._on_new_xaxis_tab(axis_signal)
+
+    def _on_promote_to_xaxis_tab(self, active) -> None:
+        """"Promote to X-Axis Signal Tab…" AST context-menu action (#86,
+        REQ-XAXIS-013/017) — a copy: AppController.promote_signal_to_xaxis_tab()
+        clones *active*, leaving the original untouched in its current tab,
+        and the clone becomes the new tab's axis signal via the same path
+        _on_new_xaxis_tab_requested() uses for a freshly picked signal.
+        """
+        if self._controller is None:
+            return
+        axis_signal = self._controller.promote_signal_to_xaxis_tab(active)
+        self._on_new_xaxis_tab(axis_signal)
 
     def _on_copy_signals_to_new_tab(self, source_index: int) -> None:
         """Copy every active signal from the tab at *source_index* into a
@@ -1758,6 +1866,27 @@ class MainWindow(QMainWindow):
                 self._parked_page = page
             else:
                 page.deleteLater()
+            # A parked page is reused as an ordinary Plot tab next (#130);
+            # a deleted one obviously needs no bookkeeping either way — so
+            # forget its X-Axis Signal tab tag (#86) unconditionally.
+            #
+            # KNOWN GAP (#86, flagged for M6/M7 live-testing, not yet
+            # fixed): if the parked page being discarded here was itself
+            # an X-Axis Signal tab, this only clears MainWindow's own
+            # _xaxis_pages tag — the underlying TabWorkspace.view_type/
+            # axis_signal (AppController.remove_tab() deliberately leaves
+            # the sole remaining workspace's fields untouched) and the
+            # PlotStripesArea's own monotonic_x=False construction-time
+            # flag (no setter exists to flip it back) both stay exactly as
+            # they were. _on_new_tab() reusing this parked page next would
+            # then silently produce a tab that *looks* like a fresh plot
+            # tab but is still structurally non-monotonic underneath.
+            # Narrow, real corner case (closing the *only* remaining tab
+            # while it happens to be an xaxis tab) — needs a live repro to
+            # confirm the actual failure mode before fixing, per this
+            # project's #78/#120 postmortem lesson against fixing
+            # untested theoretical edge cases blind.
+            self._xaxis_pages.discard(page)
             if self._controller is not None and wi is not None:
                 self._controller.remove_tab(wi)
 

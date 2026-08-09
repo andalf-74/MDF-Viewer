@@ -74,8 +74,15 @@ class PlotStripesArea(QWidget):
     # it to flip and push the new state back down to every tab.
     synchronize_toggled = pyqtSignal()
 
-    def __init__(self, parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None, *, monotonic_x: bool = True) -> None:
         super().__init__(parent)
+
+        # False for X-Axis Signal tabs (#86) — propagated to every stripe
+        # this area creates; see PlotStripe's own monotonic_x for why.
+        self._monotonic_x = monotonic_x
+        # Set via set_axis_signal() (#86) — propagated to every stripe this
+        # area creates, current and future (see PlotStripe.set_axis_signal).
+        self._axis_signal: "ActiveSignal | None" = None
 
         self._splitter = make_splitter(Qt.Orientation.Vertical)
         self._stripes: list[PlotStripe] = []
@@ -132,7 +139,9 @@ class PlotStripesArea(QWidget):
 
     def create_stripe(self) -> PlotStripe:
         """Create a new stripe, redistributing height equally (REQ-PLOT-190/192)."""
-        stripe = PlotStripe()
+        stripe = PlotStripe(monotonic_x=self._monotonic_x)
+        if self._axis_signal is not None:
+            stripe.set_axis_signal(self._axis_signal)
         self._stripe_counter += 1
         stripe.name = f"Stripe {self._stripe_counter}"
         self._wire_stripe(stripe)
@@ -204,6 +213,12 @@ class PlotStripesArea(QWidget):
         """Set every stripe's plot canvas background color (REQ-PLOT-015/016)."""
         for s in self._stripes:
             s.set_background(color)
+
+    def set_axis_signal(self, axis: "ActiveSignal | None") -> None:
+        """Set the axis signal (#86) for every current and future stripe."""
+        self._axis_signal = axis
+        for s in self._stripes:
+            s.set_axis_signal(axis)
 
     def get_stripes(self) -> list[PlotStripe]:
         return list(self._stripes)
@@ -494,8 +509,25 @@ class PlotStripesArea(QWidget):
         signals = [a for a in self._signal_stripe if a.visible]
         if not signals:
             return
-        t_min = min(float(a.display_timestamps[0]) for a in signals if len(a.data.timestamps))
-        t_max = max(float(a.display_timestamps[-1]) for a in signals if len(a.data.timestamps))
+        if self._axis_signal is not None:
+            # X is each signal's resampled position against the axis signal
+            # (#86) — a real min()/max(), since it's not guaranteed sorted.
+            x_arrays = [
+                self._signal_stripe[a].resampled_x(a) for a in signals
+            ]
+            x_arrays = [arr for arr in x_arrays if arr is not None and len(arr)]
+            if not x_arrays:
+                return
+            t_min = min(float(arr.min()) for arr in x_arrays)
+            t_max = max(float(arr.max()) for arr in x_arrays)
+        elif self._monotonic_x:
+            # Endpoints [0]/[-1] are only the true min/max when X is
+            # monotonic (ordinary time-based tabs).
+            t_min = min(float(a.display_timestamps[0]) for a in signals if len(a.data.timestamps))
+            t_max = max(float(a.display_timestamps[-1]) for a in signals if len(a.data.timestamps))
+        else:
+            t_min = min(float(a.display_timestamps.min()) for a in signals if len(a.data.timestamps))
+            t_max = max(float(a.display_timestamps.max()) for a in signals if len(a.data.timestamps))
         self.zoom_to_x_range(t_min, t_max)
         for stripe in self._stripes:
             stripe.autorange_y()

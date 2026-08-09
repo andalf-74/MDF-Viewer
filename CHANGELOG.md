@@ -5,6 +5,16 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- X-Axis Signal Tabs (#86): a new tab type whose shared X-axis represents a
+  chosen signal's own recorded value instead of time — create one via the
+  "X-Axis Signal…" option in the New Tab chooser (the pinned "+" tab or
+  Edit → New Tab), or by right-clicking a single plotted signal in the
+  Active Signals Table and choosing "Promote to X-Axis Signal Tab…" (which
+  copies the signal — it stays plotted in its original tab too). Every
+  other signal is plotted at the axis signal's own recorded instants, in
+  its own recorded order, so a non-monotonic axis signal (e.g. vehicle
+  speed) can visually loop back on itself. Full cursor/zoom/arrow-key-
+  stepping support and `.mvc` persistence, matching an ordinary Plot tab.
 - Preferences dialog remembers its last-viewed tab (#169): reopens on
   whichever tab was showing when it was last closed, for the rest of the
   current session (resets to the first tab after an app restart).

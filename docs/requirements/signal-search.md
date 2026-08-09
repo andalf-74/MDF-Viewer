@@ -99,4 +99,7 @@ not moved by a search result [REQ-SEARCH-052]. The plot view is recentered
 on the matched timestamp, keeping the current zoom width unchanged, across
 every stripe in the tab [REQ-SEARCH-053]. The Search dialog remains open
 after a match is found, so another search can be run immediately
-[REQ-SEARCH-054].
+[REQ-SEARCH-054]. In an X-Axis Signal tab (#86), recentering the plot view
+uses the axis signal's own recorded value at the matched timestamp, not
+the timestamp itself, since that tab type's shared X-axis is not time
+[REQ-SEARCH-055].

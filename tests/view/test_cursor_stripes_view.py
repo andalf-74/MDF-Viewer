@@ -334,7 +334,8 @@ def test_dragging_line_in_one_stripe_moves_sibling(
     view1 = sv._per_stripe[stripe]
     view2 = sv._per_stripe[stripe2]
 
-    view1._lines[0].setValue(0.42)
+    # _set_cursor_time() is what on_move() calls during a real drag (#86).
+    view1._set_cursor_time(0, 0.42)
 
     assert view2._lines[0].value() == pytest.approx(0.42)
 
@@ -348,7 +349,7 @@ def test_dragging_line_emits_cursor_moved_exactly_once(
 
     received: list = []
     sv.cursor_moved.connect(lambda idx, x: received.append((idx, x)))
-    view1._lines[0].setValue(0.42)
+    view1._set_cursor_time(0, 0.42)
 
     assert received == [(0, pytest.approx(0.42))]
 
@@ -359,7 +360,7 @@ def test_dragging_line_updates_composite_positions(
     sv.add_stripe(stripe2)
     sv.apply_mode(CursorMode.TWO, [0.1, 0.9])
     view1 = sv._per_stripe[stripe]
-    view1._lines[1].setValue(0.55)
+    view1._set_cursor_time(1, 0.55)
     assert sv._positions == [pytest.approx(0.1), pytest.approx(0.55)]
 
 
@@ -371,7 +372,7 @@ def test_three_stripes_all_stay_in_lockstep(qtbot: QtBot) -> None:
         sv.add_stripe(s)
     sv.apply_mode(CursorMode.ONE, [0.0, 0.0])
 
-    sv._per_stripe[stripes[1]]._lines[0].setValue(0.7)
+    sv._per_stripe[stripes[1]]._set_cursor_time(0, 0.7)
 
     for s in stripes:
         assert sv._per_stripe[s]._lines[0].value() == pytest.approx(0.7)
@@ -420,3 +421,46 @@ def test_update_delta_time_show_false_hides_everywhere(
 
     assert not sv._per_stripe[stripe]._delta_line.isVisible()
     assert not sv._per_stripe[stripe2]._delta_line.isVisible()
+
+
+# ---------------------------------------------------------------------------
+# Render-space translation seam (#86 — X-Axis Signal tabs)
+# ---------------------------------------------------------------------------
+
+def _doubling_sv(stripe: PlotStripe) -> CursorStripesView:
+    v = CursorStripesView(
+        to_render_x=lambda t: t * 2.0,
+        resolve_time_at_render_x=lambda render_x, current_time: render_x / 2.0,
+    )
+    v.add_stripe(stripe)
+    return v
+
+
+def test_update_labels_positions_at_translated_x(
+    stripe: PlotStripe,
+) -> None:
+    sv = _doubling_sv(stripe)
+    active = _make_active()
+    stripe.add_signal(active)
+    sv.apply_mode(CursorMode.ONE, [0.25])
+    sv.update_labels([active], [0.25], CursorMode.ONE)
+    lbl, _ = next(iter(sv._labels.values()))
+    assert lbl.pos().x() == pytest.approx(0.5)  # 0.25 * 2.0, not raw time
+
+
+def test_lockstep_propagation_preserves_time_across_stripes(
+    stripe: PlotStripe, stripe2: PlotStripe
+) -> None:
+    sv = _doubling_sv(stripe)
+    sv.add_stripe(stripe2)
+    sv.apply_mode(CursorMode.ONE, [0.0])
+    view1 = sv._per_stripe[stripe]
+    view2 = sv._per_stripe[stripe2]
+
+    view1._set_cursor_time(0, 5.0)
+
+    # Both stripes render at the translated (doubled) position...
+    assert view1._lines[0].value() == pytest.approx(10.0)
+    assert view2._lines[0].value() == pytest.approx(10.0)
+    # ...while the composite's own bookkeeping stays in time space.
+    assert sv._positions[0] == pytest.approx(5.0)

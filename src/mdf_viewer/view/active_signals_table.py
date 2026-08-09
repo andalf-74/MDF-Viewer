@@ -363,6 +363,55 @@ class _SegmentLabel(QLabel):
         event.accept()
 
 
+class _AxisSignalRow(QTableWidget):
+    """Pinned row for an X-Axis Signal tab's axis signal (#86).
+
+    Sits between the shared header and the stripe-segmented area, sharing
+    the same column layout so its cells line up with every ordinary row's
+    (REQ-PLOT-271-style alignment). Hidden until set_axis_signal() is given
+    a real signal. Cannot be removed or hidden by the user, and offers no
+    Y-axis display-property controls (REQ-XAXIS-031) — no context menu, no
+    drag/drop, no visibility toggle, no color swatch (the axis signal isn't
+    drawn in any color of its own). Shows its own live cursor value in the
+    same cursor-value columns an ordinary row uses (REQ-XAXIS-032).
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(1, _NUM_COLS, parent)
+        _configure_columns(self)
+        self.verticalHeader().setVisible(False)
+        self.horizontalHeader().hide()
+        # Always-on vertical scrollbar (even though this single row never
+        # scrolls) reserves the same gutter width the header/segments do —
+        # required for column widths to line up pixel-for-pixel (REQ-PLOT-271/275).
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.verticalHeader().setDefaultSectionSize(24)
+        self.setFixedHeight(24 + 2 * self.frameWidth())
+        self.setShowGrid(True)
+
+        self.setItem(0, _COL_VISIBLE, _ro_item(""))
+        self.setItem(0, _COL_COLOR, _ro_item(""))
+        self.setItem(0, _COL_NAME, _ro_item(""))
+        for col in _CURSOR_COLS:
+            item = _ro_item("")
+            item.setFont(theme.monospace_font())
+            self.setItem(0, col, item)
+        self.setVisible(False)
+
+    def set_name(self, text: str) -> None:
+        self.item(0, _COL_NAME).setText(text)
+
+    def update_cursor_values(self, c1_text: str, c2_text: str, delta_text: str) -> None:
+        for col, text in zip(_CURSOR_COLS, (c1_text, c2_text, delta_text)):
+            self.item(0, col).setText(text)
+
+
 class ActiveSignalsTable(QWidget):
     """Per-stripe segments of active signals, sharing one header and column layout."""
 
@@ -434,6 +483,12 @@ class ActiveSignalsTable(QWidget):
     # (REQ-PLOT-343). No payload of the names themselves — the clipboard
     # write already happened by the time this fires.
     names_copied = pyqtSignal(int)
+    # ActiveSignal — emitted when "Promote to X-Axis Signal Tab…" is chosen
+    # from the context menu (#86, REQ-XAXIS-013), single-signal only —
+    # unlike every list[ActiveSignal]-based action above, this creates a
+    # new tab from exactly one signal, so it's only offered with exactly
+    # one row selected.
+    promote_to_xaxis_tab_requested = pyqtSignal(object)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -463,6 +518,9 @@ class ActiveSignalsTable(QWidget):
         # Empty until set_keymap() is called — keyPressEvent() falls back
         # to keymap_presets.DEFAULT_PRESET for any action id not (yet) set.
         self._keymap: dict = {}
+        # Set via set_axis_signal() (#86) — the pinned row is always built
+        # (see _build_ui) but stays hidden until this is non-None.
+        self._axis_signal: ActiveSignal | None = None
         self._build_ui()
         # No segment is created eagerly — in production, segments are created
         # reactively from PlotStripesArea.stripe_created (wired, with a
@@ -613,6 +671,21 @@ class ActiveSignalsTable(QWidget):
                 item = seg.item(row, _COL_NAME)
                 if item is not None:
                     item.setText(formatter(active))
+        if self._axis_signal is not None:
+            self._axis_row.set_name(f"(X-axis) {formatter(self._axis_signal)}")
+
+    def set_axis_signal(self, active: "ActiveSignal | None") -> None:
+        """Set (or clear) the pinned axis-signal row (#86, REQ-XAXIS-030)."""
+        self._axis_signal = active
+        if active is None:
+            self._axis_row.setVisible(False)
+            return
+        self._axis_row.set_name(f"(X-axis) {self._name_formatter(active)}")
+        self._axis_row.setVisible(True)
+
+    def update_axis_cursor_values(self, c1_text: str, c2_text: str, delta_text: str) -> None:
+        """Update the pinned axis-signal row's cursor value cells (REQ-XAXIS-032)."""
+        self._axis_row.update_cursor_values(c1_text, c2_text, delta_text)
 
     def remove_row(self, active: ActiveSignal) -> None:
         """Remove the row for the given ActiveSignal. No-op if not present."""
@@ -661,6 +734,7 @@ class ActiveSignalsTable(QWidget):
         """Show or hide the three cursor-value columns on the header and every segment."""
         for col in _CURSOR_COLS:
             self._header.setColumnHidden(col, not visible)
+            self._axis_row.setColumnHidden(col, not visible)
             for seg in self._segments:
                 seg.setColumnHidden(col, not visible)
 
@@ -714,6 +788,9 @@ class ActiveSignalsTable(QWidget):
         self._header.setFixedHeight(header_height)
         self._header.horizontalHeader().sectionResized.connect(self._on_header_column_resized)
         layout.addWidget(self._header)
+
+        self._axis_row = _AxisSignalRow()
+        layout.addWidget(self._axis_row)
 
         self._segments_splitter = make_splitter(Qt.Orientation.Vertical)
         self._segments_splitter.splitterMoved.connect(self._on_segment_splitter_moved)
@@ -870,6 +947,7 @@ class ActiveSignalsTable(QWidget):
             seg.setItem(row, col, item)
 
     def _on_header_column_resized(self, index: int, old_size: int, new_size: int) -> None:
+        self._axis_row.setColumnWidth(index, new_size)
         for seg in self._segments:
             seg.setColumnWidth(index, new_size)
 
@@ -1171,6 +1249,17 @@ class ActiveSignalsTable(QWidget):
                 lambda: self.move_to_new_stripe_requested.emit(selected)
             )
             menu.addAction(move_new_action)
+
+        if n == 1:
+            promote_action = QAction("Promote to X-Axis Signal Tab…", self)
+            promote_action.setToolTip(
+                "Use this signal as a new tab's X-axis instead of time — "
+                "it stays plotted here too."
+            )
+            promote_action.triggered.connect(
+                lambda: self.promote_to_xaxis_tab_requested.emit(selected[0])
+            )
+            menu.addAction(promote_action)
 
         menu.exec(seg.viewport().mapToGlobal(pos))
 

@@ -353,12 +353,12 @@ once [REQ-PLUGIN-322].
 
 ### Tab creation
 
-With no plugin-registered tab type present, creating a new tab behaves
-exactly as it always has, with no visible change [REQ-PLUGIN-330]. Once at
-least one plugin-registered tab type exists (two or more types in total,
-counting the built-in Plot type), every entry point that creates a new tab
-offers a choice among all registered types before creating one
-[REQ-PLUGIN-331]. An exception raised while building a tab's content is
+Creating a new tab always offers a choice between the two built-in types,
+Plot and X-Axis Signal (#86 — see `docs/requirements/x-axis-signal.md`),
+regardless of whether any plugin-registered tab type exists
+[REQ-PLUGIN-330]. Once at least one plugin-registered tab type exists,
+every entry point that creates a new tab includes it in that same choice
+alongside the built-in types [REQ-PLUGIN-331]. An exception raised while building a tab's content is
 caught and logged at the point the application invokes the factory, the
 same as any other plugin callback (REQ-PLUGIN-150) — no tab is created for
 that attempt, and the application keeps running [REQ-PLUGIN-332].

@@ -63,9 +63,11 @@ class DockWidgetRegistration:
             return None
 
 
-# Reserved for the built-in Plot tab type — a plugin can never register
-# this type_id (#148).
-RESERVED_TAB_TYPE_IDS = frozenset({"plot"})
+# Reserved for the built-in Plot and X-Axis Signal tab types — a plugin can
+# never register either type_id (#148, #86). "xaxis" is a second hardcoded,
+# built-in tab type, not a plugin registration — see docs/architecture.md
+# "X-Axis Signal Tabs (#86)" for why the #148 mechanism is the wrong host.
+RESERVED_TAB_TYPE_IDS = frozenset({"plot", "xaxis"})
 
 
 @dataclass(frozen=True)

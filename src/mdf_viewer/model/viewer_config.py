@@ -80,13 +80,19 @@ class TabConfig:
     # REQ-FILE-090 scope, folded in after live-testing surfaced the gap.
     page_splitter_sizes: tuple[int, int] = (500, 260)
     ast_column_widths: tuple[int, ...] = ()
-    # "plot" for a normal Plot tab, or a plugin-registered tab type's
-    # type_id for a non-plot tab (#148, REQ-PLUGIN-350). Defaults "plot" so
-    # a file saved before this field existed loads every tab as Plot
-    # (REQ-FILE-067 forward-compat convention). A non-plot tab's own
-    # fields above are all set to their empty value on capture — its
-    # content doesn't survive the round-trip, only its existence/name/type.
+    # "plot" for a normal Plot tab, "xaxis" for an X-Axis Signal tab (#86),
+    # or a plugin-registered tab type's type_id for a non-plot tab (#148,
+    # REQ-PLUGIN-350). Defaults "plot" so a file saved before this field
+    # existed loads every tab as Plot (REQ-FILE-067 forward-compat
+    # convention). A non-plot tab's own fields above are all set to their
+    # empty value on capture — its content doesn't survive the round-trip,
+    # only its existence/name/type. An "xaxis" tab, by contrast, captures
+    # full parity via the fields above plus axis_signal below.
     view_type: str = "plot"
+    # The axis signal (#86, REQ-XAXIS-080) — only set for an "xaxis" tab.
+    # None for forward-compat with a file saved before this field existed,
+    # matching every other optional TabConfig field's convention above.
+    axis_signal: SignalRef | None = None
 
 
 @dataclass(frozen=True)

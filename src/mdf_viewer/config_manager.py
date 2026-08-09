@@ -126,6 +126,7 @@ class ConfigManager:
             "page_splitter_sizes": list(t.page_splitter_sizes),
             "ast_column_widths": list(t.ast_column_widths),
             "view_type": t.view_type,
+            "axis_signal": ConfigManager._ref_to_dict(t.axis_signal) if t.axis_signal else None,
         }
 
     @staticmethod
@@ -295,6 +296,8 @@ class ConfigManager:
         )
         ast_column_widths = tuple(int(w) for w in t.get("ast_column_widths", []))
         view_type = str(t.get("view_type", "plot"))
+        axis_signal_raw = t.get("axis_signal")
+        axis_signal = ConfigManager._dict_to_ref(axis_signal_raw) if axis_signal_raw else None
 
         return TabConfig(
             name=str(t.get("name", "Tab 1")),
@@ -311,6 +314,7 @@ class ConfigManager:
             page_splitter_sizes=page_splitter_sizes,
             ast_column_widths=ast_column_widths,
             view_type=view_type,
+            axis_signal=axis_signal,
         )
 
     @staticmethod

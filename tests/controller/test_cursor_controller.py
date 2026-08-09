@@ -1557,3 +1557,283 @@ def test_press_right_first_press_ever_steps_normally_not_snap_only(
     ctrl._positions[0] = 0.0  # already exactly on a sample
     ctrl.press_right()
     assert ctrl._positions[0] == pytest.approx(0.1)  # stepped, not just re-snapped in place
+
+
+# ---------------------------------------------------------------------------
+# Render-space translation seam (#86 — X-Axis Signal tabs)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-XAXIS-052")
+def test_pin_reference_signal_overrides_selection_based_resolution(
+    view: MagicMock, table: MagicMock
+) -> None:
+    coarse = _make_active_spaced("coarse", 11)   # spacing 0.1
+    fine = _make_active_spaced("fine", 101)       # spacing 0.01 — would normally win
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [coarse, fine],
+        get_selected_signals=lambda: [fine],
+        get_cursor_step_unit=lambda: "samples",
+        get_cursor_step_samples=lambda: 1,
+        pin_reference_signal=lambda: coarse,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.0
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(0.1)  # coarse's spacing, not fine's
+
+
+def test_zoom_to_cursors_returns_render_space_positions(
+    view: MagicMock, table: MagicMock
+) -> None:
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [],
+        to_render_x=lambda t: t * 2.0,
+    )
+    ctrl.toggle()
+    ctrl.toggle()  # TWO
+    ctrl._positions = [0.2, 0.8]
+    x_min, x_max = ctrl.zoom_to_cursors()
+    assert x_min == pytest.approx(0.4)
+    assert x_max == pytest.approx(1.6)
+
+
+def test_place_viewport_positions_resolved_through_seam(
+    view: MagicMock, table: MagicMock
+) -> None:
+    # A synthetic seam that halves whatever render-space position it's given.
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 20.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [],
+        resolve_time_at_render_x=lambda render_x, current_time: render_x / 2.0,
+    )
+    ctrl.toggle()  # ONE — first-ever placement calls _place_viewport_positions()
+    # Render-space 25%/75% of [0, 20] is 5.0/15.0; resolved (halved) to 2.5/7.5.
+    assert ctrl._positions[0] == pytest.approx(2.5)
+    assert ctrl._positions[1] == pytest.approx(7.5)
+
+
+@pytest.mark.requirement("REQ-XAXIS-041")
+def test_press_right_pixels_mode_routes_through_render_space_seam(
+    view: MagicMock, table: MagicMock
+) -> None:
+    active = _make_active()
+    calls: list[tuple[float, float]] = []
+
+    def _resolve(render_x: float, current_time: float) -> float:
+        calls.append((render_x, current_time))
+        return render_x / 2.0  # synthetic inverse of to_render_x below
+
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [active],
+        get_cursor_step_unit=lambda: "pixels",
+        get_cursor_step_pixels=lambda: 5,
+        get_x_per_pixel=lambda: 0.02,
+        to_render_x=lambda t: t * 2.0,
+        resolve_time_at_render_x=_resolve,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.5
+    calls.clear()  # drop the call made by toggle()'s own viewport placement
+    ctrl.press_right()
+    # render_x = to_render_x(0.5) + 5*0.02 = 1.0 + 0.1 = 1.1 -> resolved 1.1/2 = 0.55
+    assert ctrl._positions[0] == pytest.approx(0.55)
+    assert calls == [(pytest.approx(1.1), 0.5)]
+
+
+@pytest.mark.requirement("REQ-XAXIS-050")
+def test_press_right_time_mode_uses_step_value_when_provided(
+    view: MagicMock, table: MagicMock
+) -> None:
+    active = _make_active()
+    calls: list[tuple[float, int, float]] = []
+
+    def _step_value(current_time: float, direction: int, amount: float) -> float:
+        calls.append((current_time, direction, amount))
+        return 42.0
+
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [active],
+        get_cursor_step_unit=lambda: "time",
+        get_cursor_step_time_ms=lambda: 100.0,
+        step_value=_step_value,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.3
+    ctrl.press_right()
+    assert ctrl._positions[0] == pytest.approx(42.0)
+    assert calls == [(0.3, 1, 100.0)]
+
+
+def test_step_value_not_used_when_no_active_signal(
+    view: MagicMock, table: MagicMock
+) -> None:
+    """step_value requires a reference signal (REQ-XAXIS-050) — with none
+    active, falls back to plain time-arithmetic rather than crashing."""
+    calls: list = []
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [],
+        get_cursor_step_unit=lambda: "time",
+        get_cursor_step_time_ms=lambda: 100.0,
+        step_value=lambda t, d, a: calls.append((t, d, a)) or 42.0,
+    )
+    ctrl.toggle()
+    ctrl._positions[0] = 0.3
+    ctrl.press_right()
+    assert calls == []
+    assert ctrl._positions[0] == pytest.approx(0.4)
+
+
+def test_identity_defaults_unaffected_by_new_seam_params(
+    view: MagicMock, table: MagicMock
+) -> None:
+    """A CursorController built with none of the #86 params set behaves
+    exactly as before this seam existed — the explicit non-regression check."""
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [],
+    )
+    ctrl.toggle()
+    ctrl.toggle()  # TWO
+    ctrl._positions = [0.2, 0.8]
+    assert ctrl.zoom_to_cursors() == (0.2, 0.8)
+
+
+# ---------------------------------------------------------------------------
+# Pinned axis-signal row (#86 — REQ-XAXIS-032)
+# ---------------------------------------------------------------------------
+
+def test_no_axis_row_update_outside_xaxis_tab(view: MagicMock, table: MagicMock) -> None:
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [],
+    )
+    ctrl.toggle()
+    ctrl.toggle()  # TWO
+    table.update_axis_cursor_values.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-XAXIS-032")
+def test_axis_row_updated_with_axis_signal_value_in_one_two_mode(
+    view: MagicMock, table: MagicMock
+) -> None:
+    axis = _make_active("axis")  # sin(2*pi*t) over t in [0, 1], 101 samples
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [],
+        get_axis_signal=lambda: axis,
+    )
+    ctrl.toggle()
+    ctrl.toggle()  # TWO
+    ctrl._positions = [0.0, 0.25]
+    ctrl._refresh(update_labels=False)
+
+    c1, c2, delta = table.update_axis_cursor_values.call_args.args
+    assert c1 == _fmt_value(_interpolate(axis, 0.0), {}, True)
+    assert c2 == _fmt_value(_interpolate(axis, 0.25), {}, True)
+
+
+@pytest.mark.requirement("REQ-XAXIS-032")
+def test_axis_row_updated_in_one_mode_with_blank_second_column(
+    view: MagicMock, table: MagicMock
+) -> None:
+    axis = _make_active("axis")
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [],
+        get_axis_signal=lambda: axis,
+    )
+    ctrl.toggle()  # ONE
+    ctrl._positions[0] = 0.5
+    ctrl._refresh(update_labels=False)
+
+    c1, c2, delta = table.update_axis_cursor_values.call_args.args
+    assert c1 == _fmt_value(_interpolate(axis, 0.5), {}, True)
+    assert c2 == ""
+    assert delta == ""
+
+
+def test_axis_row_respects_lr_left_right_assignment(view: MagicMock, table: MagicMock) -> None:
+    axis = _make_active("axis")
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [],
+        get_cursor_mode=lambda: "L/R",
+        get_axis_signal=lambda: axis,
+    )
+    ctrl.toggle()
+    ctrl.toggle()  # TWO
+    ctrl._positions = [0.8, 0.2]  # cursor 2 (index 1) is left of cursor 1
+    ctrl._refresh(update_labels=False)
+
+    c1, c2, delta = table.update_axis_cursor_values.call_args.args
+    # Left column shows the leftmost position's value (0.2), not positions[0].
+    assert c1 == _fmt_value(_interpolate(axis, 0.2), {}, True)
+    assert c2 == _fmt_value(_interpolate(axis, 0.8), {}, True)
+
+
+@pytest.mark.requirement("REQ-XAXIS-060")
+def test_delta_label_uses_axis_signal_value_not_time_in_xaxis_tab(
+    view: MagicMock, table: MagicMock
+) -> None:
+    axis = _make_active("axis")  # unit "V"
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [],
+        get_axis_signal=lambda: axis,
+    )
+    ctrl.toggle()
+    ctrl.toggle()  # TWO
+    ctrl._positions = [0.0, 0.25]
+    ctrl._refresh(update_labels=False)
+
+    call_kwargs = view.update_delta_time.call_args[1]
+    expected = abs(_interpolate(axis, 0.25) - _interpolate(axis, 0.0))
+    assert call_kwargs["delta_t_str"] == f"Δ = {expected:.4g} V"
+    assert "Δt" not in call_kwargs["delta_t_str"]
+
+
+def test_delta_label_falls_back_to_time_outside_xaxis_tab(
+    view: MagicMock, table: MagicMock
+) -> None:
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [],
+    )
+    ctrl.toggle()
+    ctrl.toggle()  # TWO
+    ctrl._positions = [0.0, 0.25]
+    ctrl._refresh(update_labels=False)
+
+    call_kwargs = view.update_delta_time.call_args[1]
+    assert call_kwargs["delta_t_str"] == "Δt = 0.25 s"

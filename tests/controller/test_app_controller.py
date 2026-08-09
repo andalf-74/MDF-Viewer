@@ -1979,6 +1979,94 @@ def test_find_similar_signal_locations_by_name_tags_each_candidate(deps: dict) -
     assert result == [(m1, meta_a)]
 
 
+# ---------------------------------------------------------------------------
+# X-Axis Signal tab candidates/loading/promotion (#86)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-XAXIS-012")
+def test_candidate_axis_signals_across_pool(deps: dict) -> None:
+    from mdf_viewer.model.mdf_loader import ChannelGroupInfo
+
+    loader_a = _make_pool_loader()
+    loader_b = _make_pool_loader()
+    meta_a = _make_metadata("speed", gi=0, ci=1)
+    meta_b = _make_metadata("distance", gi=0, ci=2)
+    loader_a.channel_tree.return_value = [ChannelGroupInfo(name="G1", index=0, channels=(meta_a,))]
+    loader_b.channel_tree.return_value = [ChannelGroupInfo(name="G1", index=0, channels=(meta_b,))]
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader_a, loader_b])
+    ctrl2.replace_measurements(["a.mf4"])
+    ctrl2.add_measurements(["b.mf4"])
+    m1, m2 = ctrl2.measurements
+
+    result = ctrl2.candidate_axis_signals()
+
+    assert result == [(m1, meta_a), (m2, meta_b)]
+
+
+def test_candidate_axis_signals_empty_pool(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [])
+    assert ctrl2.candidate_axis_signals() == []
+
+
+@pytest.mark.requirement("REQ-XAXIS-012")
+def test_load_axis_signal_returns_unplotted_active_signal(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    meta = _make_metadata("distance", gi=0, ci=3)
+
+    result = ctrl2.load_axis_signal(m1, meta)
+
+    assert result.measurement is m1
+    assert result.curve is None
+    assert result.view_box is None
+    assert result not in ctrl2.active_signals  # never added to any tab
+
+
+def test_load_axis_signal_propagates_load_error(deps: dict) -> None:
+    loader = _make_pool_loader()
+    loader.load_signal.side_effect = MdfLoadError("not numeric")
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    (m1,) = ctrl2.measurements
+    meta = _make_metadata("text_channel", gi=0, ci=4)
+
+    with pytest.raises(MdfLoadError):
+        ctrl2.load_axis_signal(m1, meta)
+
+
+@pytest.mark.requirement("REQ-XAXIS-017")
+def test_promote_signal_to_xaxis_tab_keeps_original_in_current_tab(ctrl: AppController) -> None:
+    ctrl.add_signal(0, 1)
+    (active,) = ctrl.active_signals
+
+    result = ctrl.promote_signal_to_xaxis_tab(active)
+
+    assert result is not active
+    assert active in ctrl.active_signals
+    assert result not in ctrl.active_signals
+
+
+@pytest.mark.requirement("REQ-XAXIS-017")
+def test_promote_signal_to_xaxis_tab_returns_a_fresh_clone(
+    ctrl: AppController, deps: dict
+) -> None:
+    ctrl.add_signal(0, 1)
+    (active,) = ctrl.active_signals
+    active.curve = MagicMock()
+    active.view_box = MagicMock()
+
+    result = ctrl.promote_signal_to_xaxis_tab(active)
+
+    deps["plot"].remove_signal.assert_not_called()
+    assert active.curve is not None
+    assert active.view_box is not None
+    assert result.curve is None
+    assert result.view_box is None
+    assert result.data is active.data
+    assert result.metadata is active.metadata
+
+
 def test_measurement_count_and_measurements_are_empty_initially(deps: dict) -> None:
     ctrl2 = _make_ctrl_with_loaders(deps, [])
     assert ctrl2.measurement_count == 0
@@ -2673,6 +2761,55 @@ def test_on_measurement_offset_changed_reaches_every_tab(deps: dict) -> None:
     ctrl2.on_measurement_offset_changed(m1)
 
     plot2.refresh_signal_data.assert_called_once_with(sig_in_tab2)
+
+
+@pytest.mark.requirement("REQ-XAXIS-072")
+def test_on_measurement_offset_changed_axis_signal_refreshes_every_other_signal(
+    deps: dict,
+) -> None:
+    """When the changed measurement is the tab's own axis signal's
+    measurement, every other active signal in that tab refreshes (its Y
+    value shifted), even though none of them belong to that measurement
+    themselves — not just the ones directly matching it (REQ-XAXIS-071's
+    plain case, covered by the tests above)."""
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["axis.mf4"])
+    ctrl2.add_measurements(["other.mf4"])
+    axis_measurement, other_measurement = ctrl2.measurements
+
+    plot2, table2 = MagicMock(), MagicMock()
+    axis_signal = _make_active(name="axis", measurement=axis_measurement)
+    ctrl2.create_xaxis_tab(plot2, table2, axis_signal)
+    ctrl2.add_signal(0, 1, measurement=other_measurement)
+    (other_signal,) = ctrl2.active_signals
+    plot2.refresh_signal_data.reset_mock()
+
+    ctrl2.on_measurement_offset_changed(axis_measurement)
+
+    plot2.refresh_signal_data.assert_called_once_with(other_signal)
+
+
+@pytest.mark.requirement("REQ-XAXIS-071")
+def test_on_measurement_offset_changed_xaxis_tab_non_axis_signal_refreshes_only_itself(
+    deps: dict,
+) -> None:
+    """A non-axis signal's own measurement offset changing in an X-Axis
+    Signal tab behaves like the plain case — only that signal refreshes."""
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["axis.mf4"])
+    ctrl2.add_measurements(["other.mf4"])
+    axis_measurement, other_measurement = ctrl2.measurements
+
+    plot2, table2 = MagicMock(), MagicMock()
+    axis_signal = _make_active(name="axis", measurement=axis_measurement)
+    ctrl2.create_xaxis_tab(plot2, table2, axis_signal)
+    ctrl2.add_signal(0, 1, measurement=other_measurement)
+    (other_signal,) = ctrl2.active_signals
+    plot2.refresh_signal_data.reset_mock()
+
+    ctrl2.on_measurement_offset_changed(other_measurement)
+
+    plot2.refresh_signal_data.assert_called_once_with(other_signal)
 
 
 # ---------------------------------------------------------------------------
@@ -3372,6 +3509,40 @@ def test_capture_config_with_tab_specs_captures_plot_and_non_plot_tabs(
     assert config.tabs[1].name == "Fixture"
     assert config.tabs[1].view_type == "fixture_tab"
     assert config.tabs[1].signals == ()
+
+
+@pytest.mark.requirement("REQ-XAXIS-080")
+def test_capture_config_captures_xaxis_view_type_and_axis_signal(
+    ctrl: AppController, deps: dict, tmp_path
+) -> None:
+    """The dormant view_type-defaulting bug (#86's architecture review) —
+    a real xaxis workspace must capture view_type="xaxis" and its axis
+    signal, not silently default to "plot" like every workspace did before
+    a second real view_type existed."""
+    from mdf_viewer.model.viewer_config import SignalRef
+
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+    axis = _make_active(name="axis")
+    ctrl.create_xaxis_tab(deps["plot"], deps["table"], axis)
+
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+
+    assert config.tabs[1].view_type == "xaxis"
+    assert config.tabs[1].axis_signal == SignalRef(name="axis", measurement_index=0)
+
+
+@pytest.mark.requirement("REQ-XAXIS-080")
+def test_capture_config_plot_tab_has_no_axis_signal(
+    ctrl: AppController, deps: dict, tmp_path
+) -> None:
+    deps["plot"].get_zoom_state.return_value = _make_zoom_state()
+    deps["plot"].get_axis_grouping.return_value = ([], [])
+
+    config = ctrl.capture_config(tmp_path / "session.mvc")
+
+    assert config.tabs[0].view_type == "plot"
+    assert config.tabs[0].axis_signal is None
 
 
 def test_capture_config_with_tab_specs_consumes_splitter_sizes_only_for_plot(
@@ -4535,6 +4706,41 @@ def test_create_tab_starts_with_no_active_signals(ctrl: AppController) -> None:
     assert ctrl.active_signals != []
     ctrl.create_tab(MagicMock(), MagicMock())
     assert ctrl.active_signals == []
+
+
+# ---------------------------------------------------------------------------
+# create_xaxis_tab (#86 — X-Axis Signal tabs)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-XAXIS-010")
+def test_create_xaxis_tab_adds_workspace_and_makes_it_active(ctrl: AppController) -> None:
+    plot2, table2 = MagicMock(), MagicMock()
+    axis = _make_active(name="axis")
+    workspace = ctrl.create_xaxis_tab(plot2, table2, axis)
+    assert len(ctrl._workspaces) == 2
+    assert ctrl.current_workspace is workspace
+    assert workspace.view_type == "xaxis"
+    assert workspace.axis_signal is axis
+
+
+def test_create_xaxis_tab_pushes_axis_signal_to_plot_area(ctrl: AppController) -> None:
+    plot2, table2 = MagicMock(), MagicMock()
+    axis = _make_active(name="axis")
+    ctrl.create_xaxis_tab(plot2, table2, axis)
+    plot2.set_axis_signal.assert_called_once_with(axis)
+
+
+@pytest.mark.requirement("REQ-XAXIS-030")
+def test_create_xaxis_tab_pushes_axis_signal_to_table(ctrl: AppController) -> None:
+    plot2, table2 = MagicMock(), MagicMock()
+    axis = _make_active(name="axis")
+    ctrl.create_xaxis_tab(plot2, table2, axis)
+    table2.set_axis_signal.assert_called_once_with(axis)
+
+
+def test_create_tab_defaults_to_plot_view_type(ctrl: AppController) -> None:
+    assert ctrl.current_workspace.view_type == "plot"
+    assert ctrl.current_workspace.axis_signal is None
 
 
 @pytest.mark.requirement("REQ-PLOT-231")
@@ -5707,6 +5913,28 @@ def test_search_execute_moves_cursor_and_pans_current_tab(ctrl: AppController) -
     ctrl.current_workspace.plot.pan_to_center.assert_called_once_with(0.0)
     zoom_ctrl.before_discrete_action.assert_called_once()
     zoom_ctrl.after_discrete_action.assert_called_once()
+
+
+@pytest.mark.requirement("REQ-SEARCH-055")
+def test_search_execute_pans_by_axis_value_in_xaxis_tab(ctrl: AppController) -> None:
+    from mdf_viewer.model.signal_search import SearchOperator, SearchRow
+
+    axis_signal = _make_search_signal([0.0, 1.0, 2.0], [10.0, 20.0, 30.0])
+    signal = _make_search_signal([0.0, 1.0, 2.0], [5.0, 5.0, 5.0])
+    ctrl.current_workspace.active.append(signal)
+    ctrl.current_workspace.view_type = "xaxis"
+    ctrl.current_workspace.axis_signal = axis_signal
+    cursor_ctrl, zoom_ctrl = MagicMock(), MagicMock()
+    ctrl.set_cursor_controller(cursor_ctrl)
+    ctrl.set_zoom_controller(zoom_ctrl)
+
+    rows = [SearchRow(signal=signal, operator=SearchOperator.EQ, value=5.0)]
+    match = ctrl.search_execute(rows)
+
+    assert match == 0.0
+    cursor_ctrl.jump_cursor1_to.assert_called_once_with(0.0)  # cursor still stores raw time
+    # pan_to_center() gets the axis signal's own value at that time (10.0), not the raw time (0.0)
+    ctrl.current_workspace.plot.pan_to_center.assert_called_once_with(10.0)
 
 
 def test_search_execute_returns_none_when_no_match(ctrl: AppController) -> None:

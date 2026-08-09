@@ -267,6 +267,14 @@ class PreferencesDialog(QDialog):
         step_row.addWidget(QLabel("Arrow key step:"))
         self._step_unit = QComboBox()
         self._step_unit.addItems(["Samples", "Pixels", "Time"])
+        self._step_unit.setToolTip(
+            "Samples: steps by a number of the reference signal's recorded "
+            "samples.\n"
+            "Pixels: steps by a number of screen pixels.\n"
+            "Time: steps by an amount of time. In an X-Axis Signal tab, "
+            "steps by an amount of the axis signal's own recorded value "
+            "instead, since the axis is not time there."
+        )
         unit_index = {"samples": 0, "pixels": 1, "time": 2}.get(
             self._settings.cursor_step_unit, 0
         )

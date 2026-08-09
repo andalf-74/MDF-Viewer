@@ -65,6 +65,7 @@ class WorkspaceSessionController:
         find_tab_type: Callable[[str], object | None],
         create_non_plot_tab: Callable[[object, str], int],
         tab_specs: Callable[[], list[tuple[str, str, object | None]]],
+        create_xaxis_tab: "Callable[[object], int]",
     ) -> None:
         self._parent = parent
         self._tab_widget = tab_widget
@@ -87,6 +88,10 @@ class WorkspaceSessionController:
         self._find_tab_type = find_tab_type
         self._create_non_plot_tab = create_non_plot_tab
         self._tab_specs = tab_specs
+        # #86 — X-Axis Signal tabs: creates a fresh tab from an already-
+        # resolved-and-loaded axis ActiveSignal, returning its tab-bar index
+        # (mirrors _on_new_tab() via MainWindow._on_new_xaxis_tab()).
+        self._create_xaxis_tab = create_xaxis_tab
 
     # ------------------------------------------------------------------
     # Save path
@@ -218,40 +223,87 @@ class WorkspaceSessionController:
             self._tab_widget.setCurrentIndex(0)
         controller.remove_all()
 
-    def build_tab_skeletons(self, tab_configs: list) -> list:
-        """Build every saved tab's skeleton — the tab itself (renamed)
-        and, for a plot tab, its stripe layout (renamed/resized) — with
-        no signals yet (#106 Phase 2; extended #148 for non-plot tabs).
+    def _resolve_axis_signal(self, axis_ref, measurements: list) -> "object | None":
+        """Resolve a saved axis-signal SignalRef (#86) against the
+        already-loaded *measurements* into a real ActiveSignal, or None if
+        it can't be resolved (measurement failed to load, or the channel
+        is gone from the file) — the caller skips building that tab
+        entirely in that case (REQ-PLUGIN-352-style precedent), rather
+        than restoring a broken/partial xaxis tab.
 
-        Processes *tab_configs* as one single ordered pass (plot and
-        non-plot interleaved in saved order, not plot-first-then-non-plot)
-        — REQ-PLUGIN-351's "same relative position" depends on this.
-        Assumes `reset_to_single_tab()` already ran, so exactly one plot
-        tab exists. Reused for the *first* `"plot"` entry found (renamed,
-        not recreated, then relocated to its correct position via
-        `moveTab()` once every other tab has been built); every other
-        `"plot"` entry drives `on_new_tab()`'s own tab-creation factory —
-        a deliberate simplification (see `docs/architecture.md`): each
-        call fires `switch_tab()` as a side effect and doesn't reconcile
-        `_tab_counter` against restored names, accepted for this rare
-        bulk operation rather than building a separate non-interactive
-        tab-creation path. A non-plot entry looks its `view_type` up in
-        the plugin registry and builds it via `create_non_plot_tab()`,
-        titled from the *saved* name (so a user's rename survives); an
-        unregistered type is skipped entirely (REQ-PLUGIN-352). If
-        *tab_configs* has zero `"plot"` entries, the surviving tab is
-        left exactly where it is — an implicit, unsaved extra Plot tab,
-        since `AppController` structurally always keeps >=1 workspace
-        alive — and every entry is simply appended after it.
+        Deliberately simpler than resolve_config_signals_for_tabs()'s
+        near-match/picker machinery for ordinary active signals — exactly
+        one signal to resolve, and a picker-driven fallback for it is
+        explicitly M6 (#86) scope, not M5's persistence scope.
+        """
+        controller = self._get_controller()
+        if controller is None or axis_ref is None:
+            return None
+        if not (0 <= axis_ref.measurement_index < len(measurements)):
+            return None
+        measurement = measurements[axis_ref.measurement_index]
+        if measurement is None:
+            return None
+        matches = measurement.loader.find_signal_by_name(axis_ref.name)
+        if not matches:
+            return None
+        from mdf_viewer.errors import MdfLoadError
+
+        try:
+            return controller.load_axis_signal(measurement, matches[0])
+        except MdfLoadError:
+            return None
+
+    def build_tab_skeletons(self, tab_configs: list, measurements: "list | None" = None) -> list:
+        """Build every saved tab's skeleton — the tab itself (renamed)
+        and, for a plot or X-Axis Signal tab, its stripe layout
+        (renamed/resized) — with no ordinary signals yet (#106 Phase 2;
+        extended #148 for non-plot tabs, #86 for X-Axis Signal tabs).
+
+        Processes *tab_configs* as one single ordered pass (plot,
+        X-Axis Signal, and non-plot interleaved in saved order, not
+        grouped by type) — REQ-PLUGIN-351's "same relative position"
+        depends on this. Assumes `reset_to_single_tab()` already ran, so
+        exactly one plot tab exists. Reused for the *first* `"plot"` entry
+        found (renamed, not recreated, then relocated to its correct
+        position via `moveTab()` once every other tab has been built);
+        every other `"plot"` entry drives `on_new_tab()`'s own
+        tab-creation factory — a deliberate simplification (see
+        `docs/architecture.md`): each call fires `switch_tab()` as a side
+        effect and doesn't reconcile `_tab_counter` against restored
+        names, accepted for this rare bulk operation rather than building
+        a separate non-interactive tab-creation path. An `"xaxis"` entry
+        is never satisfied by the survivor page (always freshly built via
+        `create_xaxis_tab()`, see `MainWindow._on_new_xaxis_tab`'s own
+        docstring for why) — its saved axis signal is resolved and loaded
+        first via `_resolve_axis_signal()`, since every subsequent
+        `add_signal()` call for this tab needs `workspace.axis_signal`
+        already set to resample against; an unresolvable axis signal
+        skips building that tab entirely (see `_resolve_axis_signal`). A
+        non-plot entry looks its `view_type` up in the plugin registry and
+        builds it via `create_non_plot_tab()`, titled from the *saved*
+        name (so a user's rename survives); an unregistered type is
+        skipped entirely (REQ-PLUGIN-352). If *tab_configs* has zero
+        `"plot"` entries, the surviving tab is left exactly where it is —
+        an implicit, unsaved extra Plot tab, since `AppController`
+        structurally always keeps >=1 workspace alive — and every entry
+        is simply appended after it.
+
+        *measurements* is `AppController.restore_measurements()`'s
+        index-aligned result — needed here (not just later, by
+        `resolve_config_signals_for_tabs()`) to resolve an `"xaxis"`
+        entry's axis signal before any of this tab's ordinary signals are
+        restored.
 
         Returns `resolved_workspaces: list[TabWorkspace | None]`, one
         entry per *tab_configs* position — the `TabWorkspace` for a
-        (re)used/created plot tab, `None` for a non-plot or skipped
-        entry — threaded to `AppController.restore_config()` (#148).
+        (re)used/created plot or xaxis tab, `None` for a non-plot or
+        skipped entry — threaded to `AppController.restore_config()` (#148).
         """
         controller = self._get_controller()
         if controller is None or not tab_configs:
             return []
+        measurements = measurements if measurements is not None else []
 
         survivor_page = self._tab_widget.widget(0)
         first_plot_index = next(
@@ -265,6 +317,17 @@ class WorkspaceSessionController:
                     page = survivor_page
                 else:
                     page = self._tab_widget.widget(self._on_new_tab())
+                self._tab_widget.setTabText(self._tab_widget.indexOf(page), tab_config.name)
+                self.build_stripe_skeleton(page, tab_config.stripes, tab_config.active_stripe_index)
+                page.setSizes(list(tab_config.page_splitter_sizes))
+                wi = controller.tab_index_for_plot(page.plot_area)
+                if wi is not None:
+                    resolved_workspaces[index] = controller.all_workspaces()[wi]
+            elif tab_config.view_type == "xaxis":
+                axis_signal = self._resolve_axis_signal(tab_config.axis_signal, measurements)
+                if axis_signal is None:
+                    continue  # unresolvable — skip this tab entirely
+                page = self._tab_widget.widget(self._create_xaxis_tab(axis_signal))
                 self._tab_widget.setTabText(self._tab_widget.indexOf(page), tab_config.name)
                 self.build_stripe_skeleton(page, tab_config.stripes, tab_config.active_stripe_index)
                 page.setSizes(list(tab_config.page_splitter_sizes))
@@ -451,7 +514,7 @@ class WorkspaceSessionController:
             QMessageBox.critical(self._parent, "Load Error", "No measurements could be loaded.")
             return
 
-        resolved_workspaces = self.build_tab_skeletons(list(config.tabs))
+        resolved_workspaces = self.build_tab_skeletons(list(config.tabs), measurements)
 
         resolved_by_tab, not_found = self.resolve_config_signals_for_tabs(
             list(config.tabs), measurements,

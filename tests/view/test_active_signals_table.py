@@ -2185,3 +2185,128 @@ def test_move_to_new_stripe_action_emits_signal(
     t.move_to_new_stripe_requested.connect(received.append)
     action.trigger()
     assert received == [[sigs[0]]]
+
+
+# ---------------------------------------------------------------------------
+# Context menu — Promote to X-Axis Signal Tab (#86, REQ-XAXIS-013)
+# ---------------------------------------------------------------------------
+
+def test_promote_action_present_with_single_selection(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    _select_rows(t, 0)
+    titles = [a.text() for a in _open_context_menu(t).actions()]
+    assert "Promote to X-Axis Signal Tab…" in titles
+
+
+def test_promote_action_absent_with_multi_selection(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    _select_rows(t, 0, 1)
+    titles = [a.text() for a in _open_context_menu(t).actions()]
+    assert "Promote to X-Axis Signal Tab…" not in titles
+
+
+def test_promote_action_present_without_stripe_providers(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    """Unlike Move to (new) Stripe, promotion doesn't need stripe providers."""
+    t, sigs = populated
+    _select_rows(t, 0)
+    titles = [a.text() for a in _open_context_menu(t).actions()]
+    assert "Move to new Stripe" not in titles
+    assert "Promote to X-Axis Signal Tab…" in titles
+
+
+@pytest.mark.requirement("REQ-XAXIS-013")
+def test_promote_action_emits_single_signal(
+    populated: tuple[ActiveSignalsTable, list[ActiveSignal]],
+) -> None:
+    t, sigs = populated
+    _select_rows(t, 0)
+    menu = _open_context_menu(t)
+    action = next(a for a in menu.actions() if a.text() == "Promote to X-Axis Signal Tab…")
+
+    received: list = []
+    t.promote_to_xaxis_tab_requested.connect(received.append)
+    action.trigger()
+    assert received == [sigs[0]]
+
+
+# ---------------------------------------------------------------------------
+# Pinned axis-signal row (#86 — X-Axis Signal tabs)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-XAXIS-030")
+def test_axis_row_hidden_by_default(table: ActiveSignalsTable) -> None:
+    assert table._axis_row.isHidden()
+
+
+@pytest.mark.requirement("REQ-XAXIS-030")
+def test_set_axis_signal_shows_row_with_badge_and_name(table: ActiveSignalsTable) -> None:
+    axis = _make_active("driven_distance")
+    table.set_axis_signal(axis)
+    assert not table._axis_row.isHidden()
+    assert table._axis_row.item(0, _COL_NAME).text() == "(X-axis) driven_distance"
+
+
+def test_set_axis_signal_none_hides_row(table: ActiveSignalsTable) -> None:
+    axis = _make_active("driven_distance")
+    table.set_axis_signal(axis)
+    table.set_axis_signal(None)
+    assert table._axis_row.isHidden()
+
+
+def test_set_axis_signal_uses_current_name_formatter(table: ActiveSignalsTable) -> None:
+    axis = _make_active("driven_distance")
+    table.set_name_formatter(lambda a: f"[M1] {a.metadata.name}")
+    table.set_axis_signal(axis)
+    assert table._axis_row.item(0, _COL_NAME).text() == "(X-axis) [M1] driven_distance"
+
+
+def test_set_name_formatter_refreshes_visible_axis_row(table: ActiveSignalsTable) -> None:
+    axis = _make_active("driven_distance")
+    table.set_axis_signal(axis)
+    table.set_name_formatter(lambda a: f"renamed_{a.metadata.name}")
+    assert table._axis_row.item(0, _COL_NAME).text() == "(X-axis) renamed_driven_distance"
+
+
+@pytest.mark.requirement("REQ-XAXIS-032")
+def test_update_axis_cursor_values_sets_text(table: ActiveSignalsTable) -> None:
+    axis = _make_active("driven_distance")
+    table.set_axis_signal(axis)
+    table.update_axis_cursor_values("1.23", "4.56", "3.33")
+    assert table._axis_row.item(0, _COL_C1).text() == "1.23"
+    assert table._axis_row.item(0, _COL_C2).text() == "4.56"
+    assert table._axis_row.item(0, _COL_DELTA).text() == "3.33"
+
+
+@pytest.mark.requirement("REQ-XAXIS-031")
+def test_axis_row_has_no_context_menu(table: ActiveSignalsTable) -> None:
+    from PyQt6.QtCore import Qt
+
+    assert table._axis_row.contextMenuPolicy() == Qt.ContextMenuPolicy.NoContextMenu
+
+
+@pytest.mark.requirement("REQ-XAXIS-031")
+def test_axis_row_has_no_visibility_toggle_or_color_swatch(table: ActiveSignalsTable) -> None:
+    axis = _make_active("driven_distance")
+    table.set_axis_signal(axis)
+    assert table._axis_row.cellWidget(0, _COL_VISIBLE) is None
+    assert table._axis_row.cellWidget(0, _COL_COLOR) is None
+
+
+def test_show_cursor_columns_applies_to_axis_row(table: ActiveSignalsTable) -> None:
+    axis = _make_active("driven_distance")
+    table.set_axis_signal(axis)
+    table.show_cursor_columns(True)
+    assert not table._axis_row.isColumnHidden(_COL_C1)
+    table.show_cursor_columns(False)
+    assert table._axis_row.isColumnHidden(_COL_C1)
+
+
+def test_header_column_resize_propagates_to_axis_row(table: ActiveSignalsTable) -> None:
+    table._header.setColumnWidth(_COL_NAME, 200)
+    assert table._axis_row.columnWidth(_COL_NAME) == 200
