@@ -102,6 +102,7 @@ if TYPE_CHECKING:
         SignalInfoProtocol,
         SignalTableProtocol,
     )
+    from mdf_viewer.enums import CursorMode
     from mdf_viewer.settings import Settings
 
 # Ordered color palette for new signals; cycles on overflow.
@@ -224,6 +225,12 @@ class AppController:
         # itself is a singleton, unlike CursorController/ZoomController
         # which are 1:1 with a tab's plot.
         self._search_controller = SearchController()
+
+        # Registered once by MainWindow.set_controller() (#171) but must be
+        # re-wired to every tab's own CursorController, not just whichever
+        # tab happened to be current at that moment — stored here so
+        # set_cursor_controller() can (re-)wire it for each new tab too.
+        self._cursor_mode_cb: Callable[[CursorMode], None] | None = None
 
     def _default_measurement(self) -> LoadedMeasurement | None:
         """Resolve an implicit measurement when the pool has exactly one entry.
@@ -386,6 +393,13 @@ class AppController:
         if 0 <= index < len(self._workspaces):
             self._active_tab_index = index
             self._push_selection_to_drawer(self.current_workspace.selected)
+            # set_cursor_mode_callback()'s cb only fires on a *change* — a
+            # tab switch needs an explicit push of the newly active tab's
+            # already-current mode too, or the toolbar/menu state stays
+            # stuck at whatever the previously active tab last reported (#171).
+            workspace = self.current_workspace
+            if workspace.cursor_ctrl is not None and self._cursor_mode_cb is not None:
+                self._cursor_mode_cb(workspace.cursor_ctrl.mode)
 
     def remove_tab(self, index: int) -> None:
         """Remove the tab at *index*, or clear it in place if it's the only
@@ -597,6 +611,22 @@ class AppController:
         cursor_ctrl.set_position_changed_callback(
             lambda positions, mode: self._emit_cursor_moved(positions, mode, workspace)
         )
+        # Re-wire the mode-changed callback for *this* tab too (#171) — it
+        # was previously only ever bound once, to whichever tab happened to
+        # be current when MainWindow.set_controller() ran, so every tab
+        # created afterward never reported its own cursor mode at all.
+        if self._cursor_mode_cb is not None:
+            cursor_ctrl.set_mode_changed_callback(
+                lambda mode, ws=workspace: self._on_cursor_mode_changed(mode, ws)
+            )
+
+    def _on_cursor_mode_changed(self, mode: CursorMode, workspace: TabWorkspace) -> None:
+        # Only the active tab's cursor mode should drive the toolbar/menu
+        # state MainWindow's callback maintains — a background tab's mode
+        # is irrelevant until it becomes current (switch_tab() re-syncs it
+        # explicitly at that point instead).
+        if workspace is self.current_workspace and self._cursor_mode_cb is not None:
+            self._cursor_mode_cb(mode)
 
     def _emit_cursor_moved(self, positions: list[float], mode, tab) -> None:
         self.events.cursor_moved.emit(CursorMovedEvent(positions=positions, mode=mode, tab=tab))
@@ -658,8 +688,18 @@ class AppController:
         return ws.cursor_ctrl.cursor1_value_for(active)
 
     def set_cursor_mode_callback(self, cb) -> None:
+        """Register *cb* to be invoked whenever the active tab's cursor mode changes (#171).
+
+        Stored on the controller, not just forwarded to whichever tab's
+        CursorController happens to be current right now — set_cursor_controller()
+        re-wires every subsequently created tab to this same *cb* too, and
+        switch_tab() re-syncs it to the newly active tab's actual mode.
+        """
+        self._cursor_mode_cb = cb
         if self.current_workspace.cursor_ctrl is not None:
-            self.current_workspace.cursor_ctrl.set_mode_changed_callback(cb)
+            self.current_workspace.cursor_ctrl.set_mode_changed_callback(
+                lambda mode, ws=self.current_workspace: self._on_cursor_mode_changed(mode, ws)
+            )
 
     def refresh_cursors(self) -> None:
         """Refresh cursor display after preference changes."""

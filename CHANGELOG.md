@@ -88,6 +88,14 @@ All notable changes to MDF-Viewer are documented in this file.
   to only the active stripe. Both toolbar tooltips updated to reflect
   their fixed scope.
 
+### Fixed
+- "Zoom to Cursors" enabled state (#171): the toolbar button's
+  enabled/disabled state only ever tracked whichever tab was active when
+  the app started, never updating for any tab created afterward regardless
+  of that tab's own cursor mode. It now correctly reflects the actual
+  cursor mode of whichever tab is currently active, including immediately
+  after switching tabs.
+
 ## [2.3.1] - 2026-07-29
 
 ### Added

@@ -16,6 +16,7 @@ from PyQt6.QtGui import QColor
 from pytestqt.qtbot import QtBot
 
 from mdf_viewer.controller.app_controller import AppController, _COLOR_PALETTE
+from mdf_viewer.enums import CursorMode
 from mdf_viewer.errors import LabelListParseError, MdfLoadError
 from mdf_viewer.model.label_list import LabelGroup, parse_label_list
 from mdf_viewer.model.loaded_measurement import LoadedMeasurement
@@ -5272,6 +5273,81 @@ def test_cursor_moved_event_stays_tagged_with_originating_tab_after_switch() -> 
 
     callback_b([3.0, 4.0], "TWO")
     assert seen[1].tab is workspace_b
+
+
+def _make_bare_controller() -> AppController:
+    return AppController(
+        loader=MagicMock(),
+        signal_browser=MagicMock(),
+        plot_area=MagicMock(),
+        active_signals_table=MagicMock(),
+        measurement_info_box=MagicMock(),
+        signal_info_box=MagicMock(),
+    )
+
+
+def test_cursor_mode_callback_wired_to_tab_created_after_registration() -> None:
+    """Regression for #171: set_cursor_mode_callback() only ever bound to
+    whichever tab was current at the moment it was called (tab A) — every
+    tab created afterward built its own CursorController via
+    set_cursor_controller() without the mode-changed callback ever being
+    re-registered, so its mode changes were silently never reported."""
+    controller = _make_bare_controller()
+    cursor_ctrl_a = MagicMock()
+    controller.set_cursor_controller(cursor_ctrl_a)
+
+    seen = []
+    controller.set_cursor_mode_callback(seen.append)
+
+    controller.create_tab(MagicMock(), MagicMock())  # tab B now active
+    cursor_ctrl_b = MagicMock()
+    controller.set_cursor_controller(cursor_ctrl_b)
+
+    assert cursor_ctrl_b.set_mode_changed_callback.called
+    mode_cb_b = cursor_ctrl_b.set_mode_changed_callback.call_args[0][0]
+    mode_cb_b(CursorMode.TWO)
+    assert seen == [CursorMode.TWO]
+
+
+def test_cursor_mode_callback_ignores_background_tab_mode_change() -> None:
+    """A tab that isn't active must not drive the toolbar/menu state even if
+    its own CursorController somehow reports a mode change (#171)."""
+    controller = _make_bare_controller()
+    cursor_ctrl_a = MagicMock()
+    controller.set_cursor_controller(cursor_ctrl_a)
+    seen = []
+    controller.set_cursor_mode_callback(seen.append)
+    mode_cb_a = cursor_ctrl_a.set_mode_changed_callback.call_args[0][0]
+
+    controller.create_tab(MagicMock(), MagicMock())  # tab B now active
+
+    mode_cb_a(CursorMode.TWO)  # tab A is in the background now
+    assert seen == []
+
+
+def test_switch_tab_resyncs_cursor_mode_to_newly_active_tab() -> None:
+    """Regression for #171: switch_tab() must push the newly active tab's
+    already-current cursor mode explicitly, since set_cursor_mode_callback()'s
+    cb only ever fires on a *change* — otherwise the toolbar/menu state stays
+    stuck at whatever the previously active tab last reported."""
+    controller = _make_bare_controller()
+    cursor_ctrl_a = MagicMock()
+    cursor_ctrl_a.mode = CursorMode.HIDDEN
+    controller.set_cursor_controller(cursor_ctrl_a)
+    seen = []
+    controller.set_cursor_mode_callback(seen.append)
+
+    workspace_b = controller.create_tab(MagicMock(), MagicMock())
+    cursor_ctrl_b = MagicMock()
+    cursor_ctrl_b.mode = CursorMode.TWO
+    controller.set_cursor_controller(cursor_ctrl_b)
+    seen.clear()
+
+    controller.switch_tab(0)
+    assert seen == [CursorMode.HIDDEN]
+
+    controller.switch_tab(controller._workspaces.index(workspace_b))
+    assert seen == [CursorMode.HIDDEN, CursorMode.TWO]
 
 
 # ---------------------------------------------------------------------------
