@@ -1115,6 +1115,21 @@ def test_keymap_preset_label_defaults_to_default(settings: Settings) -> None:
     assert settings.keymap_preset_label == "Default"
 
 
+def test_cursor_value_display_defaults_to_active(settings: Settings) -> None:
+    assert settings.cursor_value_display == "active"
+
+
+@pytest.mark.requirement("REQ-PLOT-080")
+def test_cursor_value_display_round_trips_through_save_and_load(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    s1 = Settings(path=path)
+    s1.cursor_value_display = "both"
+
+    s2 = Settings(path=path)
+
+    assert s2.cursor_value_display == "both"
+
+
 @pytest.mark.requirement("REQ-KEYS-060")
 def test_keymap_round_trips_through_save_and_load(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"

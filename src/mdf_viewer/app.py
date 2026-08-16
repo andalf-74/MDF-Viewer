@@ -114,6 +114,7 @@ def _wire_tab(
         get_delta_time_color=lambda: settings.delta_time_color,
         get_selected_signals=lambda: workspace.selected_signals,
         get_cursor_step_unit=lambda: settings.cursor_step_unit,
+        get_cursor_value_display=lambda: settings.cursor_value_display,
         get_cursor_step_samples=lambda: settings.cursor_step_samples,
         get_cursor_step_pixels=lambda: settings.cursor_step_pixels,
         get_cursor_step_time_ms=lambda: settings.cursor_step_time_ms,

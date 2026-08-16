@@ -249,6 +249,29 @@ def test_refresh_updates_labels(view: MagicMock, table: MagicMock) -> None:
     view.update_labels.assert_called()
 
 
+@pytest.mark.requirement("REQ-PLOT-080")
+def test_refresh_pushes_cursor_value_display_from_injected_callable(
+    view: MagicMock, table: MagicMock
+) -> None:
+    ctrl = CursorController(
+        cursor_view=view,
+        get_x_range=lambda: (0.0, 1.0),
+        active_signals_table=table,
+        get_active_signals=lambda: [],
+        get_cursor_value_display=lambda: "both",
+    )
+    ctrl.toggle()
+    view.set_value_display_mode.assert_called_with("both")
+
+
+def test_cursor_value_display_defaults_to_active_when_not_injected(
+    view: MagicMock, table: MagicMock
+) -> None:
+    ctrl = _make_ctrl(view, table)
+    ctrl.toggle()
+    view.set_value_display_mode.assert_called_with("active")
+
+
 def test_on_signal_removed_calls_view(ctrl: CursorController, view: MagicMock) -> None:
     active = _make_active()
     ctrl.on_signal_removed(active)

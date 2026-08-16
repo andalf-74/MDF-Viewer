@@ -261,6 +261,55 @@ def test_only_nearest_cursor_label_visible_in_two_mode(
     assert lbl1.isVisible()
 
 
+@pytest.mark.requirement("REQ-PLOT-085")
+def test_both_value_display_mode_shows_both_cursors_regardless_of_mouse(
+    sv: CursorStripesView, stripe: PlotStripe
+) -> None:
+    _set_view_range(stripe, (0.0, 1.0), (-1.0, 1.0))
+    active = _make_active()
+    stripe.add_signal(active)
+    sv.set_value_display_mode("both")
+    sv.apply_mode(CursorMode.TWO, [0.2, 0.8])
+    sv.update_labels([active], [0.2, 0.8], CursorMode.TWO)
+    # Mouse nearest cursor 0 — with "active" this would hide cursor 1's label.
+    scene_pos = stripe.plot_item.vb.mapViewToScene(pg.Point(0.1, 0.0))
+    sv._on_mouse_moved(stripe, (scene_pos,))
+    lbl0, _ = sv._labels[(0, active)]
+    lbl1, _ = sv._labels[(1, active)]
+    assert lbl0.isVisible()
+    assert lbl1.isVisible()
+
+
+@pytest.mark.requirement("REQ-PLOT-086")
+def test_neither_value_display_mode_hides_labels_in_two_cursor_mode(
+    sv: CursorStripesView, stripe: PlotStripe
+) -> None:
+    _set_view_range(stripe, (0.0, 1.0), (-1.0, 1.0))
+    active = _make_active()
+    stripe.add_signal(active)
+    sv.set_value_display_mode("neither")
+    sv.apply_mode(CursorMode.TWO, [0.2, 0.8])
+    sv.update_labels([active], [0.2, 0.8], CursorMode.TWO)
+    lbl0, _ = sv._labels[(0, active)]
+    lbl1, _ = sv._labels[(1, active)]
+    assert not lbl0.isVisible()
+    assert not lbl1.isVisible()
+
+
+@pytest.mark.requirement("REQ-PLOT-086")
+def test_neither_value_display_mode_hides_labels_in_one_cursor_mode(
+    sv: CursorStripesView, stripe: PlotStripe
+) -> None:
+    _set_view_range(stripe, (0.0, 1.0), (-1.0, 1.0))
+    active = _make_active()
+    stripe.add_signal(active)
+    sv.set_value_display_mode("neither")
+    sv.apply_mode(CursorMode.ONE, [0.5, 0.5])
+    sv.update_labels([active], [0.5, 0.5], CursorMode.ONE)
+    lbl0, _ = sv._labels[(0, active)]
+    assert not lbl0.isVisible()
+
+
 @pytest.mark.requirement("REQ-PLOT-081")
 def test_mouse_move_ignored_outside_two_mode(
     sv: CursorStripesView, stripe: PlotStripe

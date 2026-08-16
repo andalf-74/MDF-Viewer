@@ -64,6 +64,7 @@ class CursorController:
         get_delta_time_color: Callable[[], tuple] | None = None,
         get_selected_signals: Callable[[], list] | None = None,
         get_cursor_step_unit: Callable[[], str] | None = None,
+        get_cursor_value_display: Callable[[], str] | None = None,
         get_cursor_step_samples: Callable[[], int] | None = None,
         get_cursor_step_pixels: Callable[[], int] | None = None,
         get_cursor_step_time_ms: Callable[[], float] | None = None,
@@ -168,6 +169,11 @@ class CursorController:
         )
         self._get_cursor_step_unit: Callable[[], str] = (
             get_cursor_step_unit if get_cursor_step_unit is not None else (lambda: "samples")
+        )
+        self._get_cursor_value_display: Callable[[], str] = (
+            get_cursor_value_display
+            if get_cursor_value_display is not None
+            else (lambda: "active")
         )
         self._get_cursor_step_samples: Callable[[], int] = (
             get_cursor_step_samples if get_cursor_step_samples is not None else (lambda: 1)
@@ -547,6 +553,7 @@ class CursorController:
         cursor_mode = self._get_cursor_mode()
         active_signals = self._get_active_signals()
         color_c1, color_c2, color_cl, color_cr = self._get_cursor_colors()
+        self._view.set_value_display_mode(self._get_cursor_value_display())
 
         if cursor_mode == "L/R":
             self._table.set_cursor_column_headers("Cursor L", "Cursor R")

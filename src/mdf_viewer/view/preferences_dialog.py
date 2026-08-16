@@ -262,6 +262,27 @@ class PreferencesDialog(QDialog):
 
         cursors_layout.addSpacing(8)
 
+        value_display_row = QHBoxLayout()
+        value_display_row.addWidget(QLabel("Display values at cursors:"))
+        self._value_display_combo = QComboBox()
+        self._value_display_combo.addItems(["Neither", "Active", "Both"])
+        self._value_display_combo.setToolTip(
+            "Neither: no per-signal value labels shown on the plot.\n"
+            "Active: shows values at whichever cursor is nearest the mouse "
+            "when two cursors are active (the default).\n"
+            "Both: shows values at both cursors at once when two cursors "
+            "are active."
+        )
+        value_index = {"neither": 0, "active": 1, "both": 2}.get(
+            self._settings.cursor_value_display, 1
+        )
+        self._value_display_combo.setCurrentIndex(value_index)
+        value_display_row.addWidget(self._value_display_combo)
+        value_display_row.addStretch()
+        cursors_layout.addLayout(value_display_row)
+
+        cursors_layout.addSpacing(8)
+
         # Arrow-key step
         step_row = QHBoxLayout()
         step_row.addWidget(QLabel("Arrow key step:"))
@@ -305,8 +326,8 @@ class PreferencesDialog(QDialog):
         reset_row.addStretch()
         self._cursor_reset_btn = QPushButton("Reset to defaults")
         self._cursor_reset_btn.setToolTip(
-            "Reset cursor colors, ∆-Time display, and arrow-key step "
-            "settings to their defaults"
+            "Reset cursor colors, ∆-Time display, cursor value display, "
+            "and arrow-key step settings to their defaults"
         )
         self._cursor_reset_btn.clicked.connect(self._reset_cursor_colors)
         reset_row.addWidget(self._cursor_reset_btn)
@@ -446,6 +467,8 @@ class PreferencesDialog(QDialog):
         self._settings.cursor_step_samples = max(1, int(self._step_values["samples"]))
         self._settings.cursor_step_pixels = max(1, int(self._step_values["pixels"]))
         self._settings.cursor_step_time_ms = max(0.1, self._step_values["time"])
+        value_display_key = ["neither", "active", "both"][self._value_display_combo.currentIndex()]
+        self._settings.cursor_value_display = value_display_key
         self._settings.keymap = keymap_to_dict(self._keymap_working)
         self._settings.keymap_preset_label = self._keymap_label_value
         self.accept()
@@ -486,6 +509,7 @@ class PreferencesDialog(QDialog):
         }
         self._on_step_unit_changed(0)
         self._step_unit.setCurrentIndex(0)
+        self._value_display_combo.setCurrentIndex(1)  # "Active"
 
     # ------------------------------------------------------------------
     # Shortcuts tab (#111)

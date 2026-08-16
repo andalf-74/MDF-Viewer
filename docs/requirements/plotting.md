@@ -190,19 +190,32 @@ the user to re-show them, regardless of the persistence preference
 
 ## Cursor Value Labels and Interpolation
 
-With one cursor shown, every active signal displays its value at that
-cursor [REQ-PLOT-080]. With two cursors shown, only the cursor currently
-nearest the mouse pointer shows value labels, so the two cursors' labels
-don't clutter the view simultaneously [REQ-PLOT-081]. A signal's value at
-a cursor position outside that signal's own recorded time range is not
-shown (no extrapolation) rather than displaying a stale or fabricated
-value [REQ-PLOT-082]. Between two recorded samples, a signal's value at a
-cursor position is linearly interpolated by default, or held at the
-preceding sample's value if that signal's step-mode display is enabled
-[REQ-PLOT-083]. A signal with an enum mapping shows its enum text label
-at the cursor (with the raw value alongside) when that signal's "cursor
-enum display" option is enabled, falling back to the plain numeric value
-otherwise [REQ-PLOT-084].
+Whether per-signal value labels are shown on the plot canvas at all, and
+with two cursors shown, whether one or both cursors' labels are shown at
+once, is governed by the "Display values at cursors" preference
+(Neither/Active/Both), a single global setting applying live to every
+open tab [REQ-PLOT-080]. With the preference set to Active (the
+default), one cursor shown makes every active signal display its value
+at that cursor, and two cursors shown makes only the cursor currently
+nearest the mouse pointer show value labels, so the two cursors' labels
+don't clutter the view simultaneously [REQ-PLOT-081]. With the
+preference set to Both, both cursors' value labels are shown
+simultaneously whenever two cursors are active, independent of mouse
+position [REQ-PLOT-085]. With the preference set to Neither, no
+per-signal value labels are shown on the plot canvas regardless of how
+many cursors are active [REQ-PLOT-086]. The preference affects only the
+plot canvas's floating value labels — the delta-time indicator and the
+Active Signals Table's own cursor-value columns are unaffected by it and
+continue to update regardless of its setting [REQ-PLOT-087]. A signal's
+value at a cursor position outside that signal's own recorded time range
+is not shown (no extrapolation) rather than displaying a stale or
+fabricated value [REQ-PLOT-082]. Between two recorded samples, a
+signal's value at a cursor position is linearly interpolated by default,
+or held at the preceding sample's value if that signal's step-mode
+display is enabled [REQ-PLOT-083]. A signal with an enum mapping shows
+its enum text label at the cursor (with the raw value alongside) when
+that signal's "cursor enum display" option is enabled, falling back to
+the plain numeric value otherwise [REQ-PLOT-084].
 
 ## Arrow-Key Cursor Stepping
 

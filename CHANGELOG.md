@@ -5,6 +5,15 @@ All notable changes to MDF-Viewer are documented in this file.
 ## [Unreleased]
 
 ### Added
+- "Display values at cursors" preference (#174): Preferences ▸ Cursors gained
+  a Neither/Active/Both dropdown controlling which cursor(s)' plot-canvas
+  value labels are shown. Active (the default) is today's existing
+  behavior — only the cursor nearest the mouse shows its labels when two
+  cursors are active. Both shows both cursors' labels simultaneously.
+  Neither hides plot-canvas value labels entirely, useful to un-crowd the
+  plot with many active signals. Doesn't affect the ∆-Time indicator or the
+  Active Signals Table's own cursor-value columns. Applies immediately, no
+  restart.
 - X-Axis Signal Tabs (#86): a new tab type whose shared X-axis represents a
   chosen signal's own recorded value instead of time — create one via the
   "X-Axis Signal…" option in the New Tab chooser (the pinned "+" tab or

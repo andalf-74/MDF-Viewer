@@ -37,6 +37,9 @@ DEFAULT_CURSOR_STEP_SAMPLES = 1        # number of samples per key press
 DEFAULT_CURSOR_STEP_PIXELS = 1         # number of pixels per key press
 DEFAULT_CURSOR_STEP_TIME_MS = 10.0     # milliseconds per key press
 
+# Default plot-canvas cursor value-label display (#174)
+DEFAULT_CURSOR_VALUE_DISPLAY = "active"  # "neither" | "active" | "both"
+
 # Default zoom undo history depth
 DEFAULT_MAX_UNDO_STEPS = 1
 
@@ -130,6 +133,7 @@ class Settings:
         self._cursor_step_samples: int = DEFAULT_CURSOR_STEP_SAMPLES
         self._cursor_step_pixels: int = DEFAULT_CURSOR_STEP_PIXELS
         self._cursor_step_time_ms: float = DEFAULT_CURSOR_STEP_TIME_MS
+        self._cursor_value_display: str = DEFAULT_CURSOR_VALUE_DISPLAY
         self._max_undo_steps: int = DEFAULT_MAX_UNDO_STEPS
         self._signal_z_order: str = DEFAULT_SIGNAL_Z_ORDER
         self._selected_line_boost: int = DEFAULT_SELECTED_LINE_BOOST
@@ -353,6 +357,15 @@ class Settings:
         self._save()
 
     @property
+    def cursor_value_display(self) -> str:
+        return self._cursor_value_display
+
+    @cursor_value_display.setter
+    def cursor_value_display(self, value: str) -> None:
+        self._cursor_value_display = value
+        self._save()
+
+    @property
     def max_undo_steps(self) -> int:
         return self._max_undo_steps
 
@@ -549,6 +562,7 @@ class Settings:
             self._cursor_step_samples = int(data.get("cursor_step_samples", DEFAULT_CURSOR_STEP_SAMPLES))
             self._cursor_step_pixels = int(data.get("cursor_step_pixels", DEFAULT_CURSOR_STEP_PIXELS))
             self._cursor_step_time_ms = float(data.get("cursor_step_time_ms", DEFAULT_CURSOR_STEP_TIME_MS))
+            self._cursor_value_display = str(data.get("cursor_value_display", DEFAULT_CURSOR_VALUE_DISPLAY))
             self._max_undo_steps = max(1, int(data.get("max_undo_steps", DEFAULT_MAX_UNDO_STEPS)))
             self._signal_z_order = str(data.get("signal_z_order", DEFAULT_SIGNAL_Z_ORDER))
             self._selected_line_boost = max(0, min(5, int(data.get("selected_line_boost", DEFAULT_SELECTED_LINE_BOOST))))
@@ -617,6 +631,7 @@ class Settings:
             self._cursor_step_samples = DEFAULT_CURSOR_STEP_SAMPLES
             self._cursor_step_pixels = DEFAULT_CURSOR_STEP_PIXELS
             self._cursor_step_time_ms = DEFAULT_CURSOR_STEP_TIME_MS
+            self._cursor_value_display = DEFAULT_CURSOR_VALUE_DISPLAY
             self._max_undo_steps = DEFAULT_MAX_UNDO_STEPS
             self._signal_z_order = DEFAULT_SIGNAL_Z_ORDER
             self._selected_line_boost = DEFAULT_SELECTED_LINE_BOOST
@@ -665,6 +680,7 @@ class Settings:
                     "cursor_step_samples": self._cursor_step_samples,
                     "cursor_step_pixels": self._cursor_step_pixels,
                     "cursor_step_time_ms": self._cursor_step_time_ms,
+                    "cursor_value_display": self._cursor_value_display,
                     "max_undo_steps": self._max_undo_steps,
                     "signal_z_order": self._signal_z_order,
                     "selected_line_boost": self._selected_line_boost,

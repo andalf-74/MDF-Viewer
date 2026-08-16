@@ -463,3 +463,38 @@ def test_step_unit_tooltip_explains_xaxis_meaning(dlg: PreferencesDialog) -> Non
     tooltip = dlg._step_unit.toolTip()
     assert tooltip != ""
     assert "X-Axis" in tooltip
+
+
+@pytest.mark.requirement("REQ-PLOT-080")
+def test_value_display_combo_defaults_to_active(dlg: PreferencesDialog) -> None:
+    assert dlg._value_display_combo.currentIndex() == 1
+    assert dlg._value_display_combo.currentText() == "Active"
+
+
+@pytest.mark.requirement("REQ-PLOT-080")
+def test_value_display_combo_initialised_from_settings(
+    qtbot: QtBot, settings: Settings
+) -> None:
+    settings.cursor_value_display = "both"
+    dlg = PreferencesDialog(settings)
+    qtbot.addWidget(dlg)
+    assert dlg._value_display_combo.currentIndex() == 2
+    assert dlg._value_display_combo.currentText() == "Both"
+
+
+@pytest.mark.requirement("REQ-PLOT-086")
+def test_apply_saves_cursor_value_display(
+    dlg: PreferencesDialog, settings: Settings
+) -> None:
+    dlg._value_display_combo.setCurrentIndex(0)  # "Neither"
+    dlg._apply()
+    assert settings.cursor_value_display == "neither"
+
+
+def test_reset_cursor_defaults_resets_value_display_to_active(
+    dlg: PreferencesDialog,
+) -> None:
+    dlg._value_display_combo.setCurrentIndex(2)  # "Both"
+    dlg._reset_cursor_colors()
+    assert dlg._value_display_combo.currentIndex() == 1
+    assert dlg._value_display_combo.currentText() == "Active"

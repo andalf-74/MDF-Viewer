@@ -504,6 +504,7 @@ class CursorStripesView(QObject):
         self._propagating = False
 
         self._nearest_cursor: int = 0
+        self._value_display_mode: str = "active"
         # (cursor_index, ActiveSignal) → (TextItem, ViewBox) — lifted verbatim
         # from CursorView; labels are parented to the signal's own ViewBox so
         # they're already correct regardless of which stripe that signal is in.
@@ -658,6 +659,14 @@ class CursorStripesView(QObject):
         for view in self._per_stripe.values():
             view.set_cursor_names(name0, name1)
 
+    def set_value_display_mode(self, mode: str) -> None:
+        """Set which cursor(s)' plot-canvas value labels are shown
+        (REQ-PLOT-080/085/086): "neither", "active" (hover-gated, default),
+        or "both" (both cursors' labels shown at once, no hover dependency).
+        """
+        self._value_display_mode = mode
+        self._refresh_label_visibility()
+
     def recolor_labels(self, active: ActiveSignal, color) -> None:
         """Update the color of all existing labels for a specific signal."""
         for (_, sig), (lbl, _) in self._labels.items():
@@ -724,10 +733,14 @@ class CursorStripesView(QObject):
             lbl.setVisible(self._should_show(ci))
 
     def _should_show(self, cursor_idx: int) -> bool:
+        if self._value_display_mode == "neither":
+            return False
         if self._mode == CursorMode.HIDDEN:
             return False
         if self._mode == CursorMode.ONE:
             return cursor_idx == 0
-        # TWO: show only the cursor nearest the mouse
+        if self._value_display_mode == "both":
+            return True
+        # TWO, "active": show only the cursor nearest the mouse
         return cursor_idx == self._nearest_cursor
 
