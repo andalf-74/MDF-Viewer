@@ -95,6 +95,10 @@ All notable changes to MDF-Viewer are documented in this file.
   of that tab's own cursor mode. It now correctly reflects the actual
   cursor mode of whichever tab is currently active, including immediately
   after switching tabs.
+- Selected tab is hard to see: the tab bar now underlines the selected
+  tab's label in the app's accent color and bolds its text, matching how
+  selection is already shown in the Active Signals Table and Signal
+  Browser, instead of relying on the stock OS tab style alone.
 
 ## [2.3.1] - 2026-07-29
 

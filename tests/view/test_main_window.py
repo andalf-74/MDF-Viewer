@@ -865,6 +865,12 @@ def test_tab_bar_placeholder_tab_exempt_from_minimum_width(window: MainWindow) -
     assert tab_bar.tabSizeHint(placeholder_index).width() < _MIN_REAL_TAB_WIDTH
 
 
+def test_tab_widget_styles_selected_tab_with_accent_underline(window: MainWindow) -> None:
+    from mdf_viewer.view import theme
+    assert theme.ACCENT in window._tab_widget.styleSheet()
+    assert "QTabBar::tab:selected" in window._tab_widget.styleSheet()
+
+
 def test_tab_context_menu_outside_any_tab_is_noop(window: MainWindow) -> None:
     from PyQt6.QtCore import QPoint
     with patch("PyQt6.QtWidgets.QMenu.exec") as mock_exec:

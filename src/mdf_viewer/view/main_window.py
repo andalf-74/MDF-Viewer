@@ -99,6 +99,7 @@ from mdf_viewer.view.keymap_presets import ACTION_IDS, DEFAULT_PRESET, resolve_k
 from mdf_viewer.view.signal_info_box import SignalInfoBox
 from mdf_viewer.view.status_history_dialog import StatusHistoryDialog
 from mdf_viewer.view.status_message_history import StatusMessageHistory
+from mdf_viewer.view import theme
 from mdf_viewer.view.widgets import busy_cursor, make_splitter
 from mdf_viewer.view.widgets.icons import _ICONS_DIR, _icon_color, _load_icon
 from mdf_viewer.view.workspace_session_controller import WorkspaceSessionController
@@ -1335,6 +1336,16 @@ class MainWindow(QMainWindow):
         self._tab_widget.setTabBar(_TabBar())
         self._tab_widget.setTabsClosable(True)
         self._tab_widget.setMovable(True)
+        # The stock Qt/OS tab style barely distinguishes the selected tab
+        # from its neighbors — add the same accent-underline treatment
+        # already used elsewhere for "this is the selected thing" (AST rows,
+        # Signal Browser rows, the active-stripe marker).
+        self._tab_widget.setStyleSheet(
+            "QTabBar::tab:selected {"
+            f"border-bottom: 3px solid {theme.ACCENT};"
+            "font-weight: bold;"
+            "}"
+        )
         self._tab_widget.addTab(
             self._make_tab_page(self.plot_area, self.active_signals_table), "Tab 1"
         )
