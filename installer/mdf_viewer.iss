@@ -5,7 +5,7 @@
 ; Prerequisites: PyInstaller bundle must already exist at dist\MDF-Viewer\
 
 #define AppName "MDF-Viewer"
-#define AppVersion "2.3.1"
+#define AppVersion "2.3.5"
 #define AppPublisher "Andreas Maus"
 #define AppExeName "MDF-Viewer.exe"
 

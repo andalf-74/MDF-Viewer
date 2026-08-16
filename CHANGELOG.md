@@ -4,110 +4,29 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+## [2.3.5] - 2026-08-16
+
 ### Added
-- "Display values at cursors" preference (#174): Preferences ▸ Cursors gained
-  a Neither/Active/Both dropdown controlling which cursor(s)' plot-canvas
-  value labels are shown. Active (the default) is today's existing
-  behavior — only the cursor nearest the mouse shows its labels when two
-  cursors are active. Both shows both cursors' labels simultaneously.
-  Neither hides plot-canvas value labels entirely, useful to un-crowd the
-  plot with many active signals. Doesn't affect the ∆-Time indicator or the
-  Active Signals Table's own cursor-value columns. Applies immediately, no
-  restart.
-- X-Axis Signal Tabs (#86): a new tab type whose shared X-axis represents a
-  chosen signal's own recorded value instead of time — create one via the
-  "X-Axis Signal…" option in the New Tab chooser (the pinned "+" tab or
-  Edit → New Tab), or by right-clicking a single plotted signal in the
-  Active Signals Table and choosing "Promote to X-Axis Signal Tab…" (which
-  copies the signal — it stays plotted in its original tab too). Every
-  other signal is plotted at the axis signal's own recorded instants, in
-  its own recorded order, so a non-monotonic axis signal (e.g. vehicle
-  speed) can visually loop back on itself. Full cursor/zoom/arrow-key-
-  stepping support and `.mvc` persistence, matching an ordinary Plot tab.
-- Preferences dialog remembers its last-viewed tab (#169): reopens on
-  whichever tab was showing when it was last closed, for the rest of the
-  current session (resets to the first tab after an app restart).
-- Signal Value Search (#110): Edit → Search… (Ctrl+F, rebindable) or the
-  Active Signals Table's new "Search…" context-menu entry (which pre-fills
-  the selected signal(s) with their current Cursor 1 value) open a
-  non-modal dialog listing every signal active in the current tab, each
-  with an operator (`=`, `≠`, `>`, `<`, `≥`, `≤`) and a value. Search scans
-  for the first (or, on a repeated click, next) timestamp where every
-  filled-in row's condition holds at once — jumping Cursor 1 there and
-  recentering the plot — or shows an inline "No match found" message. The
-  dialog shows which tab it's currently searching in, and switching tabs
-  while it's open carries forward each row's value for any signal present
-  in both tabs (matched by name). Each row shows the signal's usual display
-  name — the shortened + measurement-prefixed form used everywhere else in
-  the app — not the raw channel name.
-- Keyboard Shortcut Configuration (#111): Preferences gained a "Shortcuts"
-  tab where almost every existing keyboard shortcut in the app can be
-  rebound (Copy Name(s)/Ctrl+C stays fixed) — click a field, press the
-  new key combination. Built-in Default/MDA/CANape presets, plus
-  save/load your own as a named `.mvck` file. Assigning a key already
-  used elsewhere is rejected and the conflicting action is named. Takes
-  effect immediately, no restart.
-- Tooltips on several previously-unlabeled controls (#129): the Active
-  Signals Table's color swatch and visibility-eye icon, the Preferences
-  dialog's cursor/background color swatches, the Signal Browser's
-  measurement filter dropdown, the Measurement Info Box's "Primary"
-  checkbox, the Signal Info Box's enum-display checkboxes, and the plot
-  stripe's Sync/Un-Sync button (which now updates to describe whichever
-  action a click will actually take).
-- Copy Signal Names (#163): Ctrl+C in the Signal Browser or Active Signals
-  Table copies the raw channel name(s) of the current selection to the
-  clipboard, one per line; the Active Signals Table also gained a "Copy
-  Name(s)" context-menu entry. A status bar message reports how many were
-  copied.
-- More status bar feedback (#166): Export Labels, a fully-clean Import
-  Labels, Close Measurement, and Undo/Redo (when there's nothing to
-  undo/redo) now show a status bar message where they previously gave no
-  feedback at all.
-- Status Bar Message History (#125): an always-visible button on the left
-  of the status bar opens a non-modal history of every status message
-  shown this session, each with a timestamp, in a selectable/copyable
-  list with a "Copy to Clipboard" button — useful for pasting recent
-  activity into a bug report. Live-updates while open; history resets on
-  the next launch. Most messages are also written to the application log
-  (#126) at INFO level.
-- Signal Browser Tree view (#141): Preferences ▸ Signals gained a "Signal
-  Browser view" dropdown to switch the Signal Browser between Flat
-  (today's single cross-measurement list, still the default) and Tree
-  (channels grouped by measurement and channel group, matching the file's
-  own order). Applies immediately, no restart required.
-- Application logging (#126): the app now writes lifecycle events, errors,
-  and uncaught exceptions to a rotating log file
-  (`<config dir>/logs/mdf_viewer.log`, 5MB × 3 backups). Preferences ▸
-  General gained an "Enable logging" checkbox, a log level dropdown
-  (DEBUG/INFO/WARNING/ERROR), and an "Open log folder" button. Enabled by
-  default at the INFO level; changes apply immediately without restarting.
-- Default keyboard shortcuts for previously-unbound actions (#167): Save
-  Workspace As (Ctrl+Shift+S), New Tab (Ctrl+T, Ctrl+N on the MDA preset),
-  New Stripe (Ctrl+Shift+N), Sync Measurements (Ctrl+M), Preferences
-  (Ctrl+,), and the Cursors toolbar button's cycle action (Ctrl+R,
-  previously unbound by default outside the MDA preset) — all rebindable
-  via Preferences ▸ Shortcuts, like every other shortcut in the app.
+- X-Axis Signal Tabs (#86): a new tab type plotting signals against another
+  signal's own recorded value instead of time.
+- Signal Value Search (#110): search for a value, or a combination of
+  values, across the signals active in a tab; jumps the cursor to a match.
+- Keyboard Shortcut Configuration (#111, #167): almost every shortcut in the
+  app is now rebindable, with Default/MDA/CANape presets and save/load.
+- Application logging (#126) and Status Bar Message History (#125).
+- Signal Browser Tree view (#141), grouping channels by measurement.
+- Copy Signal Names to clipboard (#163); more status bar feedback (#166).
+- Tooltip makeover on several previously-unlabeled controls (#129).
+- Preferences dialog remembers its last-viewed tab (#169).
+- "Display values at cursors" preference (#174): Neither/Active/Both.
 
 ### Changed
-- Zoom to Fit / Zoom Y to View scope (#170): removed the "All Stripes"
-  toolbar toggle — its checked/unchecked states were hard to tell apart,
-  and it turned out to be unnecessary since Zoom to Fit's X-axis reset was
-  already global regardless of it. "Zoom to Fit" now always rescales Y for
-  every stripe (not just the active one); "Zoom Y to View" always scopes
-  to only the active stripe. Both toolbar tooltips updated to reflect
-  their fixed scope.
+- Removed the "All Stripes" zoom toggle (#170); Zoom to Fit now always
+  rescales every stripe, Zoom Y to View always scopes to the active one.
 
 ### Fixed
-- "Zoom to Cursors" enabled state (#171): the toolbar button's
-  enabled/disabled state only ever tracked whichever tab was active when
-  the app started, never updating for any tab created afterward regardless
-  of that tab's own cursor mode. It now correctly reflects the actual
-  cursor mode of whichever tab is currently active, including immediately
-  after switching tabs.
-- Selected tab is hard to see: the tab bar now underlines the selected
-  tab's label in the app's accent color and bolds its text, matching how
-  selection is already shown in the Active Signals Table and Signal
-  Browser, instead of relying on the stock OS tab style alone.
+- "Zoom to Cursors" enabled state now tracks the active tab correctly (#171).
+- Selected tab is now clearly highlighted in the tab bar (#173).
 
 ## [2.3.1] - 2026-07-29
 

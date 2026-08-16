@@ -170,7 +170,7 @@ See `docs/release.md` for the full build and publish steps.
 
 ## Current Status
 
-**As of 2026-07-29: v2.3.1 is the latest released version** (https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.3.1, tag `v2.3.1` on `main`). 2206 tests passing. Ships `MDF-Viewer-2.3.1-Setup.exe` (installer) and `MDF-Viewer-2.3.1-Windows.zip` (portable) — see `docs/release.md`. Fix/feature-by-feature detail lives in `CHANGELOG.md`'s `[2.3.1]` entry and this file's per-issue status entries below, not repeated here. (Prior release: v2.3, 2026-07-26, 2125 tests.)
+**As of 2026-08-16: v2.3.5 is the latest released version** (https://github.com/andalf-74/MDF-Viewer/releases/tag/v2.3.5, tag `v2.3.5` on `main`). 2625 tests passing. Ships `MDF-Viewer-2.3.5-Setup.exe` (installer) and `MDF-Viewer-2.3.5-Windows.zip` (portable) — see `docs/release.md`. Fix/feature-by-feature detail lives in `CHANGELOG.md`'s `[2.3.5]` entry and this file's per-issue status entries below, not repeated here. (Prior release: v2.3.1, 2026-07-29, 2206 tests.)
 
 2.2 combines two closed GitHub milestones, both reshuffled from earlier planning (see git history for the full renumbering story if needed): **"2.2 Multiview/Multimeasurement"** (#17 umbrella + #97–#106, #119, #122, #124, #130, #131, #133 — multi-file support, Plot Stripes, tabs, per-stripe AST, workspace/config extension, etc.; #104 rejected by user directly) and **"2.2 Additional Bugfixing"** (#134–#140 — a later architecture review's findings plus two more issues added afterward; #139 closed as duplicate/already-implemented, #140 fixed). Both milestones and their umbrella issues are closed on GitHub.
 
