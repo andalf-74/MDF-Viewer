@@ -4,6 +4,11 @@ All notable changes to MDF-Viewer are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- Import Labels: candidate signal names listed directly under
+  `[Measurement]`, with no `[Group]` header of their own, are no longer
+  silently dropped — they're added to the active stripe instead (#175).
+
 ## [2.3.5] - 2026-08-16
 
 ### Added

@@ -5601,6 +5601,10 @@ def _lab(*groups: tuple[str, list[str]]) -> bytes:
     return _LAB_HEADER + body.encode("utf-8")
 
 
+def _lab_ungrouped(names: list[str]) -> bytes:
+    return _LAB_HEADER + ("\n".join(names) + "\n").encode("utf-8")
+
+
 @pytest.mark.requirement("REQ-LABEL-010")
 def test_import_label_list_raises_on_invalid_data(ctrl: AppController) -> None:
     with pytest.raises(LabelListParseError):
@@ -5772,6 +5776,65 @@ def test_import_label_list_within_import_duplicate_resolves_sequentially(deps: d
     assert len(ctrl2.active_signals) == 1
     assert result.not_found == []
     assert result.already_active == ["Speed"]
+
+
+@pytest.mark.requirement("REQ-LABEL-044")
+def test_import_label_list_ungrouped_names_go_to_active_stripe(deps: dict) -> None:
+    """#175: names listed with no [Group] header at all must not be
+    silently dropped — they route to the active stripe, not a new one."""
+    loader = _make_pool_loader()
+    loader.find_signal_by_name.return_value = [_make_metadata("Speed", gi=0, ci=1)]
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    active_stripe = MagicMock(name="active_stripe")
+    deps["plot"].get_active_stripe.return_value = active_stripe
+
+    with patch.object(ctrl2, "create_stripe") as mock_create, patch.object(
+        ctrl2, "delete_stripe"
+    ) as mock_delete:
+        result = ctrl2.import_label_list(_lab_ungrouped(["Speed"]))
+
+    assert result.added == 1
+    assert result.not_found == []
+    mock_create.assert_not_called()
+    mock_delete.assert_not_called()
+    deps["table"].rename_stripe_segment.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-LABEL-044")
+def test_import_label_list_ungrouped_names_create_stripe_when_none_active(deps: dict) -> None:
+    loader = _make_pool_loader()
+    loader.find_signal_by_name.return_value = [_make_metadata("Speed", gi=0, ci=1)]
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    deps["plot"].get_active_stripe.return_value = None
+    stripe = MagicMock(name="new_stripe")
+    deps["plot"].create_stripe.return_value = stripe
+
+    result = ctrl2.import_label_list(_lab_ungrouped(["Speed"]))
+
+    assert result.added == 1
+    deps["plot"].create_stripe.assert_called_once()
+    deps["table"].rename_stripe_segment.assert_not_called()
+
+
+@pytest.mark.requirement("REQ-LABEL-044")
+def test_import_label_list_ungrouped_no_matches_does_not_delete_active_stripe(
+    deps: dict,
+) -> None:
+    loader = _make_pool_loader()
+    loader.find_signal_by_name.return_value = []
+    ctrl2 = _make_ctrl_with_loaders(deps, [loader])
+    ctrl2.replace_measurements(["a.mf4"])
+    active_stripe = MagicMock(name="active_stripe")
+    deps["plot"].get_active_stripe.return_value = active_stripe
+    deps["plot"].get_signals_in_stripe.return_value = []
+
+    with patch.object(ctrl2, "delete_stripe") as mock_delete:
+        result = ctrl2.import_label_list(_lab_ungrouped(["Ghost"]))
+
+    assert result.not_found == ["Ghost"]
+    mock_delete.assert_not_called()
 
 
 @pytest.mark.requirement("REQ-LABEL-060")

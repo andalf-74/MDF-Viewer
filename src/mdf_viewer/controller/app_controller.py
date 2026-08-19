@@ -1437,7 +1437,10 @@ class AppController:
     def import_label_list(self, data: bytes) -> LabelImportResult:
         """Bulk-import a .lab label list (#143): one new stripe per group,
         named after the group, populated by matching each candidate name
-        against every currently loaded measurement.
+        against every currently loaded measurement. Candidate names listed
+        directly under "[Measurement]" with no group header of their own
+        are added to the active stripe instead — creating one first if the
+        tab has none — rather than a new group-named stripe (REQ-LABEL-044).
 
         Raises LabelListParseError if *data* isn't a valid label list.
         Candidates are processed sequentially (not pre-resolved as a batch)
@@ -1451,8 +1454,14 @@ class AppController:
         already_active: list[str] = []
         added_count = 0
         for group in groups:
-            stripe = self.create_stripe()
-            current.table.rename_stripe_segment(stripe, group.name)
+            ungrouped = group.name is None
+            if ungrouped:
+                stripe = current.plot.get_active_stripe()
+                if stripe is None:
+                    stripe = self.create_stripe()
+            else:
+                stripe = self.create_stripe()
+                current.table.rename_stripe_segment(stripe, group.name)
             for name in group.signal_names:
                 locations = self.find_signal_locations_by_name(name)
                 added_any = False
@@ -1472,7 +1481,10 @@ class AppController:
                         skipped_dup = True
                 if not added_any:
                     (already_active if skipped_dup else not_found).append(name)
-            if not current.plot.get_signals_in_stripe(stripe):
+            # The ungrouped route reuses the (possibly pre-existing) active
+            # stripe, so an empty result never deletes it (REQ-LABEL-044) —
+            # only a freshly created, still-empty group stripe is cleaned up.
+            if not ungrouped and not current.plot.get_signals_in_stripe(stripe):
                 self.delete_stripe(stripe)  # REQ-LABEL-042
         return LabelImportResult(not_found=not_found, already_active=already_active, added=added_count)
 

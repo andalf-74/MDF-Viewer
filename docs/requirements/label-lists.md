@@ -29,7 +29,9 @@ inside it [REQ-LABEL-011]. Within a group, every line that is not blank and
 does not itself open a new group is a candidate signal name belonging to
 that group, one per line [REQ-LABEL-012]. A blank line or the start of the
 next group ends the current group's list of candidate signal names
-[REQ-LABEL-013].
+[REQ-LABEL-013]. A candidate name appearing directly after `[Measurement]`,
+before any `[Group]` header has been seen, is treated as an ungrouped
+candidate rather than being discarded [REQ-LABEL-014].
 
 ## Encoding
 
@@ -67,7 +69,10 @@ one of its candidates was newly added as a result; a group whose every
 candidate was either not found or already active produces no stripe
 [REQ-LABEL-042]. Import never adds matched signals into an existing stripe
 that happens to share a group's name; every group always creates a new
-stripe [REQ-LABEL-043].
+stripe [REQ-LABEL-043]. Ungrouped candidates (REQ-LABEL-014) are instead
+added to the currently active stripe of the active tab, creating one first
+if the tab has none, and that stripe is never deleted even if none of them
+were newly added [REQ-LABEL-044].
 
 ## Import — Result Summary
 

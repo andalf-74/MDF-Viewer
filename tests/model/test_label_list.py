@@ -25,6 +25,23 @@ def test_parse_accepts_header_only_file() -> None:
     assert parse_label_list(b"[Measurement]\n") == []
 
 
+@pytest.mark.requirement("REQ-LABEL-014")
+def test_parse_collects_names_before_first_group_header_as_ungrouped() -> None:
+    data = b"[Measurement]\nSignalA\nSignalB\n"
+    groups = parse_label_list(data)
+    assert groups == [LabelGroup(name=None, signal_names=["SignalA", "SignalB"])]
+
+
+@pytest.mark.requirement("REQ-LABEL-014")
+def test_parse_ungrouped_names_precede_real_groups() -> None:
+    data = b"[Measurement]\nSignalA\n\n[Group One]\nSignalB\n"
+    groups = parse_label_list(data)
+    assert groups == [
+        LabelGroup(name=None, signal_names=["SignalA"]),
+        LabelGroup(name="Group One", signal_names=["SignalB"]),
+    ]
+
+
 @pytest.mark.requirement("REQ-LABEL-011")
 def test_parse_splits_into_groups() -> None:
     data = b"[Measurement]\n[Group One]\nSignalA\nSignalB\n\n[Group Two]\nSignalC\n"
