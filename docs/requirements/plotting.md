@@ -471,7 +471,10 @@ removes every active signal across every stripe in the tab
 [REQ-PLOT-280]. Dragging a row from the Active Signals Table onto a
 stripe's plot area moves that signal to the target stripe, appended after
 its existing signals, the same way dropping it onto another segment does
-(REQ-PLOT-279) [REQ-PLOT-281].
+(REQ-PLOT-279) [REQ-PLOT-281]. A segment created for a new stripe while
+cursors are already active shows its cursor-value columns immediately,
+matching every other segment's current visibility, rather than only after
+a subsequent cursor mode change [REQ-PLOT-282].
 
 ### Stripe Naming
 

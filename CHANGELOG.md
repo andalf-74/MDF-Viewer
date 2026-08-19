@@ -10,6 +10,9 @@ All notable changes to MDF-Viewer are documented in this file.
   silently dropped — they're added to the active stripe instead (#175).
 - Preferences color picker dialogs (plot background, cursor colors) no
   longer inherit the swatch's own color as the dialog's background (#176).
+- Active Signals Table: a new stripe's segment now shows cursor values
+  immediately when cursors are already active, instead of only after the
+  next cursor mode toggle (#177).
 
 ## [2.3.5] - 2026-08-16
 

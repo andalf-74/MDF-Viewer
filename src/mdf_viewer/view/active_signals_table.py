@@ -521,6 +521,15 @@ class ActiveSignalsTable(QWidget):
         # Set via set_axis_signal() (#86) — the pinned row is always built
         # (see _build_ui) but stays hidden until this is non-None.
         self._axis_signal: ActiveSignal | None = None
+        # Mirrors the visibility last pushed by show_cursor_columns() (#177):
+        # _configure_columns() always hides the cursor-value columns on a
+        # freshly created segment, since show_cursor_columns() is only ever
+        # called on an actual cursor mode *transition*, not from every
+        # refresh() — a segment created reactively while cursors are already
+        # active needs this applied explicitly, or its cursor-value columns
+        # stay hidden (data populates correctly, but nothing is visible)
+        # until the next unrelated mode toggle happens to touch every segment.
+        self._cursor_columns_visible = False
         self._build_ui()
         # No segment is created eagerly — in production, segments are created
         # reactively from PlotStripesArea.stripe_created (wired, with a
@@ -732,6 +741,7 @@ class ActiveSignalsTable(QWidget):
 
     def show_cursor_columns(self, visible: bool) -> None:
         """Show or hide the three cursor-value columns on the header and every segment."""
+        self._cursor_columns_visible = visible
         for col in _CURSOR_COLS:
             self._header.setColumnHidden(col, not visible)
             self._axis_row.setColumnHidden(col, not visible)
@@ -825,6 +835,13 @@ class ActiveSignalsTable(QWidget):
         """Create, configure, and register one new per-stripe segment table."""
         seg = _ActiveTable()
         _configure_columns(seg)
+        # _configure_columns() always hides the cursor-value columns —
+        # bring a segment created while cursors are already active in line
+        # with every other segment immediately, rather than leaving it
+        # stuck hidden until the next unrelated cursor mode change (#177).
+        if self._cursor_columns_visible:
+            for col in _CURSOR_COLS:
+                seg.setColumnHidden(col, False)
         seg.setItemDelegateForColumn(_COL_NAME, self._name_delegate)
         seg.horizontalHeader().hide()
         seg.verticalHeader().setVisible(False)

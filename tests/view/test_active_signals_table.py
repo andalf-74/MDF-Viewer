@@ -786,6 +786,32 @@ def test_hide_cursor_columns(table: ActiveSignalsTable) -> None:
     assert table._header.isColumnHidden(_COL_C1)
 
 
+@pytest.mark.requirement("REQ-PLOT-282")
+def test_stripe_segment_created_while_cursors_active_shows_cursor_columns(
+    table: ActiveSignalsTable,
+) -> None:
+    """#177: a segment created reactively while cursors are already visible
+    (e.g. Import Labels adding a new stripe) must not have its cursor-value
+    columns stuck hidden — show_cursor_columns() only fires on an actual
+    cursor mode transition, not on every refresh(), so a fresh segment's
+    _configure_columns()-hidden default must be corrected at creation time."""
+    table.show_cursor_columns(True)
+    seg = table.add_stripe_segment(_FakeStripe("Stripe 2"))
+    assert not seg.isColumnHidden(_COL_C1)
+    assert not seg.isColumnHidden(_COL_C2)
+    assert not seg.isColumnHidden(_COL_DELTA)
+
+
+@pytest.mark.requirement("REQ-PLOT-282")
+def test_stripe_segment_created_while_cursors_hidden_keeps_columns_hidden(
+    table: ActiveSignalsTable,
+) -> None:
+    seg = table.add_stripe_segment(_FakeStripe("Stripe 2"))
+    assert seg.isColumnHidden(_COL_C1)
+    assert seg.isColumnHidden(_COL_C2)
+    assert seg.isColumnHidden(_COL_DELTA)
+
+
 # ---------------------------------------------------------------------------
 # update_cursor_values
 # ---------------------------------------------------------------------------
