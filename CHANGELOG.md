@@ -8,6 +8,8 @@ All notable changes to MDF-Viewer are documented in this file.
 - Import Labels: candidate signal names listed directly under
   `[Measurement]`, with no `[Group]` header of their own, are no longer
   silently dropped — they're added to the active stripe instead (#175).
+- Preferences color picker dialogs (plot background, cursor colors) no
+  longer inherit the swatch's own color as the dialog's background (#176).
 
 ## [2.3.5] - 2026-08-16
 

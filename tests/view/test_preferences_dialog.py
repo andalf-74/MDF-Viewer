@@ -172,6 +172,25 @@ def test_reset_restores_default_background_color(dlg: PreferencesDialog) -> None
     assert dlg._swatch_bg.rgb() == DEFAULT_PLOT_BACKGROUND_COLOR
 
 
+def test_color_picker_is_not_parented_to_the_styled_swatch_itself(
+    dlg: PreferencesDialog,
+) -> None:
+    """#176: QColorDialog.getColor() must not be parented directly to a
+    swatch button, since the swatch carries its own `background-color`
+    stylesheet that Qt's cascade would otherwise bleed into the dialog."""
+    from unittest.mock import patch
+
+    with patch(
+        "mdf_viewer.view.preferences_dialog.QColorDialog.getColor",
+        return_value=QColor(1, 2, 3),
+    ) as mock_get_color:
+        dlg._swatch_bg._pick_color()
+
+    passed_parent = mock_get_color.call_args[0][1]
+    assert passed_parent is not dlg._swatch_bg
+    assert passed_parent is dlg._swatch_bg.window()
+
+
 # ---------------------------------------------------------------------------
 # selected_line_boost spinbox
 # ---------------------------------------------------------------------------

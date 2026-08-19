@@ -747,6 +747,9 @@ class _CursorColorSwatch(QPushButton):
         return (self._color.red(), self._color.green(), self._color.blue())
 
     def _pick_color(self) -> None:
-        color = QColorDialog.getColor(self._color, self)
+        # Parent to the top-level window, not self — self carries a
+        # `background-color` stylesheet (set_color(), above) that Qt's
+        # stylesheet cascade would otherwise bleed into the dialog (#176).
+        color = QColorDialog.getColor(self._color, self.window())
         if color.isValid():
             self.set_color(color)
