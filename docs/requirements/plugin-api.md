@@ -714,3 +714,94 @@ changes a file-backed measurement's channel tree after it loads, so
 practice; its payload nonetheless carries the same virtual/real
 distinction `measurement_closed` already does, for consistency between the
 two events rather than because a real-measurement case is expected soon.
+
+## Reading Any Loaded Channel (#189)
+
+Before this, a plugin could only read the samples of a signal currently
+plotted in some tab (`get_samples()`, REQ-PLUGIN-090) — it had no way to
+enumerate a measurement's channels or read one that isn't plotted. This
+section adds channel enumeration and reading for every loaded measurement,
+real or virtual, plus the measurement-lifecycle notifications a plugin
+holding channel handles needs. Prerequisite for the Signal Calculator
+plugin (#172) and its calculation library (#191).
+
+### Measurement identity
+
+A measurement exposed to a plugin carries an identity that a later call
+can use to refer back to that same loaded measurement, independent of its
+label or path [REQ-PLUGIN-560]. That identity stops referring to any
+measurement once the measurement is closed [REQ-PLUGIN-561]. Replacing a
+measurement's file (Replace…) ends the old identity and gives the
+replacement a new one, so a handle taken from the old file never silently
+refers to the new file's channels [REQ-PLUGIN-562].
+
+### Channel enumeration
+
+A plugin can list the channels of any loaded measurement, real or virtual
+[REQ-PLUGIN-570]. The list contains exactly the channels the Signal
+Browser shows for that measurement, in the file's own order — channel
+group by channel group, channels within a group in their stored order; for
+a virtual measurement, in attach order [REQ-PLUGIN-571]. Each listed
+channel exposes its name, unit, comment, channel group name, and the
+measurement it belongs to [REQ-PLUGIN-572]. A plugin can find channels by
+name: the lookup returns every channel whose name equals the given name
+exactly (case-sensitive), across all loaded measurements in pool order, or
+within one given measurement only [REQ-PLUGIN-573]. A plotted signal
+exposed to a plugin identifies the channel it was loaded from
+[REQ-PLUGIN-574].
+
+### Reading samples
+
+A plugin can read the timestamps and values of any listed channel,
+whether or not it is plotted in any tab [REQ-PLUGIN-580]. The returned
+timestamps include the owning measurement's time offset as it is at the
+moment of the call, matching the timestamps `get_samples()` returns for
+the same signal when plotted [REQ-PLUGIN-581]. The returned arrays are
+copies; modifying them has no effect on any data the application holds
+[REQ-PLUGIN-582]. Reading a channel whose measurement has been closed or
+replaced, or a virtual channel that has since been detached, returns
+`None` [REQ-PLUGIN-583]. Reading a channel that exists but cannot be
+provided as numeric samples — a string or structure channel, corrupt data,
+or a virtual signal whose resolver raises — raises a `ChannelLoadError`
+exported by the plugin API, whose message states the reason
+[REQ-PLUGIN-584]. Any other unexpected failure while reading is likewise
+reported as a `ChannelLoadError` [REQ-PLUGIN-585]. A plugin can read any
+virtual channel, including one contributed by another plugin or by
+itself; reading it runs that virtual signal's resolver
+[REQ-PLUGIN-586].
+
+Reading is synchronous and intended to be called from the GUI thread
+only; the plugin documentation states this. Each call reads afresh — any
+reuse of already-loaded data is an internal optimization, not part of the
+contract.
+
+### Measurement lifecycle events
+
+A `measurement_added` event fires whenever a measurement enters the
+application's measurement pool — opened, added, restored from a
+workspace, or a virtual measurement being registered — carrying that
+measurement's read-only view, including its identity [REQ-PLUGIN-590].
+The `measurement_closed` event's payload carries the closed measurement's
+read-only view, including its identity, so a plugin can tell which of the
+handles it holds are no longer valid [REQ-PLUGIN-591]. Replacing a
+measurement's file fires `measurement_closed` for the old measurement
+followed by `measurement_added` for its replacement [REQ-PLUGIN-592].
+
+A `measurement_offset_changed` event fires once a measurement's time
+offset has settled at a new value, carrying a fresh read-only view of that
+measurement with its new offset [REQ-PLUGIN-600]. While the user drags a
+measurement's axis row, the event fires once when the drag ends, not for
+every intermediate position [REQ-PLUGIN-601]. A change of offset made by
+anything other than a drag — Replace… resetting it, a workspace restore,
+synchronizing or un-synchronizing measurements — fires the event once per
+affected measurement [REQ-PLUGIN-602]. A plugin receives all three events
+through the same per-event handler-override mechanism as the
+application's other events (REQ-PLUGIN-181) [REQ-PLUGIN-603].
+
+### Out of scope here
+
+Making a virtual signal follow a real measurement's time offset live
+(a time-base anchor) is #192; a plugin that instead recomputes on
+`measurement_offset_changed` is the fallback for signals mixing inputs
+from several measurements. Plotting a channel into a tab from a plugin is
+#193. Persisting plugin state and virtual signals in a workspace is #190.
