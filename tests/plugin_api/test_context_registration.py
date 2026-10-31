@@ -460,20 +460,28 @@ def test_known_events_matches_eventbus_real_signals() -> None:
 
 
 @pytest.mark.requirement("REQ-PLUGIN-142")
-def test_every_known_event_has_a_working_translation(context: PluginContext) -> None:
+def test_every_known_event_has_a_working_translation(ctrl: AppController, context: PluginContext) -> None:
+    from mdf_viewer.model.virtual_measurement_loader import VirtualMeasurementLoader
     from mdf_viewer.plugin_api.context import _KNOWN_EVENTS
 
     dummy_signal = MagicMock(measurement=None)
+    # A real, pooled measurement for the measurement events — a MagicMock
+    # isn't in the pool, so it can't be given a token (#189).
+    measurement = ctrl.add_virtual_measurement(
+        VirtualMeasurementLoader(owner_plugin="p"), label="V", owner_plugin="p",
+    )
     payloads = {
         "file_loaded": MagicMock(path="x.mf4", tab=None),
         "signal_added": MagicMock(signal=dummy_signal, tab=None),
         "signal_removed": MagicMock(signal=dummy_signal, tab=None),
         "selection_changed": MagicMock(selected=[dummy_signal], tab=None),
         "cursor_moved": MagicMock(positions=[1.0, 2.0], mode=None, tab=None),
-        "measurement_closed": MagicMock(label="M1", is_virtual=False),
+        "measurement_closed": MagicMock(label="M1", is_virtual=False, measurement=measurement),
         "measurement_updated": MagicMock(
             label="M1", is_virtual=True, signal_name="derived", change="attached"
         ),
+        "measurement_added": MagicMock(measurement=measurement),
+        "measurement_offset_changed": MagicMock(measurement=measurement),
     }
     assert set(payloads) == _KNOWN_EVENTS  # this test itself must cover every known event
 
@@ -491,7 +499,7 @@ def test_event_handler_names_matches_known_events() -> None:
     """Structural guard (#162): nothing previously cross-checked
     Plugin's _EVENT_HANDLER_NAMES against _KNOWN_EVENTS/_translate_event —
     a typo'd handler name would compile, pass every other test, and simply
-    never fire for any plugin. Covers all 7 events, not just the newest."""
+    never fire for any plugin. Covers every event, not just the newest."""
     from mdf_viewer.plugin_api.context import _KNOWN_EVENTS
     from mdf_viewer.plugin_api.plugin import Plugin, _EVENT_HANDLER_NAMES
 

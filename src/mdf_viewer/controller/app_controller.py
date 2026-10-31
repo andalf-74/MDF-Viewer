@@ -21,6 +21,7 @@ from mdf_viewer.controller.events import (
     CursorMovedEvent,
     EventBus,
     FileLoadedEvent,
+    MeasurementAddedEvent,
     MeasurementClosedEvent,
     MeasurementUpdatedEvent,
     SelectionChangedEvent,
@@ -844,6 +845,7 @@ class AppController:
         if self._settings is not None:
             self._settings.add_recent(path)
         self._current_config_path = None
+        self._emit_measurements_added(self._measurements)
         self.events.file_loaded.emit(FileLoadedEvent(path=str(path), tab=self.current_workspace))
 
     def replace_measurements(self, paths: list[str | os.PathLike]) -> LoadResult:
@@ -906,6 +908,7 @@ class AppController:
         if self.current_workspace.zoom_ctrl is not None:
             self.current_workspace.zoom_ctrl.clear()
         self._current_config_path = None
+        self._emit_measurements_added(new_measurements)
         if new_measurements:
             self.events.file_loaded.emit(
                 FileLoadedEvent(path=str(paths[0]), tab=self.current_workspace)
@@ -952,6 +955,7 @@ class AppController:
             self._refresh_info_box()
             self._refresh_measurement_axes()
             self.refresh_display_names()
+            self._emit_measurements_added(result.succeeded)
         return result
 
     def add_virtual_measurement(
@@ -986,6 +990,7 @@ class AppController:
         self._refresh_info_box()
         self._refresh_measurement_axes()
         self.refresh_display_names()
+        self._emit_measurements_added([measurement])
         return measurement
 
     def remove_virtual_measurements_for(self, owner_plugin: str) -> None:
@@ -1144,9 +1149,24 @@ class AppController:
                 label=measurement.label,
                 is_virtual=measurement.owner_plugin is not None,
                 owner_plugin=measurement.owner_plugin,
+                measurement=measurement,
             )
         )
         self._drop_measurement_token(measurement)
+
+    def _emit_measurements_added(self, measurements: list[LoadedMeasurement]) -> None:
+        """Emit measurement_added for each of *measurements*, in pool order
+        (#189, REQ-PLUGIN-590/593).
+
+        Callers invoke this only once the whole batch is in the pool and
+        Primary is set, so a handler on the first measurement already sees
+        the rest, and every view's is_primary is final. Iterates a snapshot
+        and skips any measurement a handler has meanwhile closed, since a
+        handler runs synchronously inside each emit.
+        """
+        for measurement in list(measurements):
+            if any(m is measurement for m in self._measurements):
+                self.events.measurement_added.emit(MeasurementAddedEvent(measurement=measurement))
 
     def _discard_all_measurements(self) -> None:
         """_discard_measurement() every measurement in the pool, over a
@@ -1245,6 +1265,9 @@ class AppController:
         self._refresh_info_box()
         self._refresh_measurement_axes()
         self.refresh_display_names()
+        # The replacement half of Replace… (REQ-PLUGIN-592): same object,
+        # new token, minted on first use by a handler.
+        self._emit_measurements_added([measurement])
         self.events.file_loaded.emit(FileLoadedEvent(path=str(path), tab=self.current_workspace))
         return result
 
@@ -1321,6 +1344,7 @@ class AppController:
         self._refresh_signal_browser()
         self._refresh_info_box()
         self._refresh_measurement_axes()
+        self._emit_measurements_added(self._measurements)
         return results
 
     def _refresh_info_box(self) -> None:

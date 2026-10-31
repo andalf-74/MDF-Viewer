@@ -31,7 +31,9 @@ from mdf_viewer.plugin_api.types import (
     PluginChannelView,
     PluginCursorMovedEvent,
     PluginFileLoadedEvent,
+    PluginMeasurementAddedEvent,
     PluginMeasurementClosedEvent,
+    PluginMeasurementOffsetChangedEvent,
     PluginMeasurementUpdatedEvent,
     PluginMeasurementView,
     PluginSelectionChangedEvent,
@@ -67,6 +69,7 @@ _KNOWN_EVENTS = frozenset(
     {
         "file_loaded", "signal_added", "signal_removed", "selection_changed",
         "cursor_moved", "measurement_closed", "measurement_updated",
+        "measurement_added", "measurement_offset_changed",
     }
 )
 
@@ -554,7 +557,23 @@ class PluginContext:
                 tab_index=self._tab_index_for(payload.tab),
             )
         if event_name == "measurement_closed":
-            return PluginMeasurementClosedEvent(label=payload.label, is_virtual=payload.is_virtual)
+            return PluginMeasurementClosedEvent(
+                label=payload.label,
+                is_virtual=payload.is_virtual,
+                # Built inside the emit, while the measurement is still in
+                # the pool and its token still valid (#189).
+                measurement=(
+                    self._to_measurement_view(payload.measurement)
+                    if payload.measurement is not None
+                    else None
+                ),
+            )
+        if event_name == "measurement_added":
+            return PluginMeasurementAddedEvent(measurement=self._to_measurement_view(payload.measurement))
+        if event_name == "measurement_offset_changed":
+            return PluginMeasurementOffsetChangedEvent(
+                measurement=self._to_measurement_view(payload.measurement),
+            )
         if event_name == "measurement_updated":
             return PluginMeasurementUpdatedEvent(
                 label=payload.label,

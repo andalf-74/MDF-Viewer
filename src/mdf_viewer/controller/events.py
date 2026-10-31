@@ -19,6 +19,7 @@ from PyQt6.QtCore import QObject, pyqtSignal
 
 if TYPE_CHECKING:
     from mdf_viewer.enums import CursorMode
+    from mdf_viewer.model.loaded_measurement import LoadedMeasurement
     from mdf_viewer.view_model.active_signal import ActiveSignal
 
 
@@ -59,6 +60,27 @@ class MeasurementClosedEvent:
     label: str
     is_virtual: bool
     owner_plugin: str | None = None
+    # The closed measurement itself (#189), so PluginContext can build a
+    # view of it, token included, for plugins (REQ-PLUGIN-591). Emitted
+    # while it is still in the pool; translated, never forwarded raw.
+    measurement: "LoadedMeasurement | None" = None
+
+
+@dataclass(frozen=True)
+class MeasurementAddedEvent:
+    """A measurement entered the pool (#189, REQ-PLUGIN-590) — opened,
+    added, restored from a workspace, registered by a plugin, or the
+    replacement half of a Replace…."""
+
+    measurement: "LoadedMeasurement"
+
+
+@dataclass(frozen=True)
+class MeasurementOffsetChangedEvent:
+    """A measurement's time offset settled at a new value (#189,
+    REQ-PLUGIN-600) — fired once when an axis-row drag ends."""
+
+    measurement: "LoadedMeasurement"
 
 
 @dataclass(frozen=True)
@@ -94,3 +116,5 @@ class EventBus(QObject):
     cursor_moved = pyqtSignal(object)        # CursorMovedEvent
     measurement_closed = pyqtSignal(object)  # MeasurementClosedEvent
     measurement_updated = pyqtSignal(object)  # MeasurementUpdatedEvent
+    measurement_added = pyqtSignal(object)   # MeasurementAddedEvent
+    measurement_offset_changed = pyqtSignal(object)  # MeasurementOffsetChangedEvent

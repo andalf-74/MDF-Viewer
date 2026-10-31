@@ -345,3 +345,72 @@ def test_plotted_signal_channel_equals_the_listed_channel(ctrl: AppController, c
 def test_plotted_signal_without_measurement_has_no_channel(context: PluginContext) -> None:
     active = MagicMock(measurement=None)
     assert context._to_signal_view(active).channel is None
+
+
+# ---------------------------------------------------------------------------
+# Measurement lifecycle events, as a plugin sees them
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-592")
+def test_replace_closed_view_has_old_path_and_key_added_view_has_new_key(
+    ctrl: AppController, context: PluginContext,
+) -> None:
+    old_view = _real(context)
+    closed, added = [], []
+    context.subscribe("measurement_closed", closed.append)
+    context.subscribe("measurement_added", added.append)
+
+    ctrl.replace_single_measurement(ctrl.measurements[0], "other.mf4")
+
+    assert closed[0].measurement.path == "run.mf4"
+    assert closed[0].measurement.same_measurement(old_view)
+    assert added[0].measurement.path == "other.mf4"
+    assert not added[0].measurement.same_measurement(old_view)
+    assert context.list_channels(added[0].measurement)  # usable straight away
+
+
+@pytest.mark.requirement("REQ-PLUGIN-590")
+def test_added_view_is_usable_inside_the_handler(ctrl: AppController, context: PluginContext) -> None:
+    channel_counts = []
+    context.subscribe(
+        "measurement_added", lambda e: channel_counts.append(len(context.list_channels(e.measurement))),
+    )
+
+    ctrl.add_measurements(["other.mf4"])
+
+    assert channel_counts == [3]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-561")
+def test_find_channels_inside_bulk_close_handler_leaks_no_token(ctrl: AppController, context: PluginContext) -> None:
+    ctrl.add_measurements(["other.mf4"])
+    old_views = context.measurements
+    context.subscribe("measurement_closed", lambda e: context.find_channels("rpm"))
+
+    ctrl.replace_measurements(["new.mf4"])
+
+    assert all(context.list_channels(v) == [] for v in old_views)
+    assert [m.label for m in ctrl.measurements] == ["M1"]
+    # No token was minted for an already-closed measurement mid-loop.
+    assert all(
+        any(m is tokenized for m in ctrl.measurements) for tokenized in ctrl._measurement_tokens.values()
+    )
+
+
+@pytest.mark.requirement("REQ-PLUGIN-590")
+def test_registering_virtual_measurement_inside_added_handler(ctrl: AppController, context: PluginContext) -> None:
+    labels = []
+
+    def on_added(event) -> None:
+        labels.append(event.measurement.label)
+        if not event.measurement.is_virtual:
+            loader = context.create_virtual_measurement()
+            context.attach_virtual_signal(loader, _virtual_signal("derived"))
+            context.register_virtual_measurement(loader, "Calc")
+
+    context.subscribe("measurement_added", on_added)
+
+    ctrl.add_measurements(["other.mf4"])
+
+    assert labels == ["M2", "Calc"]
+    assert [m.label for m in ctrl.measurements] == ["M1", "M2", "Calc"]

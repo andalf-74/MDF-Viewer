@@ -6292,3 +6292,124 @@ def test_token_for_measurement_rejects_a_measurement_outside_the_pool(ctrl: AppC
 
     with pytest.raises(AssertionError):
         ctrl.token_for_measurement(measurement)
+
+
+# ---------------------------------------------------------------------------
+# measurement_added (#189)
+# ---------------------------------------------------------------------------
+
+def _record_added(ctrl2: AppController) -> list:
+    """Each measurement_added as (label, pool labels at emit, is_primary)."""
+    seen = []
+    ctrl2.events.measurement_added.connect(
+        lambda e: seen.append((
+            e.measurement.label,
+            [m.label for m in ctrl2.measurements],
+            e.measurement is ctrl2.primary_measurement,
+        ))
+    )
+    return seen
+
+
+@pytest.mark.requirement("REQ-PLUGIN-590")
+def test_load_file_emits_measurement_added_before_file_loaded(ctrl: AppController) -> None:
+    order = []
+    ctrl.events.measurement_added.connect(lambda e: order.append(("added", e.measurement.label)))
+    ctrl.events.file_loaded.connect(lambda e: order.append(("file_loaded", e.path)))
+
+    ctrl.load_file("a.mf4")
+
+    assert order == [("added", "M1"), ("file_loaded", "a.mf4")]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-593")
+def test_replace_measurements_emits_added_after_whole_batch_in_pool_order(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    seen = _record_added(ctrl2)
+
+    ctrl2.replace_measurements(["a.mf4", "b.mf4"])
+
+    assert seen == [("M1", ["M1", "M2"], True), ("M2", ["M1", "M2"], False)]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-593")
+def test_add_measurements_emits_only_for_files_that_loaded(deps: dict) -> None:
+    bad = MagicMock()
+    bad.open.side_effect = MdfLoadError("missing")
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), bad, _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    seen = _record_added(ctrl2)
+
+    ctrl2.add_measurements(["missing.mf4", "c.mf4"])
+
+    assert seen == [("M2", ["M1", "M2"], False)]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-590")
+def test_add_virtual_measurement_emits_measurement_added(ctrl: AppController) -> None:
+    seen = _record_added(ctrl)
+
+    ctrl.add_virtual_measurement(_make_virtual_loader("p"), label="Calc", owner_plugin="p")
+
+    assert seen == [("Calc", ["Calc"], True)]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-602")
+def test_restore_measurements_emits_added_with_saved_offset(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    offsets = []
+    ctrl2.events.measurement_added.connect(lambda e: offsets.append(e.measurement.offset_s))
+    seen = _record_added(ctrl2)
+
+    ctrl2.restore_measurements(
+        [_make_measurement_config("a.mf4", "Engine", 0.0), _make_measurement_config("b.mf4", "Chassis", 2.5)],
+        primary_index=1, synchronized=False,
+    )
+
+    assert seen == [
+        ("Engine", ["Engine", "Chassis"], False),
+        ("Chassis", ["Engine", "Chassis"], True),
+    ]
+    assert offsets == [0.0, 2.5]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-592")
+def test_replace_single_measurement_emits_closed_then_added_then_file_loaded(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    measurement = ctrl2.measurements[0]
+    measurement.offset_s = 1.5
+    order = []
+    ctrl2.events.measurement_closed.connect(lambda e: order.append("closed"))
+    ctrl2.events.measurement_added.connect(lambda e: order.append(("added", e.measurement.offset_s)))
+    ctrl2.events.file_loaded.connect(lambda e: order.append("file_loaded"))
+
+    ctrl2.replace_single_measurement(measurement, "b.mf4")
+
+    # The offset carries over through Replace… (REQ-PLUGIN-602).
+    assert order == ["closed", ("added", 1.5), "file_loaded"]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-591")
+def test_measurement_closed_carries_the_measurement(ctrl: AppController) -> None:
+    measurement = ctrl.add_virtual_measurement(_make_virtual_loader("p"), label="V", owner_plugin="p")
+    seen = []
+    ctrl.events.measurement_closed.connect(seen.append)
+
+    ctrl.close_measurement(measurement)
+
+    assert seen[0].measurement is measurement
+
+
+def test_failed_replace_single_measurement_emits_nothing(deps: dict) -> None:
+    bad = MagicMock()
+    bad.open.side_effect = MdfLoadError("missing")
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), bad])
+    ctrl2.replace_measurements(["a.mf4"])
+    events = []
+    ctrl2.events.measurement_closed.connect(events.append)
+    ctrl2.events.measurement_added.connect(events.append)
+
+    ctrl2.replace_single_measurement(ctrl2.measurements[0], "missing.mf4")
+
+    assert events == []

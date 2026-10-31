@@ -21,7 +21,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger("mdf_viewer.plugin_api")
 
 # EventBus signal name -> Plugin handler method name (#70's five events,
-# plus #147's measurement_closed and #162's measurement_updated).
+# plus #147's measurement_closed, #162's measurement_updated, and #189's
+# measurement_added/measurement_offset_changed).
 _EVENT_HANDLER_NAMES = {
     "file_loaded": "on_file_loaded",
     "signal_added": "on_signal_added",
@@ -30,6 +31,8 @@ _EVENT_HANDLER_NAMES = {
     "cursor_moved": "on_cursor_moved",
     "measurement_closed": "on_measurement_closed",
     "measurement_updated": "on_measurement_updated",
+    "measurement_added": "on_measurement_added",
+    "measurement_offset_changed": "on_measurement_offset_changed",
 }
 
 
@@ -101,6 +104,22 @@ class Plugin:
         Fires whenever a virtual measurement's channel tree gains or loses
         a signal after registration (`event.signal_name`, `event.change`)
         — broadcast, not targeted, the same as `on_measurement_closed`.
+        """
+
+    def on_measurement_added(self, event: Any) -> None:
+        """Override to receive `measurement_added` events (#189, REQ-PLUGIN-590).
+
+        Fires whenever a measurement enters the pool, with its view
+        (`event.measurement`, including its `key`). Not replayed for
+        measurements already loaded when the plugin activates — read
+        `context.measurements` in `activate()` for those.
+        """
+
+    def on_measurement_offset_changed(self, event: Any) -> None:
+        """Override to receive `measurement_offset_changed` events (#189, REQ-PLUGIN-600).
+
+        Fires once when a measurement's time offset settles at a new value
+        (at the end of an axis-row drag), with a fresh view carrying it.
         """
 
     @property

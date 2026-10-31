@@ -239,6 +239,26 @@ class PluginMeasurementClosedEvent:
 
 
 @dataclass(frozen=True)
+class PluginMeasurementAddedEvent:
+    """A measurement entered the pool (#189, REQ-PLUGIN-590) — opened,
+    added, restored from a workspace, registered by a plugin, or the
+    replacement half of a Replace…. Its starting offset is in the view
+    (REQ-PLUGIN-602). Not replayed for measurements already loaded when a
+    plugin activates: seed from ``PluginContext.measurements`` instead."""
+
+    measurement: PluginMeasurementView
+
+
+@dataclass(frozen=True)
+class PluginMeasurementOffsetChangedEvent:
+    """A measurement's time offset settled at a new value (#189,
+    REQ-PLUGIN-600/601) — once per axis-row drag, carrying a fresh view
+    with the new offset."""
+
+    measurement: PluginMeasurementView
+
+
+@dataclass(frozen=True)
 class PluginMeasurementUpdatedEvent:
     """Fires when a virtual measurement's channel tree gains or loses a
     signal after registration (#162). Carries the affected signal's name
