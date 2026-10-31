@@ -6153,3 +6153,71 @@ def test_search_execute_noops_when_signal_removed_from_workspace(ctrl: AppContro
 
     rows = [SearchRow(signal=signal, operator=SearchOperator.EQ, value=5.0)]
     assert ctrl.search_execute(rows) is None
+
+
+# ---------------------------------------------------------------------------
+# Pool mutation during discard (#189)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-594")
+def test_restore_measurements_closes_previous_pool_including_virtual(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["old.mf4"])
+    ctrl2.add_virtual_measurement(_make_virtual_loader("p"), label="Virtual", owner_plugin="p")
+    seen = []
+    ctrl2.events.measurement_closed.connect(seen.append)
+
+    ctrl2.restore_measurements(
+        [_make_measurement_config("new.mf4", "Restored")], primary_index=0, synchronized=False,
+    )
+
+    assert [(e.label, e.is_virtual) for e in seen] == [("M1", False), ("Virtual", True)]
+    assert [m.label for m in ctrl2.measurements] == ["Restored"]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-561")
+@pytest.mark.parametrize("action", ["load_file", "replace_measurements", "restore_measurements"])
+def test_bulk_discard_removes_each_measurement_before_the_next_close(deps: dict, action: str) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader() for _ in range(3)])
+    ctrl2.replace_measurements(["a.mf4", "b.mf4"])
+    pools_seen: list[list[str]] = []
+    ctrl2.events.measurement_closed.connect(
+        lambda _e: pools_seen.append([m.label for m in ctrl2.measurements])
+    )
+
+    if action == "load_file":
+        ctrl2.load_file("c.mf4")
+    elif action == "replace_measurements":
+        ctrl2.replace_measurements(["c.mf4"])
+    else:
+        ctrl2.restore_measurements(
+            [_make_measurement_config("c.mf4", "C")], primary_index=0, synchronized=False,
+        )
+
+    # Each close is announced while that measurement is still in the pool,
+    # but an already-closed one is never still there for the next handler.
+    assert pools_seen == [["M1", "M2"], ["M2"]]
+
+
+def test_failed_load_file_leaves_empty_pool_and_no_primary(ctrl: AppController, deps: dict) -> None:
+    ctrl.load_file("a.mf4")
+    assert ctrl.primary_measurement is not None
+    deps["loader"].open.side_effect = MdfLoadError("bad file")
+
+    with pytest.raises(MdfLoadError):
+        ctrl.load_file("broken.mf4")
+
+    assert ctrl.measurements == []
+    assert ctrl.primary_measurement is None
+
+
+@pytest.mark.requirement("REQ-PLOT-321")
+def test_close_measurement_ignores_measurement_not_in_pool(ctrl: AppController) -> None:
+    measurement = ctrl.add_virtual_measurement(_make_virtual_loader("p"), label="V", owner_plugin="p")
+    ctrl.close_measurement(measurement)
+    seen = []
+    ctrl.events.measurement_closed.connect(seen.append)
+
+    ctrl.close_measurement(measurement)
+
+    assert seen == []

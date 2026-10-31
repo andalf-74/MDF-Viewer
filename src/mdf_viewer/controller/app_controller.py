@@ -801,14 +801,17 @@ class AppController:
         # orphaned, and gives a plugin-owned virtual measurement its
         # measurement_closed notification (#147). remove_all() below still
         # runs as the current tab's final safety-net clear.
-        for old_measurement in self._measurements:
-            self._teardown_measurement(old_measurement)
+        self._discard_all_measurements()
         self.remove_all()
         self._browser.clear()
         self._info_box.clear()
         self.current_workspace.color_index = 0
         self._measurements_synchronized = False
         self._measurement_load_counter = 0
+        # Already None via _discard_measurement() whenever the pool was
+        # non-empty; explicit so a failed open() below can never leave a
+        # Primary pointing at a discarded measurement (#189).
+        self._primary_measurement = None
 
         try:
             self._loader.open(path)  # raises MdfLoadError on failure
@@ -848,8 +851,7 @@ class AppController:
         """
         # Tear down every currently-loaded measurement before wiping the
         # pool — see load_file()'s identical comment above (#147).
-        for old_measurement in self._measurements:
-            self._teardown_measurement(old_measurement)
+        self._discard_all_measurements()
         self.remove_all()
         self._browser.clear()
         self._info_box.clear()
@@ -1090,13 +1092,23 @@ class AppController:
         finally:
             self._active_tab_index = saved_index
 
-    def _teardown_measurement(self, measurement: LoadedMeasurement) -> None:
-        """Remove *measurement*'s active signals from every tab and notify
-        that it closed (#147) — shared by close_measurement() and the
-        wholesale-discard paths (load_file(), replace_measurements()), so
-        every removal path gives the same guarantees: a plugin-owned
-        virtual measurement is always notified, and a discarded
-        measurement's signals never linger orphaned in a non-current tab.
+    def _discard_measurement(self, measurement: LoadedMeasurement) -> None:
+        """Remove *measurement*'s active signals from every tab, notify that
+        it closed (#147), then take it out of the pool — shared by
+        close_measurement() and the wholesale-discard paths (load_file(),
+        replace_measurements(), restore_measurements()), so every removal
+        path gives the same guarantees: a plugin-owned virtual measurement
+        is always notified, and a discarded measurement's signals never
+        linger orphaned in a non-current tab.
+
+        Removing it from the pool immediately, not after the caller's whole
+        loop (#189): a measurement_closed handler may walk the pool
+        synchronously (PyQt direct connection), and must never find a
+        measurement that has already been announced as closed. The
+        notification itself goes out while the measurement is still in the
+        pool and still Primary, so it describes the measurement as it was.
+        A Primary pointer to it is cleared here; the caller decides what
+        becomes Primary next.
         """
         self._remove_measurement_signals(measurement)
         logger.info("Closed measurement '%s'", measurement.label)
@@ -1107,6 +1119,18 @@ class AppController:
                 owner_plugin=measurement.owner_plugin,
             )
         )
+        # Identity comparison, not `in`/`.remove()`'s `==` — LoadedMeasurement
+        # is a mutable dataclass with field-equality __eq__, so two
+        # structurally matching-but-distinct instances could compare equal.
+        self._measurements = [m for m in self._measurements if m is not measurement]
+        if self._primary_measurement is measurement:
+            self._primary_measurement = None
+
+    def _discard_all_measurements(self) -> None:
+        """_discard_measurement() every measurement in the pool, over a
+        snapshot so the pool shrinks as the loop proceeds (#189)."""
+        for measurement in list(self._measurements):
+            self._discard_measurement(measurement)
 
     def close_measurement(self, measurement: LoadedMeasurement) -> None:
         """Remove *measurement* and every one of its active signals from every tab (REQ-FILE-028).
@@ -1115,16 +1139,15 @@ class AppController:
         MainWindow's job, mirroring the stripe/tab-close pattern — this
         method always proceeds unconditionally once called.
         """
-        self._teardown_measurement(measurement)
-        # Identity comparison, not `in`/`.remove()`'s `==` — LoadedMeasurement
-        # is a mutable dataclass with no custom __eq__, so two structurally
-        # matching-but-distinct instances could otherwise compare equal.
-        self._measurements = [m for m in self._measurements if m is not measurement]
+        if not any(m is measurement for m in self._measurements):
+            return
+        self._discard_measurement(measurement)
         # Reassign Primary *before* the axes/browser refresh below, not
-        # after — REQ-PLOT-321. Must run here, between the list mutation
+        # after — REQ-PLOT-321. Must run here, between the pool mutation
         # and the existing tail calls, or the axes push once against a
         # stale/removed Primary with no second refresh to correct it.
-        if self._primary_measurement is measurement:
+        # _discard_measurement() cleared it if *measurement* was Primary.
+        if self._primary_measurement is None:
             self._primary_measurement = self._measurements[0] if self._measurements else None
         self._refresh_signal_browser()
         self._refresh_info_box()
@@ -1232,6 +1255,11 @@ class AppController:
         Assumes `AppController` is already down to a single, clean tab
         (Phase 0) — this method only touches the measurement pool.
         """
+        # Close everything currently loaded first, virtual measurements
+        # included, with a measurement_closed notification for each
+        # (REQ-PLUGIN-594) — previously the pool was overwritten silently.
+        self._discard_all_measurements()
+
         results: list[LoadedMeasurement | None] = []
         for mc in measurement_configs:
             loader = self._loader_factory()
