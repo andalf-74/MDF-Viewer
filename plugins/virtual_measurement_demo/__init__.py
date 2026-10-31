@@ -39,6 +39,11 @@ Live-test notes:
   plotted (REQ-VMEAS-135) — try this with the Counter signal plotted in
   a background (non-active) tab too, the highest-risk path the #162
   architecture review flagged.
+- "List & Read Channels" (#189) lists every loaded measurement's channels
+  and reads the first readable one of each via load_samples(), plotted or
+  not. measurement_added / measurement_offset_changed are printed as they
+  arrive — Replace… shows closed then added, and dragging a measurement's
+  axis row prints one offset change per drag.
 """
 
 from __future__ import annotations
@@ -49,6 +54,7 @@ import numpy as np
 
 from mdf_viewer.model.signal_data import SignalData
 from mdf_viewer.model.signal_metadata import SignalMetadata
+from mdf_viewer.plugin_api import ChannelLoadError
 from mdf_viewer.plugin_api.plugin import Plugin
 
 if TYPE_CHECKING:
@@ -101,6 +107,7 @@ class VirtualMeasurementDemoPlugin(Plugin):
         context.register_menu_action("Create Virtual Measurement", self._on_create)
         context.register_menu_action("Attach Extra Signal to Demo Measurement", self._on_attach_extra)
         context.register_menu_action("Detach Counter Signal from Demo Measurement", self._on_detach_counter)
+        context.register_menu_action("List & Read Channels", self._on_list_and_read)
 
     def _on_create(self) -> None:
         context = self._context
@@ -128,6 +135,37 @@ class VirtualMeasurementDemoPlugin(Plugin):
             return
         self._context.detach_virtual_signal(self._measurement, self._counter_signal)
         self._counter_signal = None
+
+    def _on_list_and_read(self) -> None:
+        """Print each measurement's channel count, and read its first
+        readable channel through load_samples() (#189)."""
+        measurements = self._context.measurements
+        if not measurements:
+            print("[Virtual Measurement Demo] no measurements loaded")
+            return
+        for measurement in measurements:
+            channels = self._context.list_channels(measurement)
+            unreadable = 0
+            first_read = None
+            for channel in channels:
+                try:
+                    samples = self._context.load_samples(channel)
+                except ChannelLoadError:
+                    unreadable += 1
+                    continue
+                if samples is not None:
+                    first_read = (channel, samples)
+                    break
+            summary = f"{measurement.label!r}: {len(channels)} channel(s)"
+            if first_read is not None:
+                channel, (timestamps, values) = first_read
+                summary += (
+                    f", read {channel.name!r} ({len(values)} samples, "
+                    f"t={timestamps[0]:g}..{timestamps[-1]:g} s)"
+                )
+            if unreadable:
+                summary += f", skipped {unreadable} unreadable"
+            print(f"[Virtual Measurement Demo] {summary}")
 
     def on_measurement_closed(self, event: "PluginMeasurementClosedEvent") -> None:
         if event.is_virtual:

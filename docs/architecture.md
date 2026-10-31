@@ -523,7 +523,7 @@ Requirements: `docs/requirements/virtual-measurements.md` REQ-VMEAS-010–440, `
 
 #### EventBus (`controller/events.py`)
 
-- **New `MeasurementClosedEvent(label: str, is_virtual: bool, owner_plugin: str | None = None)`** dataclass + `measurement_closed = pyqtSignal(object)`. Carries no live object — same read-only-payload discipline #149 established for the other five, applied from the start here.
+- **New `MeasurementClosedEvent(label: str, is_virtual: bool, owner_plugin: str | None = None)`** dataclass + `measurement_closed = pyqtSignal(object)`. Originally carried no live object. Since #189 the internal payload also carries the closed `LoadedMeasurement`, so `PluginContext` can build a view with its token; the #149 discipline still holds, because plugins only ever receive the translated `PluginMeasurementClosedEvent`.
 - Fires for *every* close, real or virtual, consistent with `file_loaded` already firing unconditionally rather than for some subset — a plugin that doesn't care simply doesn't subscribe.
 
 #### PluginContext (`plugin_api/context.py`) — new methods
@@ -962,9 +962,32 @@ Serialization of a non-plot tab's own internal *content* remains out of scope (u
 2606+ tests passing through the M1–M6 implementation; every fix above shipped with its own regression test in addition to live-testing. **Nothing has been committed yet as of this entry** — this remains one long uncommitted working session; see `CLAUDE.md`'s Current Status for the commit point.
 
 
-### Reading Any Loaded Channel (#189) — design, reviewed
+### Reading Any Loaded Channel (#189) — implemented and live-tested
 
 Requirements: `docs/requirements/plugin-api.md` REQ-PLUGIN-560–603. Prerequisite for the Signal Calculator redesign (#172, #191). The grill-me decisions and the architecture-step corrections to the requirements are recorded as comments on #189. One Plan-agent review pass (2026-10-31) found 2 blocking issues and 6 should-fix ones, all folded in below. Both blocking issues are about pool mutation, not about the new API itself.
+
+#### Implementation summary (2026-10-31)
+
+Implemented as six milestones, each committed separately, in the order of the plan:
+- **M1, pool-mutation fixes:** `_discard_measurement()` replaces `_teardown_measurement()`; workspace restore closes the old pool; a failed `load_file()` leaves an empty pool.
+- **M2, tokens and types.**
+- **M3, read surface.**
+- **M4, lifecycle events.**
+- **M5, drag-settled hook.**
+- **M6, demo plugin and docs.**
+
+Live-tested at three checkpoints:
+- **After M1:** loading a workspace with two Signal Calculator virtual measurements open announced both closes, and both disappeared from the Signal Browser.
+- **After M5:** exactly one `measurement_offset_changed` per drag and none for a click. On macOS, Cmd-Tab mid-drag delivers the drag's finish event immediately, so the next-drag-start fallback wasn't needed there; it is kept for platforms where grab loss behaves differently.
+- **After M6:** "List & Read Channels" read a real file and a virtual measurement, Replace… announced closed → added, the action still worked afterward, and the app shut down cleanly.
+
+Deviations from the design below, all made during implementation:
+- **Announced offsets are keyed by `id(measurement)`, not by the measurement token.** Tokens are minted lazily, only when a plugin asks for a view, so a token-keyed baseline wouldn't exist for most measurements. The entry is seeded in `_emit_measurements_added()` and popped in `_discard_measurement()`, which keeps `id()` reuse safe.
+- **The drag-start callback is a separate `PlotStripesArea` signal.** It is `measurement_offset_drag_started`, wired to `on_measurement_offset_drag_started()`, which runs the same check as the settle handler.
+- **`close_measurement()` became a no-op for a measurement no longer in the pool**, protecting against a double close.
+- **Four existing plugin-API tests emitted events for `MagicMock` signals whose `.measurement` was a mock outside the pool**, a state production never reaches, now caught by `token_for_measurement()`'s assert. Their mocks now use `measurement=None`. Should the assert ever fire on a real event, `PluginContext.subscribe()`'s wrapper logs it like any handler error rather than crashing.
+
+Found while live-testing M1, unrelated to #189 and filed separately as #194: a harmless `QGraphicsGridLayout::removeAt: invalid index -1` warning when removing a signal whose Y-axis is hidden.
 
 #### Facts checked against the code before designing (2026-10-31)
 
@@ -1041,7 +1064,7 @@ No caching of samples. GUI-thread-only, stated in the docstring and the SDK's `p
   - Emitted from `load_file`, `replace_measurements`, `add_measurements`, `restore_measurements`, `add_virtual_measurement` and `replace_single_measurement`.
   - **For a batch, it fires once per measurement, in pool order, only after the whole batch is in the pool and Primary is set.** A handler on the first measurement therefore already sees the rest, and `is_primary` is correct.
   - It does not replay for measurements already loaded when a plugin activates; the SDK docs tell plugins to seed from `context.measurements`. A handler calling `register_virtual_measurement()` re-enters `measurement_added`; that's safe because the pool is consistent at every emission.
-- **`measurement_closed`**: the internal `MeasurementClosedEvent` gains `measurement: LoadedMeasurement | None = None`, last after `owner_plugin`, because a required field can't follow a defaulted one. The translation builds the view when it's present, `None` otherwise. Fix the "carries no live object" wording in `docs/api.md` (~286) and in this file's #147 entry.
+- **`measurement_closed`**: the internal `MeasurementClosedEvent` gains `measurement: LoadedMeasurement | None = None`, last after `owner_plugin`, because a required field can't follow a defaulted one. The translation builds the view when it's present, `None` otherwise. Fixed the "carries no live object" wording in `docs/api.md` (~286) and in this file's #147 entry.
 - **`measurement_offset_changed`** (new `pyqtSignal`; `MeasurementOffsetChangedEvent(measurement)`):
   - `_MeasurementAxisItem` gains a second callback, `on_offset_settled(measurement)`, called from an `event.isFinish()` branch with no comparison of its own.
   - `PlotStripesArea` gets a new Qt signal **`measurement_offset_settled`**; the existing per-move `measurement_offset_changed` Qt signal keeps driving the redraw. `app.py`'s `_wire_tab` connects it; that function is already used for the first tab, new tabs, X-axis tabs and restored tabs.

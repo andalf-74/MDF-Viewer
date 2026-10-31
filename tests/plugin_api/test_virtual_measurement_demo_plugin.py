@@ -207,3 +207,55 @@ def test_on_measurement_updated_logs_for_attach(
     assert "attached" in captured.out
 
     loader.deactivate_all()
+
+
+def _invoke(ctrl: AppController, label: str) -> bool:
+    registration = next(
+        r for r in ctrl.plugin_registry.menu_actions
+        if r.plugin_name == "Virtual Measurement Demo" and r.label == label
+    )
+    return registration.invoke()
+
+
+@pytest.mark.requirement("REQ-PLUGIN-580")
+def test_list_and_read_action_reads_an_unplotted_virtual_channel(
+    qtbot: QtBot, ctrl: AppController, capsys: pytest.CaptureFixture,
+) -> None:
+    loader = PluginLoader(app=ctrl, plugins_dir=REPO_PLUGINS_DIR, app_version="1.0")
+    loader.load_all()
+    _invoke(ctrl, "Create Virtual Measurement")
+    capsys.readouterr()
+
+    assert _invoke(ctrl, "List & Read Channels") is True
+
+    out = capsys.readouterr().out
+    assert "'Virtual Measurement Demo': 2 channel(s)" in out
+    assert "read 'Sine Wave' (1000 samples" in out
+
+    loader.deactivate_all()
+
+
+def test_list_and_read_action_with_nothing_loaded_is_a_safe_noop(
+    qtbot: QtBot, ctrl: AppController, capsys: pytest.CaptureFixture,
+) -> None:
+    loader = PluginLoader(app=ctrl, plugins_dir=REPO_PLUGINS_DIR, app_version="1.0")
+    loader.load_all()
+
+    assert _invoke(ctrl, "List & Read Channels") is True
+    assert "no measurements loaded" in capsys.readouterr().out
+
+    loader.deactivate_all()
+
+
+@pytest.mark.requirement("REQ-PLUGIN-590")
+def test_on_measurement_added_prints_the_new_measurement(
+    qtbot: QtBot, ctrl: AppController, capsys: pytest.CaptureFixture,
+) -> None:
+    loader = PluginLoader(app=ctrl, plugins_dir=REPO_PLUGINS_DIR, app_version="1.0")
+    loader.load_all()
+
+    _invoke(ctrl, "Create Virtual Measurement")
+
+    assert "measurement_added: label='Virtual Measurement Demo'" in capsys.readouterr().out
+
+    loader.deactivate_all()
