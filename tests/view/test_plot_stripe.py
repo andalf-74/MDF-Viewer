@@ -1218,6 +1218,41 @@ def test_set_measurement_axes_draggable_false_propagates_to_rows(plot: PlotStrip
     assert m1.offset_s == 0.0
 
 
+def _axis_row_drag_event(*, start: bool, finish: bool, dx: int):
+    event = MagicMock()
+    event.button.return_value = Qt.MouseButton.LeftButton
+    event.isStart.return_value = start
+    event.isFinish.return_value = finish
+    event.buttonDownScenePos.return_value = QPoint(0, 0)
+    event.scenePos.return_value = QPoint(dx, 0)
+    return event
+
+
+@pytest.mark.requirement("REQ-PLUGIN-601")
+def test_measurement_axis_reports_drag_start_and_finish_once(plot: PlotStripe) -> None:
+    m1 = _make_measurement(offset_s=0.0)
+    calls = []
+    plot.set_measurement_axes(
+        [m1],
+        on_offset_changed=lambda m: calls.append("moved"),
+        on_offset_drag_started=lambda m: calls.append(("started", m.offset_s)),
+        on_offset_settled=lambda m: calls.append(("settled", m.offset_s)),
+    )
+    axis = plot._measurement_axes[0]
+
+    axis.mouseDragEvent(_axis_row_drag_event(start=True, finish=False, dx=10))
+    axis.mouseDragEvent(_axis_row_drag_event(start=False, finish=False, dx=20))
+    axis.mouseDragEvent(_axis_row_drag_event(start=False, finish=True, dx=30))
+
+    settled_offset = m1.offset_s
+    assert calls == [
+        ("started", 0.0),  # before the offset moves
+        "moved", "moved", "moved",
+        ("settled", settled_offset),  # after the last move
+    ]
+    assert settled_offset != 0.0
+
+
 # ---------------------------------------------------------------------------
 # Synchronize/Un-sync button (#102)
 # ---------------------------------------------------------------------------

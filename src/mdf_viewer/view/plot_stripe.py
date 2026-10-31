@@ -238,13 +238,30 @@ class _MeasurementAxisItem(pg.AxisItem):
     collapsed row shown while measurements are synchronized, since there is
     no way to tell which measurement a drag on that shared row would even
     apply to; re-adjusting requires un-synchronizing first (REQ-PLOT-314).
+
+    *on_offset_drag_started* / *on_offset_settled* (#189) are called with
+    the measurement when a drag starts and finishes, without comparing
+    offsets themselves — AppController decides whether the offset actually
+    changed, which also covers a drag whose finish event never arrived
+    (mouse grab lost mid-drag) by checking again at the next drag's start.
     """
 
-    def __init__(self, measurement, on_offset_changed=None, draggable: bool = True, *args, **kwargs) -> None:
+    def __init__(
+        self,
+        measurement,
+        on_offset_changed=None,
+        draggable: bool = True,
+        *args,
+        on_offset_drag_started=None,
+        on_offset_settled=None,
+        **kwargs,
+    ) -> None:
         kwargs.setdefault('orientation', 'bottom')
         super().__init__(*args, **kwargs)
         self._measurement = measurement
         self._on_offset_changed = on_offset_changed
+        self._on_offset_drag_started = on_offset_drag_started
+        self._on_offset_settled = on_offset_settled
         self._draggable = draggable
         self._drag_start_offset = 0.0
 
@@ -264,6 +281,8 @@ class _MeasurementAxisItem(pg.AxisItem):
             event.ignore()
             return
         if event.isStart():
+            if self._on_offset_drag_started is not None:
+                self._on_offset_drag_started(self._measurement)
             self._drag_start_offset = self._measurement.offset_s
         dx_px = event.scenePos().x() - event.buttonDownScenePos().x()
         px_size_x = lv.viewPixelSize()[0]
@@ -275,6 +294,8 @@ class _MeasurementAxisItem(pg.AxisItem):
         # same forced-repaint pattern as _SignalAxisItem.set_enum_display.
         self.picture = None
         self.update()
+        if event.isFinish() and self._on_offset_settled is not None:
+            self._on_offset_settled(self._measurement)
         event.accept()
 
 
@@ -466,7 +487,12 @@ class PlotStripe(QWidget):
     _MEASUREMENT_AXIS_COLUMN = 1
 
     def set_measurement_axes(
-        self, measurements: list, on_offset_changed=None, draggable: bool = True,
+        self,
+        measurements: list,
+        on_offset_changed=None,
+        draggable: bool = True,
+        on_offset_drag_started=None,
+        on_offset_settled=None,
     ) -> None:
         """Build/tear down one bottom axis row per loaded measurement (#101).
 
@@ -480,7 +506,8 @@ class PlotStripe(QWidget):
         *on_offset_changed* is called with the LoadedMeasurement whenever
         the user drags one of these rows, so the caller (PlotStripesArea /
         AppController) can refresh that measurement's curves across every
-        stripe and tab.
+        stripe and tab. *on_offset_drag_started*/*on_offset_settled* are
+        called once at the start/end of each drag (#189).
 
         *draggable* (#102) applies to every row built by this call — passed
         False for the single collapsed row shown while measurements are
@@ -506,6 +533,8 @@ class PlotStripe(QWidget):
                 measurement=measurement,
                 on_offset_changed=on_offset_changed,
                 draggable=draggable,
+                on_offset_drag_started=on_offset_drag_started,
+                on_offset_settled=on_offset_settled,
                 linkView=self._pi.vb,
                 pen=pg.mkPen(color=_NEUTRAL_AXIS_COLOR),
                 textPen=pg.mkPen(color=_NEUTRAL_AXIS_COLOR),

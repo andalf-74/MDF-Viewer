@@ -55,7 +55,12 @@ if TYPE_CHECKING:
     from mdf_viewer.model.virtual_measurement_loader import VirtualMeasurementLoader
     from mdf_viewer.model.virtual_signal import VirtualSignal
     from mdf_viewer.plugin_api.context import PluginContext
-    from mdf_viewer.plugin_api.types import PluginMeasurementClosedEvent, PluginMeasurementUpdatedEvent
+    from mdf_viewer.plugin_api.types import (
+        PluginMeasurementAddedEvent,
+        PluginMeasurementClosedEvent,
+        PluginMeasurementOffsetChangedEvent,
+        PluginMeasurementUpdatedEvent,
+    )
 
 _DURATION_S = 10.0
 _SAMPLE_COUNT = 1000
@@ -127,6 +132,17 @@ class VirtualMeasurementDemoPlugin(Plugin):
     def on_measurement_closed(self, event: "PluginMeasurementClosedEvent") -> None:
         if event.is_virtual:
             print(f"[Virtual Measurement Demo] measurement_closed: label={event.label!r}")
+
+    def on_measurement_added(self, event: "PluginMeasurementAddedEvent") -> None:
+        m = event.measurement
+        print(
+            f"[Virtual Measurement Demo] measurement_added: label={m.label!r} "
+            f"offset_s={m.offset_s:g} primary={m.is_primary} virtual={m.is_virtual}"
+        )
+
+    def on_measurement_offset_changed(self, event: "PluginMeasurementOffsetChangedEvent") -> None:
+        m = event.measurement
+        print(f"[Virtual Measurement Demo] measurement_offset_changed: label={m.label!r} offset_s={m.offset_s:g}")
 
     def on_measurement_updated(self, event: "PluginMeasurementUpdatedEvent") -> None:
         print(

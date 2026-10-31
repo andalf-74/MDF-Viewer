@@ -69,6 +69,11 @@ class PlotStripesArea(QWidget):
     # the bottom-most stripe's per-measurement axis rows (#101) — AppController
     # listens to refresh that measurement's curves across every tab/stripe.
     measurement_offset_changed = pyqtSignal(object)
+    # Fired once at the start / end of each such drag (#189). Deliberately
+    # not named like the per-move signal above, which drives the redraw:
+    # these only let AppController announce a settled offset to plugins.
+    measurement_offset_drag_started = pyqtSignal(object)
+    measurement_offset_settled = pyqtSignal(object)
     # The bottom-most stripe's Synchronize/Un-sync button was clicked (#102)
     # — AppController owns the actual synchronized flag, so this just asks
     # it to flip and push the new state back down to every tab.
@@ -292,6 +297,8 @@ class PlotStripesArea(QWidget):
                 axes_to_show,
                 on_offset_changed=self.measurement_offset_changed.emit,
                 draggable=not synchronized_here,
+                on_offset_drag_started=self.measurement_offset_drag_started.emit,
+                on_offset_settled=self.measurement_offset_settled.emit,
             )
             stripe.set_measurement_sync_control(
                 visible=is_bottom and len(self._measurements) >= 2,

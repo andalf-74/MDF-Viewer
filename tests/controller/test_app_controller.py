@@ -6413,3 +6413,80 @@ def test_failed_replace_single_measurement_emits_nothing(deps: dict) -> None:
     ctrl2.replace_single_measurement(ctrl2.measurements[0], "missing.mf4")
 
     assert events == []
+
+
+# ---------------------------------------------------------------------------
+# measurement_offset_changed (#189)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def offset_ctrl(deps: dict) -> AppController:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    return ctrl2
+
+
+def _record_offsets(ctrl2: AppController) -> list:
+    seen = []
+    ctrl2.events.measurement_offset_changed.connect(lambda e: seen.append(e.measurement.offset_s))
+    return seen
+
+
+@pytest.mark.requirement("REQ-PLUGIN-600")
+def test_offset_settled_announces_a_changed_offset_once(offset_ctrl: AppController) -> None:
+    seen = _record_offsets(offset_ctrl)
+    measurement = offset_ctrl.measurements[0]
+
+    offset_ctrl.on_measurement_offset_drag_started(measurement)
+    measurement.offset_s = 2.0
+    offset_ctrl.on_measurement_offset_settled(measurement)
+    offset_ctrl.on_measurement_offset_settled(measurement)  # nothing changed since
+
+    assert seen == [2.0]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-601")
+def test_click_without_movement_announces_nothing(offset_ctrl: AppController) -> None:
+    seen = _record_offsets(offset_ctrl)
+    measurement = offset_ctrl.measurements[0]
+
+    offset_ctrl.on_measurement_offset_drag_started(measurement)
+    offset_ctrl.on_measurement_offset_settled(measurement)
+
+    assert seen == []
+
+
+@pytest.mark.requirement("REQ-PLUGIN-600")
+def test_drag_with_lost_finish_is_announced_at_next_drag_start(offset_ctrl: AppController) -> None:
+    seen = _record_offsets(offset_ctrl)
+    measurement = offset_ctrl.measurements[0]
+
+    offset_ctrl.on_measurement_offset_drag_started(measurement)
+    measurement.offset_s = 3.0  # ...the finish event never arrives
+    offset_ctrl.on_measurement_offset_drag_started(measurement)
+
+    assert seen == [3.0]
+
+
+def test_offset_settled_on_closed_measurement_is_ignored(offset_ctrl: AppController) -> None:
+    seen = _record_offsets(offset_ctrl)
+    measurement = offset_ctrl.measurements[0]
+    offset_ctrl.close_measurement(measurement)
+    measurement.offset_s = 5.0
+
+    offset_ctrl.on_measurement_offset_settled(measurement)
+
+    assert seen == []
+
+
+@pytest.mark.requirement("REQ-PLUGIN-602")
+def test_restored_offset_is_not_re_announced(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader()])
+    ctrl2.restore_measurements(
+        [_make_measurement_config("a.mf4", "Engine", 2.5)], primary_index=0, synchronized=False,
+    )
+    seen = _record_offsets(ctrl2)
+
+    ctrl2.on_measurement_offset_settled(ctrl2.measurements[0])
+
+    assert seen == []  # the starting offset already arrived with measurement_added

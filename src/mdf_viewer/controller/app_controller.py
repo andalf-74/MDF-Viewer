@@ -23,6 +23,7 @@ from mdf_viewer.controller.events import (
     FileLoadedEvent,
     MeasurementAddedEvent,
     MeasurementClosedEvent,
+    MeasurementOffsetChangedEvent,
     MeasurementUpdatedEvent,
     SelectionChangedEvent,
     SignalAddedEvent,
@@ -230,6 +231,11 @@ class AppController:
         self._measurement_tokens: dict[int, LoadedMeasurement] = {}
         self._measurement_token_by_id: dict[int, int] = {}
         self._next_measurement_token: int = 1
+        # Last offset announced to plugins per measurement (#189), keyed by
+        # id(measurement) — safe because the entry is seeded when the
+        # measurement enters the pool (its measurement_added view already
+        # carries that offset) and popped by _discard_measurement().
+        self._announced_offsets: dict[int, float] = {}
 
         # Single instance, not per-TabWorkspace (#110) — the Search dialog
         # itself is a singleton, unlike CursorController/ZoomController
@@ -1131,6 +1137,7 @@ class AppController:
         # is a mutable dataclass with field-equality __eq__, so two
         # structurally matching-but-distinct instances could compare equal.
         self._measurements = [m for m in self._measurements if m is not measurement]
+        self._announced_offsets.pop(id(measurement), None)
         if self._primary_measurement is measurement:
             self._primary_measurement = None
 
@@ -1166,6 +1173,7 @@ class AppController:
         """
         for measurement in list(measurements):
             if any(m is measurement for m in self._measurements):
+                self._announced_offsets[id(measurement)] = measurement.offset_s
                 self.events.measurement_added.emit(MeasurementAddedEvent(measurement=measurement))
 
     def _discard_all_measurements(self) -> None:
@@ -1434,6 +1442,29 @@ class AppController:
             for active in workspace.active:
                 if active.measurement is measurement:
                     workspace.plot.refresh_signal_data(active)
+
+    def on_measurement_offset_settled(self, measurement: LoadedMeasurement) -> None:
+        """An axis-row drag on *measurement* ended (#189, REQ-PLUGIN-600/601):
+        announce measurement_offset_changed once, if the offset actually
+        differs from the last one announced — so a click without movement
+        announces nothing. Ignores a measurement that is no longer loaded
+        (closed or discarded mid-drag).
+        """
+        if not any(m is measurement for m in self._measurements):
+            return
+        if self._announced_offsets.get(id(measurement)) == measurement.offset_s:
+            return
+        self._announced_offsets[id(measurement)] = measurement.offset_s
+        self.events.measurement_offset_changed.emit(MeasurementOffsetChangedEvent(measurement=measurement))
+
+    def on_measurement_offset_drag_started(self, measurement: LoadedMeasurement) -> None:
+        """An axis-row drag on *measurement* is starting (#189). Runs the same
+        check as on_measurement_offset_settled() before the offset moves
+        again, so a previous drag whose finish event never arrived (mouse
+        grab lost mid-drag, e.g. to a modal dialog) is still announced, at
+        the latest here.
+        """
+        self.on_measurement_offset_settled(measurement)
 
     def add_signal(
         self,

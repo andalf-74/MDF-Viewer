@@ -95,6 +95,10 @@ def _wire_tab(
     # curves' data is cross-tab (the pool is global), so it's routed
     # through AppController rather than handled here.
     plot_area.measurement_offset_changed.connect(controller.on_measurement_offset_changed)
+    # Start/end of each such drag, so AppController can announce a settled
+    # offset to plugins exactly once (#189, REQ-PLUGIN-600/601).
+    plot_area.measurement_offset_drag_started.connect(controller.on_measurement_offset_drag_started)
+    plot_area.measurement_offset_settled.connect(controller.on_measurement_offset_settled)
 
     cursor_ctrl = CursorController(
         cursor_view=cursor_view,
