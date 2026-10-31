@@ -16,8 +16,10 @@ from typing import TYPE_CHECKING, Any, Callable
 import numpy as np
 
 from mdf_viewer.enums import CursorMode
+from mdf_viewer.errors import MdfLoadError
 from mdf_viewer.model.virtual_measurement_loader import VirtualMeasurementLoader
 from mdf_viewer.model.virtual_signal import VirtualSignal
+from mdf_viewer.plugin_api.errors import ChannelLoadError
 from mdf_viewer.plugin_api.registry import (
     DockWidgetMode,
     DockWidgetRegistration,
@@ -26,6 +28,7 @@ from mdf_viewer.plugin_api.registry import (
     TabTypeRegistration,
 )
 from mdf_viewer.plugin_api.types import (
+    PluginChannelView,
     PluginCursorMovedEvent,
     PluginFileLoadedEvent,
     PluginMeasurementClosedEvent,
@@ -90,6 +93,13 @@ class PluginContext:
         self._app_version = app_version
         # (event_name, wrapped_handler) pairs, for unsubscribe_all() teardown.
         self._subscriptions: list[tuple[str, Callable[[Any], None]]] = []
+        # Flattened channel_tree() per measurement token, file-backed
+        # measurements only (#189): their tree never changes while the
+        # token lives, and a Replace… mints a new token. Holds metadata,
+        # never PluginChannelViews, so each call builds views with the
+        # measurement's current offset/Primary state. Virtual trees change
+        # on attach/detach (#162) and are never cached.
+        self._channel_cache: dict[int, list["SignalMetadata"]] = {}
 
     def _tab_name(self, index: int) -> str:
         if self._tab_name_provider is not None:
@@ -105,7 +115,53 @@ class PluginContext:
             else None
         )
         token = self._app.token_for_signal(active)
-        return PluginSignalView.from_active(active, token, measurement_view)
+        channel = (
+            self._channel_for(active, measurement_view)
+            if active.measurement is not None and measurement_view is not None
+            else None
+        )
+        return PluginSignalView.from_active(active, token, measurement_view, channel)
+
+    def _channel_for(
+        self, active: "ActiveSignal", measurement_view: PluginMeasurementView,
+    ) -> PluginChannelView:
+        """The channel *active* was loaded from (REQ-PLUGIN-574).
+
+        Descriptive fields come from the channel_tree() entry — what the
+        Signal Browser and list_channels() show — not from active.metadata,
+        since load_signal() extracts name/unit/comment differently. Falls
+        back to active.metadata if the tree can't be read or no longer has
+        the entry; equality only uses the handle, so either way it equals
+        the list_channels() entry for the same channel.
+        """
+        meta = active.metadata
+        for candidate in self._channel_metadata(active.measurement, measurement_view.key):
+            if (candidate.group_index, candidate.channel_index) == (meta.group_index, meta.channel_index):
+                meta = candidate
+                break
+        return PluginChannelView.from_metadata(meta, measurement_view)
+
+    def _channel_metadata(self, measurement: "LoadedMeasurement", token: int) -> list["SignalMetadata"]:
+        """*measurement*'s channels in Signal Browser order — group by
+        group, channels in stored order (REQ-PLUGIN-571). `[]` (logged) if
+        the tree can't be read: enumeration never raises a loader error at
+        a plugin."""
+        cached = self._channel_cache.get(token)
+        if cached is not None:
+            return cached
+        try:
+            channels = [ch for group in measurement.loader.channel_tree() for ch in group.channels]
+        except Exception:
+            logger.exception("Could not enumerate channels of measurement '%s'", measurement.label)
+            return []
+        if measurement.owner_plugin is None:
+            # Forget lists for measurements closed since (dead tokens are
+            # never looked up again, and tokens are never reused).
+            for stale in [t for t in self._channel_cache if self._app.find_measurement_by_token(t) is None]:
+                del self._channel_cache[stale]
+            self._channel_cache[token] = channels
+        return channels
+
 
     def _to_measurement_view(self, measurement: "LoadedMeasurement") -> PluginMeasurementView:
         """Build a PluginMeasurementView for *measurement* — the one place
@@ -185,6 +241,70 @@ class PluginContext:
         if active is None:
             return None
         return active.display_timestamps.copy(), active.data.samples.copy()
+
+    # ------------------------------------------------------------------
+    # Reading any loaded channel (#189, REQ-PLUGIN-570-586)
+    # ------------------------------------------------------------------
+
+    def list_channels(self, measurement: PluginMeasurementView) -> list[PluginChannelView]:
+        """Every channel of *measurement* — exactly what the Signal Browser
+        shows for it, in the file's own order; for a virtual measurement,
+        in attach order (REQ-PLUGIN-570/571).
+
+        An empty list if *measurement* has since been closed or replaced
+        (REQ-PLUGIN-575), or if its channels can't be enumerated (logged).
+        """
+        live = self._app.find_measurement_by_token(measurement.key)
+        if live is None:
+            return []
+        view = self._to_measurement_view(live)
+        return [
+            PluginChannelView.from_metadata(meta, view)
+            for meta in self._channel_metadata(live, view.key)
+        ]
+
+    def find_channels(
+        self, name: str, measurement: PluginMeasurementView | None = None,
+    ) -> list[PluginChannelView]:
+        """Every channel named exactly *name* (case-sensitive) — across
+        all loaded measurements in pool order, or within *measurement* only
+        (REQ-PLUGIN-573). Disambiguating several matches is the plugin's
+        job. An empty list for a closed or replaced *measurement*.
+        """
+        if measurement is not None:
+            candidates = [measurement]
+        else:
+            candidates = self.measurements
+        return [ch for m in candidates for ch in self.list_channels(m) if ch.name == name]
+
+    def load_samples(self, channel: PluginChannelView) -> tuple["np.ndarray", "np.ndarray"] | None:
+        """Timestamps and values of *channel*, plotted or not (REQ-PLUGIN-580).
+
+        Timestamps include the measurement's time offset as it is right now,
+        matching get_samples() for the same signal when plotted
+        (REQ-PLUGIN-581); both arrays are copies (REQ-PLUGIN-582). None if
+        the measurement has since been closed or replaced, or a virtual
+        channel has been detached (REQ-PLUGIN-583). Raises ChannelLoadError
+        if the channel can't be provided as numeric samples, or on any
+        other read failure (REQ-PLUGIN-584/585). Reading a virtual channel
+        runs its resolver (REQ-PLUGIN-586).
+
+        Synchronous: call it from the GUI thread only. Each call reads
+        afresh; there is no caching contract.
+        """
+        measurement = self._app.find_measurement_by_token(channel._measurement_token)
+        if measurement is None:
+            return None
+        loader = measurement.loader
+        if isinstance(loader, VirtualMeasurementLoader) and not loader.has_channel(channel._channel_index):
+            return None
+        try:
+            data, _metadata = loader.load_signal(channel._group_index, channel._channel_index)
+        except MdfLoadError as exc:
+            raise ChannelLoadError(str(exc)) from exc
+        except Exception as exc:
+            raise ChannelLoadError(f"Unexpected error reading '{channel.name}': {exc}") from exc
+        return data.timestamps + measurement.offset_s, data.samples.copy()
 
     # ------------------------------------------------------------------
     # Application window/version access (#76, REQ-PLUGIN-450-452)
