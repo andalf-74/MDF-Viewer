@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from PyQt6.QtWidgets import QMainWindow, QWidget
 
     from mdf_viewer.controller.app_controller import AppController
+    from mdf_viewer.model.loaded_measurement import LoadedMeasurement
     from mdf_viewer.model.signal_data import SignalData
     from mdf_viewer.model.signal_metadata import SignalMetadata
     from mdf_viewer.view_model.active_signal import ActiveSignal
@@ -99,14 +100,21 @@ class PluginContext:
         """Build a PluginSignalView for *active* — the one place that knows
         how (shared by the read surface and event translation, #149)."""
         measurement_view = (
-            PluginMeasurementView.from_measurement(
-                active.measurement, is_primary=active.measurement is self._app.primary_measurement,
-            )
+            self._to_measurement_view(active.measurement)
             if active.measurement is not None
             else None
         )
         token = self._app.token_for_signal(active)
         return PluginSignalView.from_active(active, token, measurement_view)
+
+    def _to_measurement_view(self, measurement: "LoadedMeasurement") -> PluginMeasurementView:
+        """Build a PluginMeasurementView for *measurement* — the one place
+        that knows how, so every view carries a live token (#189)."""
+        return PluginMeasurementView.from_measurement(
+            measurement,
+            is_primary=measurement is self._app.primary_measurement,
+            token=self._app.token_for_measurement(measurement),
+        )
 
     def _tab_index_for(self, workspace: object) -> int | None:
         """Resolve a raw TabWorkspace to its tab index, or None if it's since
@@ -140,11 +148,7 @@ class PluginContext:
     @property
     def measurements(self) -> list[PluginMeasurementView]:
         """Every loaded measurement, with which one is Primary (REQ-PLUGIN-100)."""
-        primary = self._app.primary_measurement
-        return [
-            PluginMeasurementView.from_measurement(m, is_primary=m is primary)
-            for m in self._app.measurements
-        ]
+        return [self._to_measurement_view(m) for m in self._app.measurements]
 
     @property
     def cursor_positions(self) -> list[PluginTabCursor]:

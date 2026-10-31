@@ -8,3 +8,7 @@ live, mutable application object (``ActiveSignal``, ``LoadedMeasurement``,
 """
 
 from __future__ import annotations
+
+from mdf_viewer.plugin_api.errors import ChannelLoadError
+
+__all__ = ["ChannelLoadError"]

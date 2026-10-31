@@ -65,6 +65,12 @@ class VirtualMeasurementLoader:
                 return channel_index
         return None
 
+    def has_channel(self, channel_index: int) -> bool:
+        """Whether a signal with this channel_index is still attached —
+        False once it has been detached (#189). Since channel_index values
+        are never reused (#162), True always means the same signal."""
+        return channel_index in self._signals
+
     @property
     def is_open(self) -> bool:
         return True

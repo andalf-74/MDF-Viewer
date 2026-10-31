@@ -118,7 +118,7 @@ def test_subscribe_delivers_a_translated_event_not_the_raw_payload(
     received = []
     context.subscribe("signal_removed", received.append)
 
-    raw_signal = MagicMock()
+    raw_signal = MagicMock(measurement=None)  # an out-of-pool mock measurement can't be tokenized (#189)
     event = SignalRemovedEvent(signal=raw_signal)
     ctrl.events.signal_removed.emit(event)
 
@@ -139,7 +139,7 @@ def test_subscribe_handler_exception_is_caught_and_logged(
     context.subscribe("signal_removed", boom)
 
     with caplog.at_level(logging.ERROR, logger="mdf_viewer.plugin_api"):
-        ctrl.events.signal_removed.emit(SignalRemovedEvent(signal=MagicMock()))  # must not raise
+        ctrl.events.signal_removed.emit(SignalRemovedEvent(signal=MagicMock(measurement=None)))  # must not raise
 
     assert "exporter" in caplog.text
     assert "signal_removed" in caplog.text
@@ -157,7 +157,7 @@ def test_a_raising_handler_does_not_break_other_subscribers(
     context.subscribe("signal_removed", boom)
     context.subscribe("signal_removed", other_received.append)
 
-    event = SignalRemovedEvent(signal=MagicMock())
+    event = SignalRemovedEvent(signal=MagicMock(measurement=None))
     ctrl.events.signal_removed.emit(event)
 
     assert len(other_received) == 1
@@ -169,7 +169,7 @@ def test_unsubscribe_all_stops_delivery(ctrl: AppController, context: PluginCont
     context.subscribe("signal_removed", received.append)
 
     context.unsubscribe_all()
-    ctrl.events.signal_removed.emit(SignalRemovedEvent(signal=MagicMock()))
+    ctrl.events.signal_removed.emit(SignalRemovedEvent(signal=MagicMock(measurement=None)))
 
     assert received == []
 
@@ -359,7 +359,7 @@ def test_teardown_unsubscribes_and_removes_registrations(
     assert registry.dock_widgets == []
     assert registry.tab_types == []
     assert registry.preferences_pages == []
-    ctrl.events.signal_removed.emit(SignalRemovedEvent(signal=MagicMock()))
+    ctrl.events.signal_removed.emit(SignalRemovedEvent(signal=MagicMock(measurement=None)))
     assert received == []
 
 
@@ -463,7 +463,7 @@ def test_known_events_matches_eventbus_real_signals() -> None:
 def test_every_known_event_has_a_working_translation(context: PluginContext) -> None:
     from mdf_viewer.plugin_api.context import _KNOWN_EVENTS
 
-    dummy_signal = MagicMock()
+    dummy_signal = MagicMock(measurement=None)
     payloads = {
         "file_loaded": MagicMock(path="x.mf4", tab=None),
         "signal_added": MagicMock(signal=dummy_signal, tab=None),

@@ -192,3 +192,19 @@ def test_attaching_the_same_object_twice_is_rejected(caplog) -> None:
     loader.attach(signal)
 
     assert len(loader.channel_tree()[0].channels) == 1
+
+
+@pytest.mark.requirement("REQ-PLUGIN-583")
+def test_has_channel_false_after_detach_and_index_not_reused() -> None:
+    loader = VirtualMeasurementLoader(owner_plugin="p")
+    first = _signal("a")
+    second = _signal("b")
+    loader.attach(first)
+    loader.attach(second)
+
+    freed = loader.detach(first)
+
+    assert loader.has_channel(freed) is False
+    assert loader.has_channel(freed + 1) is True
+    loader.attach(_signal("c"))
+    assert loader.has_channel(freed) is False  # ids are never reused (#162)

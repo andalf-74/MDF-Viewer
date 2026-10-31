@@ -221,6 +221,15 @@ class AppController:
         self._signal_token_by_id: dict[int, int] = {}
         self._next_signal_token: int = 1
 
+        # Opaque, plugin-facing measurement handles (#189) — same scheme as
+        # the signal tokens above; see token_for_measurement(). id(m) is a
+        # safe transient key only while m is in the pool, which
+        # token_for_measurement() asserts and _discard_measurement() /
+        # replace_single_measurement() end by dropping the token.
+        self._measurement_tokens: dict[int, LoadedMeasurement] = {}
+        self._measurement_token_by_id: dict[int, int] = {}
+        self._next_measurement_token: int = 1
+
         # Single instance, not per-TabWorkspace (#110) — the Search dialog
         # itself is a singleton, unlike CursorController/ZoomController
         # which are 1:1 with a tab's plot.
@@ -1112,6 +1121,24 @@ class AppController:
         """
         self._remove_measurement_signals(measurement)
         logger.info("Closed measurement '%s'", measurement.label)
+        self._emit_measurement_closed(measurement)
+        # Identity comparison, not `in`/`.remove()`'s `==` — LoadedMeasurement
+        # is a mutable dataclass with field-equality __eq__, so two
+        # structurally matching-but-distinct instances could compare equal.
+        self._measurements = [m for m in self._measurements if m is not measurement]
+        if self._primary_measurement is measurement:
+            self._primary_measurement = None
+
+    def _emit_measurement_closed(self, measurement: LoadedMeasurement) -> None:
+        """Emit measurement_closed for *measurement*, then invalidate its
+        plugin-facing token (#147, #189) — shared by _discard_measurement()
+        and replace_single_measurement().
+
+        Emit before dropping the token, the same order #149 set for signal
+        tokens: a plugin's handler builds its view of the measurement
+        synchronously inside the emit, and that view's token must still be
+        valid then; it stops resolving immediately afterward.
+        """
         self.events.measurement_closed.emit(
             MeasurementClosedEvent(
                 label=measurement.label,
@@ -1119,12 +1146,7 @@ class AppController:
                 owner_plugin=measurement.owner_plugin,
             )
         )
-        # Identity comparison, not `in`/`.remove()`'s `==` — LoadedMeasurement
-        # is a mutable dataclass with field-equality __eq__, so two
-        # structurally matching-but-distinct instances could compare equal.
-        self._measurements = [m for m in self._measurements if m is not measurement]
-        if self._primary_measurement is measurement:
-            self._primary_measurement = None
+        self._drop_measurement_token(measurement)
 
     def _discard_all_measurements(self) -> None:
         """_discard_measurement() every measurement in the pool, over a
@@ -1206,6 +1228,12 @@ class AppController:
         info = loader.measurement_info()
 
         self._remove_measurement_signals(measurement)
+        # Replace… ends the old identity (REQ-PLUGIN-562): announce the old
+        # file as closed while measurement.loader still points at it (so a
+        # view built in a handler reports the old path), and drop its
+        # token. The same LoadedMeasurement object stays in the pool with
+        # the new file, and gets a fresh token the next time a plugin sees it.
+        self._emit_measurement_closed(measurement)
 
         measurement.loader = loader
         measurement.info = info
@@ -2765,6 +2793,42 @@ class AppController:
         token = self._signal_token_by_id.pop(id(active), None)
         if token is not None:
             self._signal_tokens.pop(token, None)
+
+    def token_for_measurement(self, measurement: LoadedMeasurement) -> int:
+        """Mint (or reuse) *measurement*'s opaque plugin-facing token (#189).
+
+        Lazy, like token_for_signal(). Only ever valid for a measurement
+        currently in the pool — minting one for a measurement that has
+        already been discarded would create a token nothing ever drops
+        (and, for load_file()'s shared loader, one that could silently
+        resolve to a different file's channels).
+        """
+        assert any(m is measurement for m in self._measurements), (
+            "token_for_measurement() called for a measurement not in the pool"
+        )
+        key = id(measurement)
+        token = self._measurement_token_by_id.get(key)
+        if token is None:
+            token = self._next_measurement_token
+            self._next_measurement_token += 1
+            self._measurement_token_by_id[key] = token
+            self._measurement_tokens[token] = measurement
+        return token
+
+    def find_measurement_by_token(self, token: int) -> LoadedMeasurement | None:
+        """The LoadedMeasurement *token* refers to, or None if it has since
+        been closed or replaced (#189). Also checks pool membership, as a
+        second guard behind _drop_measurement_token()."""
+        measurement = self._measurement_tokens.get(token)
+        if measurement is None or not any(m is measurement for m in self._measurements):
+            return None
+        return measurement
+
+    def _drop_measurement_token(self, measurement: LoadedMeasurement) -> None:
+        """Invalidate *measurement*'s token, if it was ever minted (#189)."""
+        token = self._measurement_token_by_id.pop(id(measurement), None)
+        if token is not None:
+            self._measurement_tokens.pop(token, None)
 
     @property
     def selected_signal(self) -> ActiveSignal | None:

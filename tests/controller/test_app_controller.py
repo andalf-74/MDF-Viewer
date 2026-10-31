@@ -6221,3 +6221,74 @@ def test_close_measurement_ignores_measurement_not_in_pool(ctrl: AppController) 
     ctrl.close_measurement(measurement)
 
     assert seen == []
+
+
+# ---------------------------------------------------------------------------
+# Measurement tokens (#189)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.requirement("REQ-PLUGIN-561")
+def test_close_measurement_kills_its_token(ctrl: AppController) -> None:
+    measurement = ctrl.add_virtual_measurement(_make_virtual_loader("p"), label="V", owner_plugin="p")
+    token = ctrl.token_for_measurement(measurement)
+    assert ctrl.find_measurement_by_token(token) is measurement
+
+    ctrl.close_measurement(measurement)
+
+    assert ctrl.find_measurement_by_token(token) is None
+
+
+@pytest.mark.requirement("REQ-PLUGIN-560")
+def test_token_for_measurement_is_reused_while_measurement_lives(ctrl: AppController) -> None:
+    measurement = ctrl.add_virtual_measurement(_make_virtual_loader("p"), label="V", owner_plugin="p")
+    assert ctrl.token_for_measurement(measurement) == ctrl.token_for_measurement(measurement)
+
+
+@pytest.mark.requirement("REQ-PLUGIN-562")
+def test_replace_single_measurement_gives_a_new_token(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    measurement = ctrl2.measurements[0]
+    old_token = ctrl2.token_for_measurement(measurement)
+    tokens_seen_in_close_handler = []
+    ctrl2.events.measurement_closed.connect(
+        lambda _e: tokens_seen_in_close_handler.append(ctrl2.find_measurement_by_token(old_token))
+    )
+
+    ctrl2.replace_single_measurement(measurement, "b.mf4")
+
+    assert tokens_seen_in_close_handler == [measurement]  # still valid inside the emit
+    assert ctrl2.find_measurement_by_token(old_token) is None
+    new_token = ctrl2.token_for_measurement(measurement)
+    assert new_token != old_token
+    assert ctrl2.find_measurement_by_token(new_token) is measurement
+
+
+@pytest.mark.requirement("REQ-PLUGIN-592")
+def test_replace_single_measurement_emits_measurement_closed(deps: dict) -> None:
+    ctrl2 = _make_ctrl_with_loaders(deps, [_make_pool_loader(), _make_pool_loader()])
+    ctrl2.replace_measurements(["a.mf4"])
+    seen = []
+    ctrl2.events.measurement_closed.connect(seen.append)
+
+    ctrl2.replace_single_measurement(ctrl2.measurements[0], "b.mf4")
+
+    assert [e.label for e in seen] == ["M1"]
+
+
+@pytest.mark.requirement("REQ-PLUGIN-561")
+def test_measurement_tokens_are_never_reused(ctrl: AppController) -> None:
+    first = ctrl.add_virtual_measurement(_make_virtual_loader("p"), label="A", owner_plugin="p")
+    first_token = ctrl.token_for_measurement(first)
+    ctrl.close_measurement(first)
+    second = ctrl.add_virtual_measurement(_make_virtual_loader("p"), label="B", owner_plugin="p")
+
+    assert ctrl.token_for_measurement(second) != first_token
+
+
+def test_token_for_measurement_rejects_a_measurement_outside_the_pool(ctrl: AppController) -> None:
+    measurement = ctrl.add_virtual_measurement(_make_virtual_loader("p"), label="V", owner_plugin="p")
+    ctrl.close_measurement(measurement)
+
+    with pytest.raises(AssertionError):
+        ctrl.token_for_measurement(measurement)

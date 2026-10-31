@@ -27,16 +27,38 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class PluginMeasurementView:
-    """Read-only view of one loaded measurement (REQ-PLUGIN-100)."""
+    """Read-only view of one loaded measurement (REQ-PLUGIN-100).
+
+    A snapshot: `offset_s` and `is_primary` are as they were when the view
+    was built, so two views of the same measurement taken at different
+    times may compare unequal. Use `key` (or `same_measurement()`) to tell
+    whether two views refer to the same loaded measurement (REQ-PLUGIN-560).
+    """
 
     path: str
     label: str
     offset_s: float
     is_primary: bool
     is_virtual: bool
+    # Opaque, controller-minted handle (#189) — stops resolving once the
+    # measurement is closed or replaced (REQ-PLUGIN-561/562).
+    _measurement_token: int = field(repr=False)
+
+    @property
+    def key(self) -> int:
+        """Opaque identity of the loaded measurement this view describes,
+        stable across offset/Primary changes — usable as a dict key. A
+        Replace… gives the replacement a different key (REQ-PLUGIN-562)."""
+        return self._measurement_token
+
+    def same_measurement(self, other: "PluginMeasurementView") -> bool:
+        """Whether *other* describes the same loaded measurement as this view."""
+        return self._measurement_token == other._measurement_token
 
     @classmethod
-    def from_measurement(cls, measurement: "LoadedMeasurement", *, is_primary: bool) -> "PluginMeasurementView":
+    def from_measurement(
+        cls, measurement: "LoadedMeasurement", *, is_primary: bool, token: int,
+    ) -> "PluginMeasurementView":
         loader = measurement.loader
         # loader.path (the public MeasurementLoader surface, #147), not the
         # MdfLoader-only private _path — a virtual measurement's loader
@@ -48,6 +70,47 @@ class PluginMeasurementView:
             offset_s=measurement.offset_s,
             is_primary=is_primary,
             is_virtual=measurement.owner_plugin is not None,
+            _measurement_token=token,
+        )
+
+
+@dataclass(frozen=True)
+class PluginChannelView:
+    """Read-only handle to one channel of a loaded measurement (#189,
+    REQ-PLUGIN-572) — listed or found whether or not it is plotted, and
+    read via ``PluginContext.load_samples()``.
+
+    Equality and hashing use only the hidden handle (measurement token,
+    channel group index, channel index), never the descriptive fields: the
+    same channel then compares equal however it was obtained — from
+    ``list_channels()``, ``find_channels()``, or a plotted signal's
+    ``channel`` — and stays usable as a dict key across offset or Primary
+    changes. A handle dies with its measurement (close or Replace…), or,
+    for a virtual channel, when it is detached.
+    """
+
+    name: str = field(compare=False)
+    unit: str = field(compare=False)
+    comment: str = field(compare=False)
+    group_name: str = field(compare=False)
+    measurement: PluginMeasurementView = field(compare=False)
+    _measurement_token: int = field(repr=False)
+    _group_index: int = field(repr=False)
+    _channel_index: int = field(repr=False)
+
+    @classmethod
+    def from_metadata(
+        cls, metadata: "SignalMetadata", measurement_view: PluginMeasurementView,
+    ) -> "PluginChannelView":
+        return cls(
+            name=metadata.name,
+            unit=metadata.unit,
+            comment=metadata.comment,
+            group_name=metadata.group_name,
+            measurement=measurement_view,
+            _measurement_token=measurement_view.key,
+            _group_index=metadata.group_index if metadata.group_index is not None else -1,
+            _channel_index=metadata.channel_index if metadata.channel_index is not None else -1,
         )
 
 
@@ -68,6 +131,9 @@ class PluginSignalView:
     line_style: str
     visible: bool
     measurement: PluginMeasurementView | None
+    # The channel this signal was loaded from (REQ-PLUGIN-574) — None only
+    # when the signal has no owning measurement (same case as `measurement`).
+    channel: "PluginChannelView | None"
     # Opaque handle for PluginContext.get_samples() — a controller-minted
     # token, never id(active_signal) (see docs/architecture.md's #71 entry
     # for why that would be unsafe for a handle a plugin can hold indefinitely).
@@ -79,6 +145,7 @@ class PluginSignalView:
         active: "ActiveSignal",
         token: int,
         measurement_view: PluginMeasurementView | None,
+        channel: "PluginChannelView | None" = None,
     ) -> "PluginSignalView":
         return cls(
             metadata=active.metadata,
@@ -89,6 +156,7 @@ class PluginSignalView:
             line_style=active.line_style,
             visible=active.visible,
             measurement=measurement_view,
+            channel=channel,
             _signal_token=token,
         )
 
@@ -164,6 +232,10 @@ class PluginMeasurementClosedEvent:
 
     label: str
     is_virtual: bool
+    # The closed measurement as it was when closed, including its `key`,
+    # so a plugin can tell which handles it holds are now dead
+    # (REQ-PLUGIN-591, #189). Last and defaulted for compatibility.
+    measurement: PluginMeasurementView | None = None
 
 
 @dataclass(frozen=True)

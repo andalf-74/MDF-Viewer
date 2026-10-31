@@ -280,7 +280,7 @@ def test_overridden_handler_receives_a_real_event(ctrl: AppController) -> None:
     plugin = ListenerPlugin()
 
     assert plugin.start(context) is True
-    event = SignalAddedEvent(signal=MagicMock())
+    event = SignalAddedEvent(signal=MagicMock(measurement=None))
     ctrl.events.signal_added.emit(event)
 
     assert len(received) == 1
