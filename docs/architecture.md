@@ -960,3 +960,135 @@ Followed the review's recommended milestone order almost exactly. **M1**: `model
 Serialization of a non-plot tab's own internal *content* remains out of scope (unrelated to this feature — a #148 limitation); resampling/downsampling performance for very large signals against a non-monotonic axis was not specifically profiled beyond disabling `autoDownsample` (accepted per the review's own tradeoff call). `docs/ui.md`/`docs/api.md` closing documentation and `CHANGELOG.md` follow in the same session as this entry.
 
 2606+ tests passing through the M1–M6 implementation; every fix above shipped with its own regression test in addition to live-testing. **Nothing has been committed yet as of this entry** — this remains one long uncommitted working session; see `CLAUDE.md`'s Current Status for the commit point.
+
+
+### Reading Any Loaded Channel (#189) — design, reviewed
+
+Requirements: `docs/requirements/plugin-api.md` REQ-PLUGIN-560–603. Prerequisite for the Signal Calculator redesign (#172, #191). The grill-me decisions and the architecture-step corrections to the requirements are recorded as comments on #189. One Plan-agent review pass (2026-10-31) found 2 blocking issues and 6 should-fix ones, all folded in below. Both blocking issues are about pool mutation, not about the new API itself.
+
+#### Facts checked against the code before designing (2026-10-31)
+
+- **Dragging is the only thing that changes `offset_s` once a measurement is in the pool.** The only write is `_MeasurementAxisItem.mouseDragEvent` (`plot_stripe.py:270`). `toggle_measurements_synchronized()` only flips a flag and redraws the axis rows; synchronized rows can't be dragged. `replace_single_measurement()` keeps the same `LoadedMeasurement` object, so its offset carries over. Workspace restore builds new measurements with their saved offset. REQ-PLUGIN-602 was rewritten to match: a starting offset arrives in the view carried by `measurement_added`.
+- **Replace… keeps the object's identity** (`.loader`/`.info` are swapped in place). A token keyed on `id(measurement)` would therefore carry over, so REQ-PLUGIN-562 needs an explicit drop-and-re-mint.
+- **`ActiveSignal.measurement` is never `None` in production.** `None` only happens on the legacy no-pool `self._loader` fallback that tests use. `PluginSignalView.channel` is still typed `| None` (REQ-PLUGIN-574), matching `PluginSignalView.measurement`.
+- **Both loaders wrap every read failure in `MdfLoadError`**, including a resolver that raises. The one exception: a detached virtual `channel_index` raises a bare `KeyError` (`virtual_measurement_loader.py:118`).
+- **`measurement_closed` is emitted from one place**, `_teardown_measurement()`, before `close_measurement()` reassigns Primary or removes the measurement from the pool. Only plugins and tests subscribe to it; nothing in the app does.
+
+#### Pool-mutation fixes (review findings 1–3; pre-existing bugs that #189's tokens would make worse)
+
+- **Workspace restore discards the old pool silently** (blocking). `restore_measurements()` assigns `self._measurements` directly, with no teardown. Today an active plugin's virtual measurement disappears without `measurement_closed` when a workspace is loaded; with #189, every old token would stay valid. **Fix, decided with the user (option a):** `restore_measurements()` begins with the same per-measurement teardown loop as `load_file()`/`replace_measurements()`. This closes every current measurement, virtual ones included, and fires `measurement_closed` for each. Whether a workspace should *keep* plugin state across a load is #190's question, not this one.
+- **Bulk-discard loops can leak tokens** (blocking). `load_file()`, `replace_measurements()` and (now) `restore_measurements()` tear measurements down one by one, but all of them stay in the pool until the loop ends. A `measurement_closed` handler calling `find_channels()` mid-loop would walk the pool, hit an already-closed measurement, and mint it a fresh token that is never dropped. In `load_file()` the old loader is the shared `self._loader`, which is then reopened on the new file, so that leaked token would silently read the new file. **Fix, three parts:**
+  - Introduce one helper, `_discard_measurement(m)`: teardown → emit `measurement_closed` → drop the token → remove `m` from the pool (by `is`). The bulk loops call it on a snapshot (`for m in list(self._measurements)`), so the pool shrinks as the loop proceeds. `close_measurement()` uses the same helper before its Primary reassignment.
+  - `token_for_measurement()` asserts that `m` is in the pool (by `is`).
+  - `find_measurement_by_token()` also checks pool membership.
+- **A failed `load_file()` leaves zombies** (should-fix). If `open()` raises, the old measurements have already been announced as closed but are still in the pool, and Primary still points at them. With the helper above the pool is already empty by then; also set `_primary_measurement = None` before calling `open()`.
+
+#### Measurement token (`AppController`)
+
+Mirrors #71's signal tokens:
+- State: `_measurement_tokens: dict[int, LoadedMeasurement]`, `_measurement_token_by_id: dict[int, int]`, and `_next_measurement_token` (monotonic, never reused).
+- `token_for_measurement(m) -> int`: mints lazily; asserts pool membership.
+- `find_measurement_by_token(token) -> LoadedMeasurement | None`: the measurement, or `None` if it has left the pool.
+- `_drop_measurement_token(m)`: always called *after* `measurement_closed` is emitted (the "emit, then drop" order from #149), so the payload's view still carries the live token.
+
+**Replace…** (`replace_single_measurement()`), on success:
+1. Tear down the measurement's signals (as today).
+2. Emit `measurement_closed` with the old view, while `.loader` is still the old file so `path` is right.
+3. Drop the token.
+4. Swap `loader`/`info`.
+5. Refresh (as today).
+6. Emit `measurement_added`, which mints a new token on first use.
+7. Emit `file_loaded` (kept, after `measurement_added`).
+
+Failure paths emit nothing. The measurement stays in the pool throughout, so this path doesn't use `_discard_measurement()`. The `measurement_closed` construction is shared through `_emit_measurement_closed(m)`.
+
+Documented for plugin authors: a plugin keyed on `label` sees closed then added with the same label, and the old file's `signal_removed` events come before `closed`.
+
+#### Types (`plugin_api/types.py`)
+
+- **`PluginMeasurementView`**:
+  - Gains a hidden `_measurement_token: int = field(repr=False)`, passed as a required keyword to `from_measurement()`.
+  - Gains a public read-only `key` property that returns the opaque token, so a plugin can key a dict by measurement. `same_measurement(other)` compares keys.
+  - Its existing all-field `__eq__` is left alone, since it's a shipped type. Docstring note: it changes with `offset_s` and `is_primary`, so use `key` for identity.
+- **New frozen `PluginChannelView`**:
+  - Public fields: `name`, `unit`, `comment`, `group_name` and `measurement: PluginMeasurementView`, all with `field(compare=False)`.
+  - Hidden fields: `_measurement_token`, `_group_index` and `_channel_index`.
+  - Equality and hash therefore depend only on the handle. This is stable across a drag or a Primary change, and across metadata that differs between the browser tree and a loaded signal: `channel_tree()` and `load_signal()` extract name/unit/comment differently (`mdf_loader.py:146` vs `:279`; virtual `template` vs resolver metadata). That makes the view a valid dict key for #191's input bindings.
+  - Public fields are always taken from the `channel_tree()` entry, so what the plugin sees matches the Signal Browser.
+- **`PluginSignalView`** gains `channel: PluginChannelView | None`, placed before the hidden `_signal_token`. `from_active()` takes a `channel: ... = None` keyword. `PluginContext._to_signal_view()` builds it by looking up the `channel_tree()` entry for `(active.metadata.group_index, channel_index)`, not from `active.metadata`. If the lookup fails, it falls back to `active.metadata`'s fields; the handle is the same either way. It is `None` when `active.measurement is None`.
+- **New `ChannelLoadError(Exception)`**, exported from `mdf_viewer.plugin_api`.
+- **New event payloads**: `PluginMeasurementAddedEvent(measurement)` and `PluginMeasurementOffsetChangedEvent(measurement)`. `PluginMeasurementClosedEvent` gains `measurement: PluginMeasurementView | None = None` as its *last* field. The only construction site is keyword-based (`context.py:433`), so existing code is unaffected.
+
+#### `PluginContext` methods
+
+- **`list_channels(measurement) -> list[PluginChannelView]`**:
+  - Resolves `measurement.key`; a dead token returns `[]` (REQ-PLUGIN-575).
+  - Flattens `loader.channel_tree()` in order, so it matches the Signal Browser by construction (REQ-PLUGIN-571).
+  - If `channel_tree()` raises (`MdfLoadError` or anything else), it logs the error and returns `[]`. A broken file has no listable channels, and enumeration never raises a loader exception at a plugin.
+  - The projected list is cached per token for **file-backed measurements only**: their tree never changes while the token lives, and a Replace… mints a new token. Virtual trees are never cached, since #162 changes them.
+- **`find_channels(name, measurement=None) -> list[PluginChannelView]`**: exact `==` on `name` over `list_channels()`, either across the pool in order or within one measurement. A dead `measurement` returns `[]`.
+- **`load_samples(channel) -> tuple[np.ndarray, np.ndarray] | None`**:
+  1. Resolve the token; dead → `None`.
+  2. For a virtual measurement, a new public `VirtualMeasurementLoader.has_channel(ci)` returning `False` → `None`.
+  3. `data, _meta = loader.load_signal(gi, ci)`. `MdfLoadError` → `ChannelLoadError(str(exc))`; any other `Exception` (this covers `RecursionError`) → `ChannelLoadError(f"Unexpected error reading '{name}': {exc}")`. Both are chained `from exc`.
+  4. Return `(data.timestamps + measurement.offset_s, data.samples.copy())`. The addition matches `ActiveSignal.display_timestamps` exactly and already produces a new array. Samples are copied because a virtual resolver may return an array it keeps.
+
+No caching of samples. GUI-thread-only, stated in the docstring and the SDK's `plugin-context.md`.
+
+#### Events (`controller/events.py`, `plugin_api`)
+
+- **`measurement_added`** (new `pyqtSignal`; `MeasurementAddedEvent(measurement: LoadedMeasurement)`):
+  - Emitted from `load_file`, `replace_measurements`, `add_measurements`, `restore_measurements`, `add_virtual_measurement` and `replace_single_measurement`.
+  - **For a batch, it fires once per measurement, in pool order, only after the whole batch is in the pool and Primary is set.** A handler on the first measurement therefore already sees the rest, and `is_primary` is correct.
+  - It does not replay for measurements already loaded when a plugin activates; the SDK docs tell plugins to seed from `context.measurements`. A handler calling `register_virtual_measurement()` re-enters `measurement_added`; that's safe because the pool is consistent at every emission.
+- **`measurement_closed`**: the internal `MeasurementClosedEvent` gains `measurement: LoadedMeasurement | None = None`, last after `owner_plugin`, because a required field can't follow a defaulted one. The translation builds the view when it's present, `None` otherwise. Fix the "carries no live object" wording in `docs/api.md` (~286) and in this file's #147 entry.
+- **`measurement_offset_changed`** (new `pyqtSignal`; `MeasurementOffsetChangedEvent(measurement)`):
+  - `_MeasurementAxisItem` gains a second callback, `on_offset_settled(measurement)`, called from an `event.isFinish()` branch with no comparison of its own.
+  - `PlotStripesArea` gets a new Qt signal **`measurement_offset_settled`**; the existing per-move `measurement_offset_changed` Qt signal keeps driving the redraw. `app.py`'s `_wire_tab` connects it; that function is already used for the first tab, new tabs, X-axis tabs and restored tabs.
+  - **The controller decides whether anything changed.** It keeps `_announced_offsets: dict[int, float]`, keyed by the measurement token and seeded when `measurement_added` fires. `on_measurement_offset_settled(m)` ignores a measurement no longer in the pool, and emits only if `m.offset_s` differs from the announced value, then records it.
+  - The same check also runs from a new `on_offset_drag_started` callback (the `isStart()` branch). A drag whose finish event was lost (grab stolen by a modal dialog or Cmd-Tab) is then announced at the next drag's start at the latest.
+  - A click without movement fires nothing. Offsets aren't part of the zoom/undo history, so there's no interaction there.
+- `_KNOWN_EVENTS`, `_translate_event()` and `_EVENT_HANDLER_NAMES` (`on_measurement_added`, `on_measurement_offset_changed`) each gain both events. `PluginContext._teardown()` needs no change: REQ-PLUGIN-301's unsubscribe-first order still holds.
+
+#### Tests to plan
+
+- **Pool mutation:**
+  - Loading a workspace fires `measurement_closed` for every previous measurement, virtual included, and kills their tokens.
+  - A `measurement_closed` handler calling `find_channels()` mid-bulk-discard (in each of the three bulk paths) mints no token for an already-closed measurement.
+  - `token_for_measurement` asserts on a measurement outside the pool.
+  - A failed `load_file()` leaves an empty pool and no Primary.
+- **Tokens:**
+  - Close kills a token; Replace… re-mints it.
+  - Tokens are never reused.
+  - `key` is stable across a drag.
+- **Channels:**
+  - `list_channels` order matches `channel_tree()` for a real and a virtual measurement.
+  - A dead measurement gives `[]`; a raising `channel_tree()` gives `[]` plus a logged error.
+  - The cache is used for file-backed measurements and not for virtual ones (attach after a first listing is visible).
+  - `find_channels` works across measurements and scoped to one.
+  - `PluginChannelView` from `list_channels()` equals and hashes the same as `PluginSignalView.channel` for the same plotted channel, including when MDF name/unit extraction differs.
+- **`load_samples`:**
+  - The offset is applied at call time.
+  - It returns copies.
+  - It returns `None` for a dead measurement or a detached virtual channel.
+  - It raises `ChannelLoadError` for a resolver error, a bare `RuntimeError` and a `RecursionError`.
+- **Events:**
+  - Replace… fires in order: closed (old path, old key) → added (new key) → file_loaded.
+  - `measurement_added` fires from all six sites, with batch-then-emit order and a correct `is_primary`.
+  - `measurement_offset_changed` fires once per drag, not per move, and not for a click; a lost-finish drag is announced at the next drag's start; a settle on a closed measurement is ignored.
+- **Guard and existing tests:**
+  - `test_every_known_event_has_a_working_translation` (`test_context_registration.py:476`) needs payloads for the two new events. Use a real `LoadedMeasurement`, not a `MagicMock`, for the three measurement events, so no tokens are minted through mocks.
+  - Update the 7 existing `from_measurement`/`from_active` calls in `tests/plugin_api/test_types.py` for the new keywords.
+
+#### SDK sync
+
+The `docs/release.md` checklist covers it. The stubs need:
+- `PluginChannelView`
+- `ChannelLoadError`
+- `PluginMeasurementView.key`/`same_measurement`
+- the three methods
+- `PluginSignalView.channel`
+- the two new events and their handlers
+- the extended `PluginMeasurementClosedEvent`
+
+`plugin-context.md` also gains the GUI-thread-only, no-replay and Replace…-ordering notes.

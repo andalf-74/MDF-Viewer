@@ -747,8 +747,11 @@ measurement it belongs to [REQ-PLUGIN-572]. A plugin can find channels by
 name: the lookup returns every channel whose name equals the given name
 exactly (case-sensitive), across all loaded measurements in pool order, or
 within one given measurement only [REQ-PLUGIN-573]. A plotted signal
-exposed to a plugin identifies the channel it was loaded from
-[REQ-PLUGIN-574].
+exposed to a plugin identifies the channel it was loaded from, or reports
+no channel when it has no owning measurement — the same case in which its
+measurement is reported as absent [REQ-PLUGIN-574]. Listing or finding
+channels of a measurement that has since been closed or replaced returns
+an empty list [REQ-PLUGIN-575].
 
 ### Reading samples
 
@@ -785,16 +788,24 @@ The `measurement_closed` event's payload carries the closed measurement's
 read-only view, including its identity, so a plugin can tell which of the
 handles it holds are no longer valid [REQ-PLUGIN-591]. Replacing a
 measurement's file fires `measurement_closed` for the old measurement
-followed by `measurement_added` for its replacement [REQ-PLUGIN-592].
+followed by `measurement_added` for its replacement [REQ-PLUGIN-592]. When one action
+brings several measurements into the pool, each one's `measurement_added`
+event fires only once all of them are in the pool and the Primary
+measurement is set, in pool order [REQ-PLUGIN-593]. Loading a workspace
+closes every measurement loaded before it, virtual ones included, firing
+`measurement_closed` for each [REQ-PLUGIN-594].
 
 A `measurement_offset_changed` event fires once a measurement's time
 offset has settled at a new value, carrying a fresh read-only view of that
 measurement with its new offset [REQ-PLUGIN-600]. While the user drags a
 measurement's axis row, the event fires once when the drag ends, not for
-every intermediate position [REQ-PLUGIN-601]. A change of offset made by
-anything other than a drag — Replace… resetting it, a workspace restore,
-synchronizing or un-synchronizing measurements — fires the event once per
-affected measurement [REQ-PLUGIN-602]. A plugin receives all three events
+every intermediate position [REQ-PLUGIN-601]. A measurement's starting
+offset — including one restored from a workspace, and the offset a
+measurement keeps through Replace… — is carried by the view in its
+`measurement_added` event [REQ-PLUGIN-602]. (Dragging an axis row is the
+only action that changes an offset after a measurement has been added;
+synchronizing or un-synchronizing measurements changes only how their
+axis rows are drawn, never an offset.) A plugin receives all three events
 through the same per-event handler-override mechanism as the
 application's other events (REQ-PLUGIN-181) [REQ-PLUGIN-603].
 
